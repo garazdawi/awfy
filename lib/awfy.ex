@@ -20,6 +20,7 @@ defmodule Awfy do
   def erlang_benchmarks do
     for m <- [
           :awfy_bounce,
+          :awfy_deltablue,
           :awfy_havlak,
           :awfy_json,
           :awfy_list,
@@ -38,6 +39,7 @@ defmodule Awfy do
   def elixir_benchmarks do
     for m <- [
           Awfy.Benchmarks.Bounce,
+          Awfy.Benchmarks.DeltaBlue,
           Awfy.Benchmarks.Havlak,
           Awfy.Benchmarks.Json,
           Awfy.Benchmarks.List,

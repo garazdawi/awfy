@@ -38,13 +38,13 @@ boxes are checked, this file can be deleted.
 - [x] Commit
 
 ### DeltaBlue (constraint solver)
-- [ ] Plan extends Vector, Sym, Strength
-- [ ] AbstractConstraint + 5 subclasses (UnaryConstraint, BinaryConstraint, EditConstraint, ScaleConstraint, EqualityConstraint, StayConstraint)
-- [ ] Variable
-- [ ] Planner (chain_test + projection_test)
-- [ ] verify_result/1
-- [ ] Tests pass
-- [ ] Commit
+- [x] Plan extends Vector, Sym, Strength
+- [x] AbstractConstraint + 5 subclasses (UnaryConstraint, BinaryConstraint, EditConstraint, ScaleConstraint, EqualityConstraint, StayConstraint)
+- [x] Variable
+- [x] Planner (chain_test + projection_test)
+- [x] verify_result/1
+- [x] Tests pass
+- [x] Commit
 
 ### CD (collision detection, self-contained)
 - [ ] Vector2D, Vector3D
