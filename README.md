@@ -1,71 +1,76 @@
-# Are We Fast Yet — Erlang Port
+# Are We Fast Yet — Erlang + Elixir Port
 
-Workspace for porting [Are We Fast Yet (AWFY)](https://github.com/smarr/are-we-fast-yet)
-to Erlang. AWFY is the de-facto cross-language JIT comparison suite — 14
-benchmarks already ported to 11 languages (C++, Java, JavaScript, Python,
-Ruby, Crystal, Lua, Smalltalk, SOM, SOMns). Adding an Erlang port lets us
-measure BEAM JIT progress against V8, YJIT, LuaJIT, JVM, GraalVM, and
-others on the same code.
+Mix project porting [Are We Fast Yet (AWFY)](https://github.com/smarr/are-we-fast-yet) to **both Erlang and Elixir**. AWFY is the de-facto cross-language JIT comparison suite — 14 benchmarks already ported to 11 languages. Adding BEAM ports lets us measure JIT progress against V8, YJIT, LuaJIT, JVM, and others on the same code.
 
-See [`IDEAS/32-jit-benchmarks.md`](../IDEAS/32-jit-benchmarks.md) for
-motivation and plan.
+- **Detailed plan**: [`PORT_PLAN.md`](PORT_PLAN.md)
+- **Motivation**: [`../IDEAS/32-jit-benchmarks.md`](../IDEAS/32-jit-benchmarks.md)
+- **Upstream reference**: [`upstream/`](upstream/) (git submodule of `smarr/are-we-fast-yet`)
 
 ## Layout
 
-- `upstream/` — git submodule, the AWFY source. Cloned from
-  `https://github.com/smarr/are-we-fast-yet`.
-- `.tool-versions` — asdf pin for Ruby 3.3.0, used only inside this folder
-  for running the Ruby reference numbers.
+```
+awfy/
+├── upstream/                       # AWFY source (submodule, reference only)
+├── PORT_PLAN.md                    # detailed port plan
+├── .tool-versions                  # asdf: erlang 28.4.1, elixir 1.19.5, ruby 3.3.0
+├── mix.exs                         # single Mix project for both ports
+├── lib/                            # Elixir benchmarks
+│   ├── awfy.ex                     # public API
+│   └── awfy/
+│       ├── benchmark.ex            # Elixir behaviour
+│       ├── random.ex               # SOM-compatible LCG
+│       └── benchmarks/
+│           └── bounce.ex
+├── src/                            # Erlang benchmarks (compiled by mix)
+│   ├── awfy_benchmark.erl          # Erlang behaviour
+│   ├── awfy_random.erl
+│   └── awfy_bounce.erl
+└── test/
+    ├── test_helper.exs
+    ├── benchmarks_test.exs         # one ExUnit test per registered benchmark
+    └── random_test.exs             # Random ports match Ruby reference
+```
 
-## The 14 benchmarks (Ruby source sizes)
+## Running the tests
 
-| Benchmark | LOC | Stresses |
-|-----------|-----|----------|
-| Bounce | 89 | Basic OO, allocation |
-| List | 88 | Linked-list traversal, recursion |
-| Mandelbrot | 117 | Tight float arithmetic |
-| NBody | 179 | Float arithmetic, array access |
-| Permute | 63 | Recursion, integer arith |
-| Queens | 78 | Backtracking, arrays |
-| Sieve | 52 | Loop optimization, arrays |
-| Storage | 53 | Allocation churn, GC pressure |
-| Towers | 95 | Stack-like recursion |
-| DeltaBlue | 670 | Polymorphic dispatch |
-| Richards | 437 | OS-style task scheduler, polymorphism |
-| Json | 528 | Parser, allocation, dispatch |
-| Havlak | 496 | Loop recognition |
-| CD | 844 | Realistic OO (collision detection) |
+```
+$ mix test
+....
+Finished in 0.00 seconds (0.00s async, 0.00s sync)
+4 tests, 0 failures
+```
 
-Total: ~3.8 KLOC of Ruby — port surface area for Erlang.
+Each registered benchmark gets one test that runs `inner_benchmark_loop(1)` and asserts the result is correct. As we port more benchmarks, each new one adds two tests (Erlang + Elixir).
 
 ## Running the Ruby reference
 
 From `upstream/benchmarks/Ruby/`:
 
 ```
-ruby harness.rb Bounce     1 100   # 1 outer iteration, 100 inner iterations
+ruby harness.rb Bounce     1 100
 ruby harness.rb DeltaBlue  1 100
 ruby harness.rb Richards   1 5
 ```
 
-Output format:
-```
-Starting Bounce benchmark ...
-Bounce: iterations=1 runtime: 35584us
-```
+The `inner_iterations` count amortizes startup; AWFY's `rebench.conf` specifies appropriate defaults per benchmark.
 
-The `inner_iterations` count amortizes startup; AWFY's `rebench.conf`
-specifies appropriate defaults per benchmark.
+## Status
 
-## What still needs to be built (Erlang side)
+Phase 0 (skeleton + test harness) and Phase 1 (Bounce smoke test) from `PORT_PLAN.md` are done. Both Erlang and Elixir Bounce produce the expected result of 1331 bounces.
 
-Nothing yet — this folder is just the upstream submodule + tool pin.
-Per the plan in #32:
-
-1. Port small benchmarks first (Bounce, Towers, Permute, Queens, Sieve,
-   Mandelbrot, NBody, Storage).
-2. Port polymorphic-heavy benchmarks (Richards, DeltaBlue) preserving
-   dispatch shape.
-3. Port the larger ones (Json, CD, Havlak).
-4. Write a harness matching AWFY's measurement protocol.
-5. Run on T1 + T2 + reference languages and commit numbers.
+| Benchmark   | Erlang | Elixir |
+|-------------|--------|--------|
+| Bounce      | ✅     | ✅     |
+| List        | —      | —      |
+| Mandelbrot  | —      | —      |
+| NBody       | —      | —      |
+| Permute     | —      | —      |
+| Queens      | —      | —      |
+| Sieve       | —      | —      |
+| Storage     | —      | —      |
+| Towers      | —      | —      |
+| DeltaBlue   | —      | —      |
+| Richards    | —      | —      |
+| Json        | —      | —      |
+| Havlak      | —      | —      |
+| CD          | —      | —      |
