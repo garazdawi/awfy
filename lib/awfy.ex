@@ -18,11 +18,12 @@ defmodule Awfy do
   end
 
   def erlang_benchmarks do
-    for m <- [:awfy_bounce, :awfy_sieve], do: {:erlang, m}
+    for m <- [:awfy_bounce, :awfy_permute, :awfy_sieve], do: {:erlang, m}
   end
 
   def elixir_benchmarks do
-    for m <- [Awfy.Benchmarks.Bounce, Awfy.Benchmarks.Sieve], do: {:elixir, m}
+    for m <- [Awfy.Benchmarks.Bounce, Awfy.Benchmarks.Permute, Awfy.Benchmarks.Sieve],
+        do: {:elixir, m}
   end
 
   @doc """
