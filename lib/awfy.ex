@@ -37,7 +37,13 @@ defmodule Awfy do
     mod.inner_benchmark_loop(inner_iter)
   end
 
-  @doc "Pretty name of a registered benchmark."
-  def name({:erlang, mod}), do: mod.name()
-  def name({:elixir, mod}), do: mod.name()
+  @doc """
+  Pretty name of a registered benchmark.
+
+  Both Erlang's `name/0` (returns a charlist by Erlang convention) and
+  Elixir's `name/0` (returns a binary) get normalized to a binary here
+  so callers can compare them with `==`.
+  """
+  def name({:erlang, mod}), do: to_string(mod.name())
+  def name({:elixir, mod}), do: to_string(mod.name())
 end

@@ -19,6 +19,8 @@ defmodule Awfy.MixProject do
   end
 
   defp deps do
-    []
+    [
+      {:benchee, "~> 1.5", only: [:dev, :test], runtime: false}
+    ]
   end
 end

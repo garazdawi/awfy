@@ -1,0 +1,113 @@
+defmodule Awfy.BencheeRunner do
+  @moduledoc """
+  Runs registered AWFY benchmarks under [Benchee](https://hexdocs.pm/benchee).
+
+  Each benchmark gets two scenarios — one calling the Erlang port, one
+  the Elixir port — so Benchee compares them directly. Default
+  `inner_iterations` per benchmark match AWFY's `rebench.conf` for
+  realistic timings; override with the `:inner_iter` option.
+  """
+
+  # Default inner_iterations from upstream/rebench.conf. These match the
+  # values the upstream project considers a "real" run of each benchmark.
+  # For benchmarks where verify_result/2 depends on inner_iterations, the
+  # default must match a value the verifier accepts.
+  @default_inner_iter %{
+    "Bounce" => 1500,
+    "List" => 1500,
+    "Mandelbrot" => 500,
+    "NBody" => 250_000,
+    "Permute" => 1000,
+    "Queens" => 1000,
+    "Sieve" => 3000,
+    "Storage" => 1000,
+    "Towers" => 600,
+    "DeltaBlue" => 12_000,
+    "Richards" => 100,
+    "Json" => 100,
+    "CD" => 250,
+    "Havlak" => 1500
+  }
+
+  @type opts :: [
+          inner_iter: pos_integer(),
+          lang: :erlang | :elixir | :both,
+          benchee: keyword()
+        ]
+
+  @doc """
+  Run every registered benchmark under Benchee.
+
+  Options:
+    * `:inner_iter` — override the default inner_iterations.
+    * `:lang` — `:erlang`, `:elixir`, or `:both` (default).
+    * `:benchee` — keyword list passed through to `Benchee.run/2`.
+  """
+  @spec run_all(opts()) :: :ok
+  def run_all(opts \\ []) do
+    by_name =
+      Awfy.benchmarks()
+      |> filter_lang(Keyword.get(opts, :lang, :both))
+      |> Enum.group_by(fn entry -> Awfy.name(entry) end)
+
+    Enum.each(Map.keys(by_name) |> Enum.sort(), fn name ->
+      run_one(name, by_name[name], opts)
+    end)
+  end
+
+  @doc """
+  Run a single benchmark by name (e.g. `"Bounce"`) under Benchee.
+  """
+  @spec run(String.t(), opts()) :: :ok
+  def run(name, opts \\ []) do
+    entries =
+      Awfy.benchmarks()
+      |> filter_lang(Keyword.get(opts, :lang, :both))
+      |> Enum.filter(fn entry -> Awfy.name(entry) == name end)
+
+    case entries do
+      [] -> raise ArgumentError, "no benchmark named #{inspect(name)} registered"
+      _ -> run_one(name, entries, opts)
+    end
+  end
+
+  defp run_one(name, entries, opts) do
+    inner_iter = Keyword.get(opts, :inner_iter, default_inner_iter(name))
+    benchee_opts = Keyword.get(opts, :benchee, default_benchee_opts())
+
+    scenarios =
+      Map.new(entries, fn {lang, mod} ->
+        {"#{name}/#{lang}", fn -> run_scenario({lang, mod}, inner_iter) end}
+      end)
+
+    IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
+    Benchee.run(scenarios, benchee_opts)
+    :ok
+  end
+
+  defp run_scenario(entry, inner_iter) do
+    case Awfy.verify(entry, inner_iter) do
+      true ->
+        :ok
+
+      false ->
+        raise "benchmark #{Awfy.name(entry)} produced an incorrect result"
+    end
+  end
+
+  defp filter_lang(entries, :both), do: entries
+  defp filter_lang(entries, lang), do: Enum.filter(entries, fn {l, _} -> l == lang end)
+
+  defp default_inner_iter(name) do
+    Map.fetch!(@default_inner_iter, name)
+  end
+
+  defp default_benchee_opts do
+    [
+      time: 3,
+      warmup: 1,
+      memory_time: 0,
+      print: [fast_warning: false]
+    ]
+  end
+end

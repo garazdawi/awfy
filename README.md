@@ -42,6 +42,35 @@ Finished in 0.00 seconds (0.00s async, 0.00s sync)
 
 Each registered benchmark gets one test that runs `inner_benchmark_loop(1)` and asserts the result is correct. As we port more benchmarks, each new one adds two tests (Erlang + Elixir).
 
+## Benchmarking with Benchee
+
+The `mix awfy.benchee` task runs benchmarks under [Benchee](https://hexdocs.pm/benchee), which gives us an interactive Erlang-vs-Elixir comparison alongside ips/median/deviation.
+
+```
+$ mix awfy.benchee Bounce
+=== Bounce (inner_iter=1500) ===
+
+Name                    ips        average  deviation         median         99th %
+Bounce/erlang          8.70      114.90 ms     ±1.17%      115.33 ms      116.33 ms
+Bounce/elixir          8.36      119.68 ms     ±5.12%      122.99 ms      125.07 ms
+
+Comparison:
+Bounce/erlang          8.70
+Bounce/elixir          8.36 - 1.04x slower +4.78 ms
+```
+
+Default `inner_iter` per benchmark mirrors `upstream/rebench.conf`. Common flags:
+
+```
+mix awfy.benchee                       # all benchmarks, both languages
+mix awfy.benchee Bounce                # one benchmark, both languages
+mix awfy.benchee --lang erlang         # all benchmarks, Erlang only
+mix awfy.benchee Bounce --inner-iter 100
+mix awfy.benchee Bounce --time 1 --warmup 0   # quicker iteration
+```
+
+This is the BEAM-native way to iterate on JIT changes — flip `+JMsingle false` (or whichever flag turns T2 on/off when ready) and rerun. For the canonical AWFY-format numbers (matching the upstream `harness.rb` output), use the AWFY-style runner that lands in Phase 5.
+
 ## Running the Ruby reference
 
 From `upstream/benchmarks/Ruby/`:
