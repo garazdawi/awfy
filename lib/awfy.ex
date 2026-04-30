@@ -21,6 +21,7 @@ defmodule Awfy do
     for m <- [
           :awfy_bounce,
           :awfy_list,
+          :awfy_mandelbrot,
           :awfy_permute,
           :awfy_queens,
           :awfy_sieve,
@@ -34,6 +35,7 @@ defmodule Awfy do
     for m <- [
           Awfy.Benchmarks.Bounce,
           Awfy.Benchmarks.List,
+          Awfy.Benchmarks.Mandelbrot,
           Awfy.Benchmarks.Permute,
           Awfy.Benchmarks.Queens,
           Awfy.Benchmarks.Sieve,
