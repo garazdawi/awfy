@@ -543,8 +543,8 @@ defmodule Awfy.Benchmarks.DeltaBlue do
   defp chain_test(n) do
     w0 = new_world()
     {var_ids, w1} = create_vars(n + 1, w0)
-    w2 = add_chain_eqs(0, n, var_ids, w1)
-    last = Enum.at(var_ids, n)
+    w2 = add_chain_eqs(var_ids, w1)
+    last = List.last(var_ids)
     first = hd(var_ids)
     w3 = new_stay(last, @str_strong_default, w2)
     {edit, w4} = new_edit(first, @str_preferred, w3)
@@ -575,13 +575,12 @@ defmodule Awfy.Benchmarks.DeltaBlue do
     {[id | rest], w2}
   end
 
-  defp add_chain_eqs(i, n, _vars, w) when i >= n, do: w
+  # Pairwise walk over the chain — O(N) instead of O(N²) with Enum.at.
+  defp add_chain_eqs([_], w), do: w
 
-  defp add_chain_eqs(i, n, vars, w0) do
-    v1 = Enum.at(vars, i)
-    v2 = Enum.at(vars, i + 1)
+  defp add_chain_eqs([v1, v2 | rest], w0) do
     w1 = new_equality(v1, v2, @str_required, w0)
-    add_chain_eqs(i + 1, n, vars, w1)
+    add_chain_eqs([v2 | rest], w1)
   end
 
   defp projection_test(n) do
@@ -600,10 +599,10 @@ defmodule Awfy.Benchmarks.DeltaBlue do
 
     w6 = change_var(scale, 5, w5)
     dests_list = Enum.reverse(dests)
-    check_dests(0, n - 1, dests_list, fn i -> (i + 1) * 5 + 1000 end, "Projection 3", w6)
+    check_dests(dests_list, 0, n - 1, fn i -> (i + 1) * 5 + 1000 end, "Projection 3", w6)
 
     w7 = change_var(offset, 2000, w6)
-    check_dests(0, n - 1, dests_list, fn i -> (i + 1) * 5 + 2000 end, "Projection 4", w7)
+    check_dests(dests_list, 0, n - 1, fn i -> (i + 1) * 5 + 2000 end, "Projection 4", w7)
 
     :ok
   end
@@ -621,15 +620,15 @@ defmodule Awfy.Benchmarks.DeltaBlue do
     create_proj_loop(i + 1, n, dests1, src, dst, scale, offset, w4)
   end
 
-  defp check_dests(i, stop, _dests, _exp_fn, _tag, _w) when i >= stop, do: :ok
+  # Walk the dests list directly — O(N) instead of O(N²).
+  defp check_dests(_dests, i, stop, _exp_fn, _tag, _w) when i >= stop, do: :ok
 
-  defp check_dests(i, stop, dests, exp_fn, tag, w) do
-    dst = Enum.at(dests, i)
+  defp check_dests([dst | rest], i, stop, exp_fn, tag, w) do
     dst_v = get_var(dst, w)
     expected = exp_fn.(i)
 
     if dst_v.value == expected do
-      check_dests(i + 1, stop, dests, exp_fn, tag, w)
+      check_dests(rest, i + 1, stop, exp_fn, tag, w)
     else
       raise "#{tag} failed at i=#{i}: expected #{expected}, got #{dst_v.value}"
     end

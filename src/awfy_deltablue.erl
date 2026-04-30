@@ -637,9 +637,9 @@ chain_test(N) ->
     %% Create N+1 vars
     {VarIds, W1} = create_vars(N + 1, W0),
     %% Equality constraints v[i] -> v[i+1]
-    W2 = add_chain_eqs(0, N, VarIds, W1),
+    W2 = add_chain_eqs(VarIds, W1),
     %% Stay on last
-    Last = lists:nth(N + 1, VarIds),
+    Last = lists:last(VarIds),
     First = hd(VarIds),
     W3 = new_stay(Last, ?STR_STRONG_DEFAULT, W2),
     %% Edit on first
@@ -667,12 +667,11 @@ create_vars(N, W0) ->
     {Rest, W2} = create_vars(N - 1, W1),
     {[Id | Rest], W2}.
 
-add_chain_eqs(I, N, _Vars, W) when I >= N -> W;
-add_chain_eqs(I, N, Vars, W0) ->
-    V1 = lists:nth(I + 1, Vars),
-    V2 = lists:nth(I + 2, Vars),
+%% Pairwise walk over the chain — O(N) instead of O(N²) with lists:nth.
+add_chain_eqs([_], W) -> W;
+add_chain_eqs([V1, V2 | Rest], W0) ->
     W1 = new_equality(V1, V2, ?STR_REQUIRED, W0),
-    add_chain_eqs(I + 1, N, Vars, W1).
+    add_chain_eqs([V2 | Rest], W1).
 
 projection_test(N) ->
     W0 = new_world(),
@@ -696,10 +695,10 @@ projection_test(N) ->
     %% change_var(scale, 5) -> dests[i].value == (i+1)*5+1000 for 0..N-2
     W6 = change_var(Scale, 5, W5),
     DestsList = lists:reverse(Dests),
-    check_dests(0, N - 1, DestsList, fun(I) -> (I + 1) * 5 + 1000 end, projection_3_failed, W6),
+    check_dests(DestsList, 0, N - 1, fun(I) -> (I + 1) * 5 + 1000 end, projection_3_failed, W6),
     %% change_var(offset, 2000) -> dests[i].value == (i+1)*5+2000 for 0..N-2
     W7 = change_var(Offset, 2000, W6),
-    check_dests(0, N - 1, DestsList, fun(I) -> (I + 1) * 5 + 2000 end, projection_4_failed, W7),
+    check_dests(DestsList, 0, N - 1, fun(I) -> (I + 1) * 5 + 2000 end, projection_4_failed, W7),
     ok.
 
 create_proj_loop(I, N, Dests, Src, Dst, _Scale, _Offset, W) when I > N -> {Dests, Src, Dst, W};
@@ -711,12 +710,12 @@ create_proj_loop(I, N, Dests, _SrcOld, _DstOld, Scale, Offset, W0) ->
     W4 = new_scale(Src, Scale, Offset, Dst, ?STR_REQUIRED, W3),
     create_proj_loop(I + 1, N, Dests1, Src, Dst, Scale, Offset, W4).
 
-check_dests(I, Stop, _Dests, _ExpFun, _Tag, _W) when I >= Stop -> ok;
-check_dests(I, Stop, Dests, ExpFun, Tag, W) ->
-    Dst = lists:nth(I + 1, Dests),
+%% Walk the dests list directly — O(N) instead of O(N²).
+check_dests(_Dests, I, Stop, _ExpFun, _Tag, _W) when I >= Stop -> ok;
+check_dests([Dst | Rest], I, Stop, ExpFun, Tag, W) ->
     DstV = get_var(Dst, W),
     Expected = ExpFun(I),
     case DstV#var.value of
-        Expected -> check_dests(I + 1, Stop, Dests, ExpFun, Tag, W);
+        Expected -> check_dests(Rest, I + 1, Stop, ExpFun, Tag, W);
         Other -> erlang:error({Tag, I, Expected, Other})
     end.

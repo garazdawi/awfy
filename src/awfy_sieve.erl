@@ -2,7 +2,11 @@
 %%
 %% Counts primes up to 5000 using a 5000-element flag array. Mutable
 %% array semantics map to the persistent `array` module — the natural
-%% BEAM equivalent of Ruby's `Array.new`.
+%% BEAM equivalent of Ruby's `Array.new`. (Phase 2: tried a flat tuple
+%% with setelement, hoping for the JIT's destructive-update
+%% optimization. With Erlang/OTP 28 it didn't kick in across the
+%% sieve_loop/mark recursion, and the run got ~25× slower. Keeping
+%% array for now.)
 -module(awfy_sieve).
 
 -behaviour(awfy_benchmark).
