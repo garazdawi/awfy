@@ -142,17 +142,18 @@ update_pair(I, J, Bodies, Dt) ->
     DSq = Dx * Dx + Dy * Dy + Dz * Dz,
     Distance = math:sqrt(DSq),
     Mag = Dt / (DSq * Distance),
-    JMassMag = Jb#body.mass * Mag,
-    IMassMag = Ib#body.mass * Mag,
+    %% Match the Ruby ordering exactly: ((d * j_mass) * mag), then sub.
+    %% Pre-multiplying j_mass*mag here would change FP rounding and
+    %% drift from the canonical AWFY result at high iter counts.
     Ib1 = Ib#body{
-        vx = Ib#body.vx - Dx * JMassMag,
-        vy = Ib#body.vy - Dy * JMassMag,
-        vz = Ib#body.vz - Dz * JMassMag
+        vx = Ib#body.vx - Dx * Jb#body.mass * Mag,
+        vy = Ib#body.vy - Dy * Jb#body.mass * Mag,
+        vz = Ib#body.vz - Dz * Jb#body.mass * Mag
     },
     Jb1 = Jb#body{
-        vx = Jb#body.vx + Dx * IMassMag,
-        vy = Jb#body.vy + Dy * IMassMag,
-        vz = Jb#body.vz + Dz * IMassMag
+        vx = Jb#body.vx + Dx * Ib#body.mass * Mag,
+        vy = Jb#body.vy + Dy * Ib#body.mass * Mag,
+        vz = Jb#body.vz + Dz * Ib#body.mass * Mag
     },
     setelement(J, setelement(I, Bodies, Ib1), Jb1).
 

@@ -85,21 +85,22 @@ The `inner_iterations` count amortizes startup; AWFY's `rebench.conf` specifies 
 
 ## Status
 
-Phase 0 (skeleton + test harness) and Phase 1 (Bounce smoke test) from `PORT_PLAN.md` are done. Both Erlang and Elixir Bounce produce the expected result of 1331 bounces.
+Phases 0–2 from `PORT_PLAN.md` are done — all 9 simple benchmarks ported in both languages, plus the SOM Vector infrastructure (used by DeltaBlue, Richards, Json, Havlak).
 
-| Benchmark   | Erlang | Elixir |
-|-------------|--------|--------|
-| Bounce      | ✅     | ✅     |
-| List        | —      | —      |
-| Mandelbrot  | —      | —      |
-| NBody       | —      | —      |
-| Permute     | —      | —      |
-| Queens      | —      | —      |
-| Sieve       | —      | —      |
-| Storage     | —      | —      |
-| Towers      | —      | —      |
-| DeltaBlue   | —      | —      |
-| Richards    | —      | —      |
-| Json        | —      | —      |
-| Havlak      | —      | —      |
-| CD          | —      | —      |
+| Benchmark   | Erlang | Elixir | Notes |
+|-------------|--------|--------|-------|
+| Bounce      | ✅     | ✅     | 1331 |
+| List        | ✅     | ✅     | Custom Element record/struct |
+| Mandelbrot  | ✅     | ✅     | InnerIter-dependent verify (1→128, 500→191, 750→50) |
+| NBody       | ✅     | ✅     | InnerIter-dependent verify (1→-0.16907495402506745) |
+| Permute     | ✅     | ✅     | 8660 |
+| Queens      | ✅     | ✅     | 8-queens × 10 |
+| Sieve       | ✅     | ✅     | 669 (primes ≤ 5000) |
+| Storage     | ✅     | ✅     | 5461 (depth-7 tree) |
+| Towers      | ✅     | ✅     | 8191 = 2^13 - 1 |
+| **SOM Vector** | ✅ | ✅     | infrastructure for the polymorphic-heavy benchmarks |
+| DeltaBlue   | —      | —      | needs SOM IdentityDictionary |
+| Richards    | —      | —      | needs SOM Vector |
+| Json        | —      | —      | needs SOM Dictionary |
+| Havlak      | —      | —      | needs SOM Vector + Set |
+| CD          | —      | —      | self-contained |

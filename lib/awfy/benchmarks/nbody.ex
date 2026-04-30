@@ -151,21 +151,22 @@ defmodule Awfy.Benchmarks.NBody do
     d_sq = dx * dx + dy * dy + dz * dz
     distance = :math.sqrt(d_sq)
     mag = dt / (d_sq * distance)
-    j_mass_mag = jb.mass * mag
-    i_mass_mag = ib.mass * mag
 
+    # Match Ruby's left-to-right ordering exactly: ((d * j_mass) * mag).
+    # Pre-multiplying j_mass*mag here would change FP rounding and drift
+    # from the canonical AWFY result at high iter counts.
     ib1 = %{
       ib
-      | vx: ib.vx - dx * j_mass_mag,
-        vy: ib.vy - dy * j_mass_mag,
-        vz: ib.vz - dz * j_mass_mag
+      | vx: ib.vx - dx * jb.mass * mag,
+        vy: ib.vy - dy * jb.mass * mag,
+        vz: ib.vz - dz * jb.mass * mag
     }
 
     jb1 = %{
       jb
-      | vx: jb.vx + dx * i_mass_mag,
-        vy: jb.vy + dy * i_mass_mag,
-        vz: jb.vz + dz * i_mass_mag
+      | vx: jb.vx + dx * ib.mass * mag,
+        vy: jb.vy + dy * ib.mass * mag,
+        vz: jb.vz + dz * ib.mass * mag
     }
 
     bodies |> put_elem(i, ib1) |> put_elem(j, jb1)
