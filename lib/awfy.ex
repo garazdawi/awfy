@@ -18,7 +18,14 @@ defmodule Awfy do
   end
 
   def erlang_benchmarks do
-    for m <- [:awfy_bounce, :awfy_permute, :awfy_queens, :awfy_sieve, :awfy_towers],
+    for m <- [
+          :awfy_bounce,
+          :awfy_permute,
+          :awfy_queens,
+          :awfy_sieve,
+          :awfy_storage,
+          :awfy_towers
+        ],
         do: {:erlang, m}
   end
 
@@ -28,6 +35,7 @@ defmodule Awfy do
           Awfy.Benchmarks.Permute,
           Awfy.Benchmarks.Queens,
           Awfy.Benchmarks.Sieve,
+          Awfy.Benchmarks.Storage,
           Awfy.Benchmarks.Towers
         ],
         do: {:elixir, m}
