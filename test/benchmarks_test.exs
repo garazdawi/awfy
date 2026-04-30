@@ -13,12 +13,14 @@ defmodule AwfyTest.Benchmarks do
   use ExUnit.Case, async: true
 
   for {lang, mod} <- Awfy.benchmarks() do
-    test_name = "#{lang} / #{Awfy.name({lang, mod})} passes verify_result with inner_iter=1"
+    inner_iter = Awfy.test_inner_iter({lang, mod})
+    test_name = "#{lang} / #{Awfy.name({lang, mod})} passes verify_result with inner_iter=#{inner_iter}"
     @lang lang
     @mod mod
+    @inner_iter inner_iter
 
     test test_name do
-      assert Awfy.verify({@lang, @mod}, 1),
+      assert Awfy.verify({@lang, @mod}, @inner_iter),
              "#{@lang} benchmark #{inspect(@mod)} did not produce the expected result"
     end
   end

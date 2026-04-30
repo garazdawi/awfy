@@ -47,13 +47,13 @@ boxes are checked, this file can be deleted.
 - [x] Commit
 
 ### CD (collision detection, self-contained)
-- [ ] Vector2D, Vector3D
-- [ ] Custom RedBlackTree (Node, RbtEntry, InsertResult)
-- [ ] CallSign, Collision, CollisionDetector
-- [ ] Motion, Aircraft, Simulator
-- [ ] verify_result/2 — InnerIter-dependent
-- [ ] Tests pass
-- [ ] Commit
+- [x] Vector2D, Vector3D
+- [x] Custom RedBlackTree (Node, RbtEntry, InsertResult)
+- [x] CallSign, Collision, CollisionDetector
+- [x] Motion, Aircraft, Simulator
+- [x] verify_result/2 — InnerIter-dependent
+- [x] Tests pass
+- [x] Commit
 
 ## Phase 2 — Optimization pass
 

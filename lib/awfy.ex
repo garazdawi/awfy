@@ -20,6 +20,7 @@ defmodule Awfy do
   def erlang_benchmarks do
     for m <- [
           :awfy_bounce,
+          :awfy_cd,
           :awfy_deltablue,
           :awfy_havlak,
           :awfy_json,
@@ -39,6 +40,7 @@ defmodule Awfy do
   def elixir_benchmarks do
     for m <- [
           Awfy.Benchmarks.Bounce,
+          Awfy.Benchmarks.CD,
           Awfy.Benchmarks.DeltaBlue,
           Awfy.Benchmarks.Havlak,
           Awfy.Benchmarks.Json,
@@ -76,4 +78,14 @@ defmodule Awfy do
   """
   def name({:erlang, mod}), do: to_string(mod.name())
   def name({:elixir, mod}), do: to_string(mod.name())
+
+  @doc """
+  Smallest inner_iter value with a verify_result threshold for this
+  benchmark. Most benchmarks accept inner_iter=1 (matching upstream's
+  test.conf), but CD's smallest verifiable size is 2 aircrafts (=42
+  collisions); inner_iter=1 has no verify case.
+  """
+  def test_inner_iter({_, :awfy_cd}), do: 2
+  def test_inner_iter({_, Awfy.Benchmarks.CD}), do: 2
+  def test_inner_iter(_), do: 1
 end
