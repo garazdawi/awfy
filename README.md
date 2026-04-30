@@ -92,7 +92,7 @@ Phases 0–2 from `PORT_PLAN.md` are done — all 9 simple benchmarks ported in 
 | Bounce      | ✅     | ✅     | 1331 |
 | List        | ✅     | ✅     | Custom Element record/struct |
 | Mandelbrot  | ✅     | ✅     | InnerIter-dependent verify (1→128, 500→191, 750→50) |
-| NBody       | ✅     | ✅     | InnerIter-dependent verify (1→-0.16907495402506745) |
+| NBody       | ✅     | ✅     | InnerIter-dependent verify, bit-exact match at 250000 |
 | Permute     | ✅     | ✅     | 8660 |
 | Queens      | ✅     | ✅     | 8-queens × 10 |
 | Sieve       | ✅     | ✅     | 669 (primes ≤ 5000) |
@@ -104,3 +104,18 @@ Phases 0–2 from `PORT_PLAN.md` are done — all 9 simple benchmarks ported in 
 | Json        | —      | —      | needs SOM Dictionary |
 | Havlak      | —      | —      | needs SOM Vector + Set |
 | CD          | —      | —      | self-contained |
+
+## First numbers (Apple M5, Erlang 28.4.1 + Elixir 1.19.5, no T2 yet)
+
+`mix awfy.benchee --time 1 --warmup 0` (production inner_iter from `rebench.conf`):
+
+| Benchmark   | Erlang ips | Elixir ips | Elixir slower by |
+|-------------|------------|------------|------------------|
+| Bounce      | 8.74       | 8.61       | 1.02x |
+| List        | 27.30      | 11.52      | **2.37x** |
+| Mandelbrot  | 5.49       | 5.48       | 1.00x |
+| NBody       | 2.98       | 2.28       | 1.31x |
+| Permute     | 3.97       | 3.89       | 1.02x |
+| Queens      | 6.08       | 4.83       | 1.26x |
+
+Most benchmarks are within noise. The big outlier is **List**: Erlang is 2.4× faster, almost certainly because records compile to tuples with positional access, while Elixir structs are maps with atom-keyed access — very different field-read costs in the inner loop. NBody (1.31x) and Queens (1.26x) likely pay similar struct-vs-record costs in their tight loops.
