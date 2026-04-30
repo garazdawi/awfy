@@ -20,6 +20,7 @@ defmodule Awfy do
   def erlang_benchmarks do
     for m <- [
           :awfy_bounce,
+          :awfy_list,
           :awfy_permute,
           :awfy_queens,
           :awfy_sieve,
@@ -32,6 +33,7 @@ defmodule Awfy do
   def elixir_benchmarks do
     for m <- [
           Awfy.Benchmarks.Bounce,
+          Awfy.Benchmarks.List,
           Awfy.Benchmarks.Permute,
           Awfy.Benchmarks.Queens,
           Awfy.Benchmarks.Sieve,
