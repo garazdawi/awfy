@@ -85,7 +85,7 @@ The `inner_iterations` count amortizes startup; AWFY's `rebench.conf` specifies 
 
 ## Status
 
-Phases 0–2 from `PORT_PLAN.md` are done — all 9 simple benchmarks ported in both languages, plus the SOM Vector infrastructure (used by DeltaBlue, Richards, Json, Havlak).
+10 of 14 benchmarks ported in both languages plus SOM Vector infrastructure.
 
 | Benchmark   | Erlang | Elixir | Notes |
 |-------------|--------|--------|-------|
@@ -95,27 +95,35 @@ Phases 0–2 from `PORT_PLAN.md` are done — all 9 simple benchmarks ported in 
 | NBody       | ✅     | ✅     | InnerIter-dependent verify, bit-exact match at 250000 |
 | Permute     | ✅     | ✅     | 8660 |
 | Queens      | ✅     | ✅     | 8-queens × 10 |
+| Richards    | ✅     | ✅     | bit-exact: queue_count=23246, hold_count=9297 |
 | Sieve       | ✅     | ✅     | 669 (primes ≤ 5000) |
 | Storage     | ✅     | ✅     | 5461 (depth-7 tree) |
 | Towers      | ✅     | ✅     | 8191 = 2^13 - 1 |
 | **SOM Vector** | ✅ | ✅     | infrastructure for the polymorphic-heavy benchmarks |
 | DeltaBlue   | —      | —      | needs SOM IdentityDictionary |
-| Richards    | —      | —      | needs SOM Vector |
-| Json        | —      | —      | needs SOM Dictionary |
-| Havlak      | —      | —      | needs SOM Vector + Set |
-| CD          | —      | —      | self-contained |
+| Json        | —      | —      | self-contained parser, large embedded test string |
+| Havlak      | —      | —      | needs SOM Set + IdentitySet + IdentityDictionary |
+| CD          | —      | —      | self-contained, custom Red-Black tree |
 
-## First numbers (Apple M5, Erlang 28.4.1 + Elixir 1.19.5, no T2 yet)
+## Cross-language numbers (Apple M5, Erlang 28.4.1 + Elixir 1.19.5, no T2 yet)
 
 `mix awfy.benchee --time 1 --warmup 0` (production inner_iter from `rebench.conf`):
 
 | Benchmark   | Erlang ips | Elixir ips | Elixir slower by |
 |-------------|------------|------------|------------------|
-| Bounce      | 8.74       | 8.61       | 1.02x |
-| List        | 27.30      | 11.52      | **2.37x** |
-| Mandelbrot  | 5.49       | 5.48       | 1.00x |
-| NBody       | 2.98       | 2.28       | 1.31x |
-| Permute     | 3.97       | 3.89       | 1.02x |
-| Queens      | 6.08       | 4.83       | 1.26x |
+| Bounce      | 8.87       | 8.54       | 1.04x |
+| List        | 29.04      | 11.61      | **2.50x** |
+| Mandelbrot  | 6.16       | 6.04       | 1.02x |
+| NBody       | 3.39       | 2.50       | 1.36x |
+| Permute     | 5.95       | 5.92       | 1.00x |
+| Queens      | 6.28       | 6.09       | 1.03x |
+| Richards    | 1.26       | 0.64       | **1.97x** |
+| Sieve       | 0.52       | 0.52       | 1.01x (faster!) |
+| Storage     | 4.05       | 6.20       | **0.65x** (Elixir faster) |
+| Towers      | 5.26       | 5.10       | 1.03x |
 
-Most benchmarks are within noise. The big outlier is **List**: Erlang is 2.4× faster, almost certainly because records compile to tuples with positional access, while Elixir structs are maps with atom-keyed access — very different field-read costs in the inner loop. NBody (1.31x) and Queens (1.26x) likely pay similar struct-vs-record costs in their tight loops.
+Findings:
+- **List (2.50x slower)** and **Richards (1.97x slower)** are the standout Elixir-loses cases. Both are heavy on record/struct field access in tight inner loops — Erlang records compile to tuples with positional access (one-instruction read), while Elixir structs are maps with atom-keyed access (hash-and-lookup). The gap is the cost of map vs tuple read.
+- **Storage (1.53x faster in Elixir)** — only benchmark where Elixir wins. The benchmark allocates trees of nil-filled tuples and discards them; Elixir's struct allocator may be doing something cleverer here.
+- **Sieve identical**: large `:array` operations dominate; both languages call the same Erlang stdlib, so no language-level difference shows.
+- **NBody (1.36x slower)**: float arithmetic in record/struct inner loops, again paying the field-access tax.
