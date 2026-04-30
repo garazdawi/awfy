@@ -91,7 +91,7 @@ NOT OK to change:
 
 ## Phase 3 — Final report
 
-- [ ] Update README with all 14 benchmarks' numbers
-- [ ] Geometric mean across the suite
-- [ ] Side-by-side comparison with Ruby (no YJIT)
-- [ ] Commit
+- [x] Update README with all 14 benchmarks' numbers
+- [x] Geometric mean across the suite
+- [x] Side-by-side comparison with Ruby (no YJIT)
+- [x] Commit

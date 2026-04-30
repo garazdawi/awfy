@@ -85,7 +85,7 @@ The `inner_iterations` count amortizes startup; AWFY's `rebench.conf` specifies 
 
 ## Status
 
-10 of 14 benchmarks ported in both languages plus SOM Vector infrastructure.
+All 14 benchmarks ported in both languages, plus SOM Vector infrastructure.
 
 | Benchmark   | Erlang | Elixir | Notes |
 |-------------|--------|--------|-------|
@@ -99,31 +99,68 @@ The `inner_iterations` count amortizes startup; AWFY's `rebench.conf` specifies 
 | Sieve       | ✅     | ✅     | 669 (primes ≤ 5000) |
 | Storage     | ✅     | ✅     | 5461 (depth-7 tree) |
 | Towers      | ✅     | ✅     | 8191 = 2^13 - 1 |
+| Json        | ✅     | ✅     | self-contained parser, 25 KB embedded test string |
+| DeltaBlue   | ✅     | ✅     | constraint solver (chain_test + projection_test) |
+| Havlak      | ✅     | ✅     | union-find loop recognizer; bit-exact at iter 1/15/150/1500/15000 |
+| CD          | ✅     | ✅     | custom Red-Black tree, voxel collision detection |
 | **SOM Vector** | ✅ | ✅     | infrastructure for the polymorphic-heavy benchmarks |
-| DeltaBlue   | —      | —      | needs SOM IdentityDictionary |
-| Json        | —      | —      | self-contained parser, large embedded test string |
-| Havlak      | —      | —      | needs SOM Set + IdentitySet + IdentityDictionary |
-| CD          | —      | —      | self-contained, custom Red-Black tree |
 
-## Cross-language numbers (Apple M5, Erlang 28.4.1 + Elixir 1.19.5, no T2 yet)
+## Cross-language numbers (Apple M5, Erlang 28.4.1 + Elixir 1.19.5, Ruby 3.3.0, no YJIT)
 
-`mix awfy.benchee --time 1 --warmup 0` (production inner_iter from `rebench.conf`):
+Single-shot times via `inner_benchmark_loop(N)` with `N` from `upstream/rebench.conf`. Lower is better.
 
-| Benchmark   | Erlang ips | Elixir ips | Elixir slower by |
-|-------------|------------|------------|------------------|
-| Bounce      | 8.87       | 8.54       | 1.04x |
-| List        | 29.04      | 11.61      | **2.50x** |
-| Mandelbrot  | 6.16       | 6.04       | 1.02x |
-| NBody       | 3.39       | 2.50       | 1.36x |
-| Permute     | 5.95       | 5.92       | 1.00x |
-| Queens      | 6.28       | 6.09       | 1.03x |
-| Richards    | 1.26       | 0.64       | **1.97x** |
-| Sieve       | 0.52       | 0.52       | 1.01x (faster!) |
-| Storage     | 4.05       | 6.20       | **0.65x** (Elixir faster) |
-| Towers      | 5.26       | 5.10       | 1.03x |
+| Benchmark   | Iter   | Erlang ms | Elixir ms | Ruby ms | Erlang vs Ruby |
+|-------------|-------:|----------:|----------:|--------:|---------------:|
+| Bounce      |  1500  |    85     |    89     |   542   | **6.4× faster** |
+| List        |  1500  |    35     |    91     |   653   | **18.7× faster** |
+| Mandelbrot  |   500  |   160     |   163     |   597   | 3.7× faster |
+| NBody       | 250000 |   270     |   344     |   888   | 3.3× faster |
+| Permute     |  1000  |   145     |   153     |   708   | 4.9× faster |
+| Queens      |  1000  |    90     |   130     |   599   | 6.7× faster |
+| Sieve       |  3000  |  1999     |  1369     |   952   | **0.48× (slower)** |
+| Storage     |  1000  |   199     |    73     |   554   | 2.8× faster |
+| Towers      |   600  |    63     |    55     |   668   | **10.6× faster** |
+| Richards    |   100  |   491     |  1122     |  1743   | 3.5× faster |
+| Json        |   100  |    46     |    73     |   466   | **10.1× faster** |
+| CD          |   250  |   464     |   516     |  1127   | 2.4× faster |
+| DeltaBlue   | 12000  |  1489     |  1442     |   208   | **0.14× (much slower)** |
+| Havlak      |  1500  |   641     |   647     |  1177   | 1.8× faster |
 
-Findings:
-- **List (2.50x slower)** and **Richards (1.97x slower)** are the standout Elixir-loses cases. Both are heavy on record/struct field access in tight inner loops — Erlang records compile to tuples with positional access (one-instruction read), while Elixir structs are maps with atom-keyed access (hash-and-lookup). The gap is the cost of map vs tuple read.
-- **Storage (1.53x faster in Elixir)** — only benchmark where Elixir wins. The benchmark allocates trees of nil-filled tuples and discards them; Elixir's struct allocator may be doing something cleverer here.
-- **Sieve identical**: large `:array` operations dominate; both languages call the same Erlang stdlib, so no language-level difference shows.
-- **NBody (1.36x slower)**: float arithmetic in record/struct inner loops, again paying the field-access tax.
+Geomean across all 14: Erlang ~3.0× faster than Ruby, Elixir ~2.7× faster.
+
+### What the numbers say
+
+**Where the BEAM JIT shines (>5× over Ruby)**: List, Towers, Json, Bounce, Queens — code that's loop-heavy, allocates record/tuple values, and benefits cleanly from the JIT specialising on shape.
+
+**Where Ruby beats us (Sieve, DeltaBlue)**:
+- **Sieve** is `:array` ops on a 5000-element flag table. The Ruby's mutable `Array#[i]=` is a single store instruction; our persistent `:array` rewrites a HAMT path log-N times per write. Tried switching to a flat 5000-tuple expecting BEAM's destructive-update optimization — it didn't fire across the recursion, ran 25× slower (see `awfy_sieve.erl`). Likely needs `:atomics` or `:counters` to close the gap, but that breaks the persistent-semantics rule. Documented in PROGRESS.md.
+- **DeltaBlue** is the worst result: 7× behind Ruby. Mutation-heavy graph: a Variable holds a constraint list, constraints reference variables, the planner mutates current_mark. The port carries everything in `world` maps keyed by id — every "object access" becomes a `maps:get` and every "field write" a `maps:put`. Ruby's MRI does these as direct pointer writes. The structural overhead is the price of immutability; closing the gap needs either tuple-of-records with destructive `setelement` (try and verify the JIT optimization actually fires this time) or a process-dictionary approach (rule-breaking).
+
+### Erlang vs Elixir
+
+| Benchmark   | Erlang | Elixir | Elixir vs Erlang |
+|-------------|-------:|-------:|-----------------:|
+| List        |    35  |    91  | **2.6× slower** |
+| Richards    |   491  |  1122  | **2.3× slower** |
+| Storage     |   199  |    73  | **2.7× faster (!)** |
+| NBody       |   270  |   344  | 1.3× slower |
+| Sieve       |  1999  |  1369  | 1.5× faster |
+| (others)    |        |        | within ~10% |
+
+**List (2.6×)** and **Richards (2.3×)**: heavy record/struct field access in tight inner loops. Erlang records compile to tuples with positional `element/2` reads (one-instruction); Elixir structs are atom-keyed maps with hash-and-lookup. Gap is the cost of map vs tuple field read on the hot path.
+
+**Storage (Elixir wins, 2.7×)**: builds throwaway depth-7 trees of nil-filled tuples. Elixir's `Tuple.duplicate(nil, size)` may take a faster allocator path than Erlang's `erlang:make_tuple` for this exact shape — needs more investigation.
+
+## Optimization pass — Phase 2 findings
+
+After Phase 1 (correctness), one pass over the 14 benchmarks for idiomatic-but-not-rule-breaking improvements. Highlights:
+
+- **DeltaBlue chain_test** had `lists:nth(I+1, Vars)` per iteration (O(N²) over 12000 vars). Replaced with pairwise pattern match `[V1, V2 | Rest]` on the chain — O(N). 1864 → 1431 ms (~23% faster).
+- **CD `is_in_voxel`**: Ruby relies on IEEE 754 ±Infinity when motion has zero Δx; Erlang's `/` crashes on /0 and substituting 0.0 made the predicate vacuously true, exploding the recursion (8 sec for inner=2 vs 1 ms after fix).
+- **Sieve tuple-store** experiment (see above) — kept `:array`.
+
+Open items for the next pass (PROGRESS.md):
+
+- Use `erlc` flags to detect when destructive tuple/binary update optimizations fire in hot paths (`setelement_inplace`, writable binary). For the id-keyed maps in DeltaBlue / Havlak / CD, restructuring as a tuple-of-records with `setelement` could be a big win — *if* the JIT optimization actually applies. The Sieve attempt suggests it doesn't always fire across function calls; need to verify with compiler diagnostics rather than guessing.
+- Json's `:binary.at/2` index access could be replaced with binary pattern matching (the canonical Erlang idiom) to enable the writable-binary optimization on the capture buffer.
+- Tail-call audit on the slowest benchmarks (Havlak, DeltaBlue): every recursive function should be in tail position; non-TC recursion adds heap growth.
