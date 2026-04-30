@@ -29,13 +29,13 @@ boxes are checked, this file can be deleted.
 - [ ] Commit
 
 ### Havlak (loop recognizer)
-- [ ] BasicBlock, BasicBlockEdge, ControlFlowGraph
-- [ ] LoopStructureGraph, SimpleLoop
-- [ ] UnionFindNode
-- [ ] LoopTesterApp + HavlakLoopFinder (the algorithm proper)
-- [ ] verify_result/2 — InnerIter-dependent
-- [ ] Tests pass at InnerIter=1 (expected `[1605, 5213]`)
-- [ ] Commit
+- [x] BasicBlock, BasicBlockEdge, ControlFlowGraph
+- [x] LoopStructureGraph, SimpleLoop
+- [x] UnionFindNode
+- [x] LoopTesterApp + HavlakLoopFinder (the algorithm proper)
+- [x] verify_result/2 — InnerIter-dependent
+- [x] Tests pass at InnerIter=1 (expected `[1605, 5213]`)
+- [x] Commit
 
 ### DeltaBlue (constraint solver)
 - [ ] Plan extends Vector, Sym, Strength
@@ -59,6 +59,13 @@ boxes are checked, this file can be deleted.
 
 After all 14 are working, do a uniform pass on each looking for:
 
+- [ ] **Run erlc with options that report when destructive (in-place) tuple/binary
+      updates are applied** (`+'{eep,...}' ` / `+bin_opt_info` / `+recv_opt_info` /
+      `+inline_list_funcs` etc., and whatever flag exposes the "single-use record
+      update" / writable-binary optimisation). Audit each benchmark's hot path
+      to see whether `setelement/3`, record updates, and `<<Buf::binary, X>>`
+      get the in-place treatment — these can be order-of-magnitude wins. Restructure
+      hot loops so the compiler can prove the previous version is dead.
 - [ ] Replace `lists:foldl` with explicit recursion in hot paths if measured faster
 - [ ] Use binary pattern matching for Json's character reading (idiomatic + likely faster than charlist indexing)
 - [ ] Use `:atomics` for Sieve where Boolean array is hot (only if it doesn't break the algorithm — `:array` is closer to Ruby semantics)
