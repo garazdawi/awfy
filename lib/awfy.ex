@@ -25,6 +25,7 @@ defmodule Awfy do
           :awfy_nbody,
           :awfy_permute,
           :awfy_queens,
+          :awfy_richards,
           :awfy_sieve,
           :awfy_storage,
           :awfy_towers
@@ -40,6 +41,7 @@ defmodule Awfy do
           Awfy.Benchmarks.NBody,
           Awfy.Benchmarks.Permute,
           Awfy.Benchmarks.Queens,
+          Awfy.Benchmarks.Richards,
           Awfy.Benchmarks.Sieve,
           Awfy.Benchmarks.Storage,
           Awfy.Benchmarks.Towers
