@@ -370,14 +370,21 @@ out the repo and running the task.
 
 ## Open questions
 
-1. **Sample counts.** ✅ Decided: inherit `BencheeRunner.default_benchee_opts/0`
-   (`time: 3, warmup: 1`) for consistency with `mix awfy.benchee`.
-   `--time` and `--warmup` flags pass through to Benchee for users
-   wanting a more stable run before publishing numbers. May revisit
-   in the future as per-benchmark adaptive `time:` (e.g. ensure
-   each scenario gets ≥10 samples) — Sieve and DeltaBlue are slow
-   enough that 3 seconds yields few samples — but that's a tuning
-   pass, not a v1 design decision.
+1. **Sample counts.** ✅ Decided: per-benchmark `:time` defaults in
+   `BencheeRunner` (calibrated from observed medians; fast
+   benchmarks get 8–10s for ~50–100 samples, slow ones get 4–5s).
+   `--time` and `--warmup` CLI flags still override uniformly. The
+   initial uniform `time: 3` setting was reverted after a stability
+   pass (3 back-to-back runs) showed fast benchmarks at 4–55% CV
+   purely because a 1-second OS spike could dominate a 60-200ms-
+   per-iter measurement window.
+
+   With per-benchmark times, NBody dropped from 4–6% CV to 0.2–0.7%
+   when the system isn't loaded; the achievable noise floor in a
+   noisy laptop environment is **median 2% / max ~7%** spread across
+   re-runs. Coherent OS-level slowdowns affecting an entire run
+   can't be fixed by longer measurement windows — those need a
+   quiet machine.
 
 2. **Per-version `MIX_BUILD_PATH`**: confirmed needed (a `.beam`
    compiled by OTP 27 won't load on OTP 28 reliably). The shell

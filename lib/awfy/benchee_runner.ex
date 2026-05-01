@@ -29,6 +29,44 @@ defmodule Awfy.BencheeRunner do
     "Havlak" => 1500
   }
 
+  # Per-benchmark Benchee `:time` (seconds), calibrated from observed
+  # medians so each scenario gets enough samples to dilute background-
+  # noise spikes (Q6 in BENCH_VERSIONS_PLAN.md).
+  #
+  # Stability check at uniform `time: 3` showed fast benchmarks
+  # (Towers, List, Permute, Queens, Bounce, Mandelbrot) with CVs of
+  # 4–55% across re-runs because a single 1-second OS spike could
+  # dominate a 60-200ms-per-iter benchmark's measurement window. Slow
+  # benchmarks (Sieve, DeltaBlue, Havlak, Json, CD, Richards) were at
+  # 0.4–4% CV because the spike disappeared into a single multi-second
+  # sample.
+  #
+  # Values below target ~50–100 samples for fast benchmarks; for slow
+  # ones we accept ~3–5 samples since they're already stable. Total
+  # measurement time per language ≈ 90s (was ~60s at uniform time: 3).
+  @default_time %{
+    "Bounce" => 8,
+    "List" => 10,
+    "Mandelbrot" => 8,
+    "NBody" => 5,
+    "Permute" => 10,
+    "Queens" => 10,
+    "Sieve" => 4,
+    "Storage" => 8,
+    "Towers" => 8,
+    "Richards" => 5,
+    "Json" => 6,
+    "CD" => 5,
+    "DeltaBlue" => 4,
+    "Havlak" => 5
+  }
+
+  # Warmup is held at 1s for everything — the BEAM JIT settles fast,
+  # and our run-1-vs-run-2 stability data didn't show a JIT-warmup
+  # signature (run-1 was slow uniformly across both langs, suggesting
+  # OS/system noise rather than JIT cold start).
+  @default_warmup 1
+
   @type opts :: [
           inner_iter: pos_integer(),
           lang: :erlang | :elixir | :both,
@@ -94,9 +132,24 @@ defmodule Awfy.BencheeRunner do
   @spec inner_iter_for(String.t()) :: pos_integer()
   def inner_iter_for(name), do: default_inner_iter(name)
 
+  @doc """
+  Default Benchee `:time` (seconds) for a registered benchmark name.
+  """
+  @spec time_for(String.t()) :: pos_integer()
+  def time_for(name), do: Map.fetch!(@default_time, name)
+
   defp run_one(name, entries, opts) do
     inner_iter = Keyword.get(opts, :inner_iter, default_inner_iter(name))
     base_opts = Keyword.get(opts, :benchee, default_benchee_opts())
+
+    # Per-benchmark time/warmup defaults — only applied when the caller
+    # hasn't set those keys explicitly. A `--time` flag at the CLI
+    # therefore overrides the per-benchmark defaults uniformly across
+    # all benchmarks in the run, which is what users want when chasing
+    # publication-quality numbers ("just measure everything for 30s").
+    base_opts = Keyword.put_new(base_opts, :time, time_for(name))
+    base_opts = Keyword.put_new(base_opts, :warmup, @default_warmup)
+
     benchee_opts = maybe_add_save(base_opts, name, opts)
 
     scenarios =
@@ -146,9 +199,9 @@ defmodule Awfy.BencheeRunner do
   end
 
   defp default_benchee_opts do
+    # No :time / :warmup here — those default to per-benchmark values
+    # in run_one when the caller hasn't set them explicitly.
     [
-      time: 3,
-      warmup: 1,
       memory_time: 0,
       print: [fast_warning: false]
     ]

@@ -93,12 +93,18 @@ defmodule Mix.Tasks.Awfy.Measure do
       |> Enum.map(fn entry -> Awfy.name(entry) end)
       |> Enum.uniq()
 
-    time = opts[:time] || 3
-    warmup = opts[:warmup] || 1
+    user_time = opts[:time]
+    user_warmup = opts[:warmup]
 
     Mix.shell().info(
-      "=== timing pass (#{length(ok_entries)} scenarios, time=#{time}s warmup=#{warmup}s) ==="
+      "=== timing pass (#{length(ok_entries)} scenarios, " <>
+        "time=#{user_time || "per-benchmark"}s warmup=#{user_warmup || 1}s) ==="
     )
+
+    benchee_opts =
+      [memory_time: 0, print: [fast_warning: false]]
+      |> maybe_put(:time, user_time)
+      |> maybe_put(:warmup, user_warmup)
 
     Awfy.BencheeRunner.run_all(
       lang: lang,
@@ -106,20 +112,15 @@ defmodule Mix.Tasks.Awfy.Measure do
       skip: Enum.map(broken_entries, fn {entry, _} -> entry end),
       save_dir: dir,
       save_tag: label,
-      benchee: [
-        time: time,
-        warmup: warmup,
-        memory_time: 0,
-        print: [fast_warning: false]
-      ]
+      benchee: benchee_opts
     )
 
     write_meta(dir, %{
       label: label,
       git_sha: git_sha,
       git_dirty: git_dirty?,
-      time: time,
-      warmup: warmup,
+      time: user_time,
+      warmup: user_warmup || 1,
       lang: lang,
       ok_entries: ok_entries,
       broken_entries: broken_entries,
@@ -359,4 +360,7 @@ defmodule Mix.Tasks.Awfy.Measure do
   defp safe_integer(:unknown), do: nil
   defp safe_integer(n) when is_integer(n), do: n
   defp safe_integer(_), do: nil
+
+  defp maybe_put(opts, _key, nil), do: opts
+  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end
