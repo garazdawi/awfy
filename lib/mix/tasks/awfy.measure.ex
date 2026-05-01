@@ -18,6 +18,18 @@ defmodule Mix.Tasks.Awfy.Measure do
       mix awfy.measure --lang erlang
       mix awfy.measure --time 5 --warmup 2
       mix awfy.measure --no-clobber           # refuse to overwrite
+      mix awfy.measure --ignore-preflight     # skip preflight gate
+
+  Before timing starts, runs the blocking subset of
+  `mix awfy.preflight` and aborts with the suggested fix commands if
+  any are flagged. Two categories block:
+
+    * power-state settings whose mid-run change skews timings
+      (Low Power Mode, on-battery, CPU governor, Windows power plan)
+    * background activity that produces *intermittent* corruption
+      (Spotlight, Time Machine, active swap/pagefile, memory pressure)
+
+  Pass `--ignore-preflight` to override for a quick local spot-check.
 
   See `BENCH_VERSIONS_PLAN.md` for the design.
   """
@@ -31,6 +43,7 @@ defmodule Mix.Tasks.Awfy.Measure do
     time: :integer,
     warmup: :integer,
     no_clobber: :boolean,
+    ignore_preflight: :boolean,
     out: :string
   ]
 
@@ -41,6 +54,10 @@ defmodule Mix.Tasks.Awfy.Measure do
     Mix.Task.run("compile", [])
 
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
+
+    unless opts[:ignore_preflight] do
+      enforce_preflight()
+    end
 
     {git_sha, git_dirty?} = git_state()
     label = opts[:label] || auto_label(git_sha, git_dirty?)
@@ -128,6 +145,32 @@ defmodule Mix.Tasks.Awfy.Measure do
     })
 
     Mix.shell().info("\nWrote #{dir}/")
+  end
+
+  defp enforce_preflight do
+    case Mix.Tasks.Awfy.Preflight.blocking_warnings() do
+      [] ->
+        :ok
+
+      warns ->
+        Mix.shell().error(
+          "Preflight: machine state will distort timings during this run:"
+        )
+
+        Enum.each(warns, fn {_, label, msg, fix} ->
+          Mix.shell().error("  - #{label}: #{msg}")
+          if fix, do: Mix.shell().error("    fix: #{fix}")
+        end)
+
+        Mix.shell().error("")
+
+        Mix.shell().error(
+          "Run `mix awfy.preflight` for the full report, fix the items above, " <>
+            "or pass --ignore-preflight to override."
+        )
+
+        Mix.raise("aborted by preflight")
+    end
   end
 
   defp auto_label(sha, false), do: sha
