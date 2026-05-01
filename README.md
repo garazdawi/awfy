@@ -71,6 +71,43 @@ mix awfy.benchee Bounce --time 1 --warmup 0   # quicker iteration
 
 This is the BEAM-native way to iterate on JIT changes — flip `+JMsingle false` (or whichever flag turns T2 on/off when ready) and rerun. For the canonical AWFY-format numbers (matching the upstream `harness.rb` output), use the AWFY-style runner that lands in Phase 5.
 
+## Versioned benchmarks (cross-version dashboard)
+
+`mix awfy.benchee` is the live tuning loop. For durable, version-tagged measurement and a cross-version dashboard, use `mix awfy.measure` + `mix awfy.compare` (and `mix awfy.diff` for a console regression check). See [`BENCH_VERSIONS_PLAN.md`](BENCH_VERSIONS_PLAN.md) for the design and the locked-in decisions.
+
+```
+# 1. Measure under the current OTP+Elixir, save to results/<auto-label>/
+mix awfy.measure                                  # auto-label = git SHA (or SHA-dirty + ts)
+mix awfy.measure --label before-jit2              # custom label
+mix awfy.measure --benchmarks Bounce,Json         # subset
+mix awfy.measure --lang erlang                    # one language
+
+# 2. Sweep across asdf-managed OTP versions:
+bin/measure-versions 28.4.1 28.5.0 master
+
+# 3. Generate the dashboard
+mix awfy.compare                                  # results/index.html + per-bench/*.html
+mix awfy.compare --baseline before-jit2           # geomean ratios vs that label
+mix awfy.compare --benchmarks Havlak              # one benchmark page only
+
+# 4. Quick console check (no browser needed)
+mix awfy.diff before-jit2 after-jit2
+```
+
+Each `mix awfy.measure` writes a directory under `results/`:
+
+```
+results/<timestamp>_otp<v>_elixir<v>_<label>/
+├── meta.json          # versions, machine, runtime info, source hashes
+├── Bounce.benchee     # one Benchee save per benchmark
+├── Havlak.benchee
+└── …
+```
+
+`meta.json` records OTP/Elixir versions, machine + CPU info, runtime knobs (`emu_flavor`, `schedulers_online`, etc.), git SHA + dirty flag, and a SHA256 of each benchmark's source file. The dashboard reads these to detect inner-iter / machine / source-code mismatches across loaded saves and surfaces them as warnings on the report. Filters in the dashboard let you slice by language, machine, arch, and emu flavor; selections persist via `localStorage` so your view sticks across visits.
+
+The two-pass design (verify-then-time) means a regression in one of (Erlang, Elixir) doesn't invalidate the other — failing scenarios get marked `verified: false` in `meta.json` and skipped in the timing pass.
+
 ## Running the Ruby reference
 
 From `upstream/benchmarks/Ruby/`:

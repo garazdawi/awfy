@@ -3,3 +3,5 @@ deps/
 *.beam
 erl_crash.dump
 .elixir_ls/
+results/
+tmp/

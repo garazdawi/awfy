@@ -32,7 +32,11 @@ defmodule Awfy.BencheeRunner do
   @type opts :: [
           inner_iter: pos_integer(),
           lang: :erlang | :elixir | :both,
-          benchee: keyword()
+          benchee: keyword(),
+          benchmarks: [String.t()] | nil,
+          save_dir: Path.t() | nil,
+          save_tag: String.t() | nil,
+          skip: [{:erlang | :elixir, module()}]
         ]
 
   @doc """
@@ -42,12 +46,25 @@ defmodule Awfy.BencheeRunner do
     * `:inner_iter` — override the default inner_iterations.
     * `:lang` — `:erlang`, `:elixir`, or `:both` (default).
     * `:benchee` — keyword list passed through to `Benchee.run/2`.
+    * `:benchmarks` — only run benchmarks whose name is in this list.
+    * `:save_dir` — directory to save `<name>.benchee` files into. When
+      set, BencheeRunner adds a `save: [path:, tag:]` entry to the
+      Benchee opts per benchmark. Pairs with `:save_tag`.
+    * `:save_tag` — tag attached to each save (typically the run label).
+    * `:skip` — list of `{lang, mod}` tuples to omit from the timing pass.
+      Used by the Mix.Tasks.Awfy.Measure verify-then-time flow to skip
+      ports that failed verification without aborting the whole run.
   """
   @spec run_all(opts()) :: :ok
   def run_all(opts \\ []) do
+    skip = MapSet.new(Keyword.get(opts, :skip, []))
+    bench_filter = Keyword.get(opts, :benchmarks, nil)
+
     by_name =
       Awfy.benchmarks()
       |> filter_lang(Keyword.get(opts, :lang, :both))
+      |> Enum.reject(&MapSet.member?(skip, &1))
+      |> filter_benchmarks(bench_filter)
       |> Enum.group_by(fn entry -> Awfy.name(entry) end)
 
     Enum.each(Map.keys(by_name) |> Enum.sort(), fn name ->
@@ -71,9 +88,16 @@ defmodule Awfy.BencheeRunner do
     end
   end
 
+  @doc """
+  Default inner_iterations for a registered benchmark name.
+  """
+  @spec inner_iter_for(String.t()) :: pos_integer()
+  def inner_iter_for(name), do: default_inner_iter(name)
+
   defp run_one(name, entries, opts) do
     inner_iter = Keyword.get(opts, :inner_iter, default_inner_iter(name))
-    benchee_opts = Keyword.get(opts, :benchee, default_benchee_opts())
+    base_opts = Keyword.get(opts, :benchee, default_benchee_opts())
+    benchee_opts = maybe_add_save(base_opts, name, opts)
 
     scenarios =
       Map.new(entries, fn {lang, mod} ->
@@ -83,6 +107,25 @@ defmodule Awfy.BencheeRunner do
     IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
     Benchee.run(scenarios, benchee_opts)
     :ok
+  end
+
+  defp maybe_add_save(opts, name, run_opts) do
+    case Keyword.get(run_opts, :save_dir) do
+      nil ->
+        opts
+
+      dir ->
+        tag = Keyword.get(run_opts, :save_tag, "")
+        path = Path.join(dir, "#{name}.benchee")
+        Keyword.put(opts, :save, path: path, tag: tag)
+    end
+  end
+
+  defp filter_benchmarks(entries, nil), do: entries
+
+  defp filter_benchmarks(entries, names) when is_list(names) do
+    set = MapSet.new(names)
+    Enum.filter(entries, fn entry -> MapSet.member?(set, Awfy.name(entry)) end)
   end
 
   defp run_scenario(entry, inner_iter) do

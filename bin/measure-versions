@@ -1,0 +1,73 @@
+#!/bin/sh
+# bin/measure-versions — run `mix awfy.measure` under each given asdf
+# Erlang version. Per-version MIX_BUILD_PATH avoids `.beam` clashes.
+#
+# Usage:
+#   bin/measure-versions 28.4.1 28.5.0
+#   bin/measure-versions 28.4.1 28.5.0 -- --time 5 --warmup 2
+#
+# Anything after `--` is forwarded to `mix awfy.measure`.
+
+set -e
+
+PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$PROJECT_ROOT"
+
+VERSIONS=""
+EXTRA_ARGS=""
+saw_dashdash=0
+
+for arg in "$@"; do
+  if [ "$saw_dashdash" = "1" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS $arg"
+  elif [ "$arg" = "--" ]; then
+    saw_dashdash=1
+  else
+    VERSIONS="$VERSIONS $arg"
+  fi
+done
+
+if [ -z "$VERSIONS" ]; then
+  echo "usage: $0 OTP_VERSION [OTP_VERSION ...] [-- mix-awfy-measure-flags]" >&2
+  echo "  example: $0 28.4.1 28.5.0 -- --time 5" >&2
+  exit 1
+fi
+
+if ! command -v asdf >/dev/null 2>&1; then
+  echo "error: asdf not on PATH" >&2
+  exit 1
+fi
+
+for v in $VERSIONS; do
+  echo
+  echo "=== OTP $v ==="
+
+  if ! asdf list erlang | grep -q "$v"; then
+    echo "error: OTP $v is not installed via asdf" >&2
+    echo "       run: asdf install erlang $v" >&2
+    exit 1
+  fi
+
+  asdf shell erlang "$v"
+
+  # Per-version build dir: a .beam compiled under OTP 27 cannot be
+  # safely loaded under OTP 28 (and the cached .compile.elixir state
+  # is otp-version-stamped). Hermetic build trees keep cross-version
+  # measurements clean.
+  export MIX_BUILD_PATH="_build/$v"
+
+  echo "   mix deps.get + compile under OTP $v..."
+  mix deps.get >/dev/null
+  mix compile >/dev/null
+
+  # The label defaults to the auto-label (git SHA), but we always pass
+  # an OTP-prefixed label so the run-dir is unambiguous when comparing
+  # multiple OTP versions on the same commit.
+  echo "   mix awfy.measure --label otp-$v $EXTRA_ARGS"
+  # shellcheck disable=SC2086
+  mix awfy.measure --label "otp-$v" $EXTRA_ARGS
+done
+
+echo
+echo "All versions measured. Generate the dashboard with:"
+echo "   mix awfy.compare"
