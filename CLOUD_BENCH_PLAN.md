@@ -92,6 +92,60 @@ $2.50/h, AWS `c7i.metal-24xl + Win` for Windows at ~$5.40/h): adds ~$3
 to a sweep, so ~**$1,100/year** for daily. Still trivial against
 engineer time.
 
+## Phase 0 — validate on GHA-hosted runners (no AWS, no M5)
+
+Before wiring any AWS infrastructure or registering the M5, run the
+full pipeline against **GitHub-hosted runners** for every leg. They're
+free on public repos, available across all four platforms, and let
+us verify pipeline correctness end-to-end without spending a dollar
+or asking the user to start a self-hosted runner.
+
+| Job | Runner label |
+|-----|--------------|
+| `build-linux` (already) | `ubuntu-latest`, `ubuntu-24.04-arm` |
+| `measure-linux` | `ubuntu-latest`, `ubuntu-24.04-arm` |
+| `measure-windows` | `windows-latest` |
+| `measure-macos` | `macos-latest` (Apple Silicon) |
+| `publish` (already) | `ubuntu-latest` |
+
+**What Phase 0 validates:**
+- Dockerfile builds and the image runs.
+- `install-otp-source.sh` works on GHA Linux runners.
+- `install-otp-windows.ps1` resolves an installer URL and installs.
+- `mix awfy.preflight`, `awfy.measure`, and `awfy.compare` all
+  succeed end-to-end on each platform.
+- `gh-pages` push happens, dashboard renders correctly.
+- macOS `mix awfy.preflight` doesn't false-positive on the GHA
+  runner (their environment is unusual — limited `pmset`, locked
+  Spotlight state, etc.).
+
+**What Phase 0 does NOT validate:**
+- Stable timing data. GHA-hosted runners are shared, virtualised,
+  and have ~5-10× higher CV than dedicated. Numbers are noisy
+  enough that regression detection won't work — only pipeline
+  correctness.
+- AWS-specific behaviour (CodeBuild quirks, permissions, image
+  pulls from GHCR onto AWS instances).
+- M5-specific behaviour (the self-hosted runner registration, the
+  drain script, OTP-from-source build on Apple Silicon).
+
+**Implementation**: a parallel workflow `bench-test.yml` cloned
+from `bench.yml` with all `runs-on:` labels swapped to GHA-hosted.
+Triggered only on `workflow_dispatch`. Stays in the repo as a
+permanent diagnostic — useful for reproducing CI bugs without
+needing AWS access.
+
+**Promotion to Phase 1**: once `bench-test.yml` runs cleanly across
+all four platforms, the operator does the AWS / M5 setup
+(`SETUP.md`) and switches to `bench.yml` for daily runs. Costs and
+stability characteristics from `CLOUD_BENCH_PLAN.md` apply from
+that point on. `bench-test.yml` stays around for ad-hoc CI
+debugging.
+
+**Cost of Phase 0**: zero on public repos; on private repos it
+consumes the included GHA minute allowance (2,000-3,000 min/month
+per plan), which is plenty for a few validation runs.
+
 ## Why GHA builds the Docker image
 
 1. **Wall clock** — Linux measurements drop from ~25 min to ~13 min on
