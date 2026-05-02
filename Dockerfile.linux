@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1.6
+#
+# Minimal Linux benchmarking image for AWFY.
+#
+# Build args:
+#   OTP_SHA       — git SHA on erlang/otp to build (resolved upfront)
+#   ELIXIR_VERSION — Elixir release version
+#
+# The OTP build is intentionally trimmed to what AWFY exercises:
+# no wx, odbc, observer, debugger, megaco, et — roughly halves the
+# build time vs. a full OTP build, with no impact on benchmarks (they
+# use only erts + stdlib + compiler + crypto).
+#
+# Layer caching strategy: BuildKit ccache mount means rebuilding for
+# a small commit (a few `.c` files) takes 1-2 min after the first
+# cold build (~10 min on a 4-core GHA runner).
+
+ARG ELIXIR_VERSION=1.19.5
+
+FROM debian:bookworm-slim AS otp-build
+ARG OTP_SHA
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential autoconf m4 \
+        libssl-dev libncurses-dev zlib1g-dev \
+        ca-certificates curl ccache \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PATH=/usr/lib/ccache:$PATH \
+    CCACHE_DIR=/root/.ccache \
+    ERL_TOP=/otp
+
+WORKDIR /tmp
+RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
+    test -n "$OTP_SHA" || (echo "OTP_SHA build-arg required" && false) && \
+    curl -fL "https://github.com/erlang/otp/archive/${OTP_SHA}.tar.gz" \
+        | tar xz && \
+    mv "otp-${OTP_SHA}" /otp && \
+    cd /otp && \
+    ./configure \
+        --prefix=/usr/local \
+        --disable-debug \
+        --without-javac \
+        --without-wx \
+        --without-odbc \
+        --without-observer \
+        --without-debugger \
+        --without-megaco \
+        --without-et \
+        --without-jinterface && \
+    make -j"$(nproc)" && \
+    make install
+
+# Sanity: confirm both flavors are present (jit + emu) so the bench
+# can switch via ERL_FLAGS="-emu_flavor emu".
+RUN /usr/local/bin/erl -emu_flavor jit -noshell -eval 'io:format("jit ok~n"),halt()' && \
+    /usr/local/bin/erl -emu_flavor emu -noshell -eval 'io:format("emu ok~n"),halt()'
+
+FROM debian:bookworm-slim AS app
+ARG ELIXIR_VERSION
+
+# Runtime deps only — no build chain in the final image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libssl3 libncurses6 zlib1g \
+        ca-certificates curl unzip git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Carry over the OTP install from the build stage.
+COPY --from=otp-build /usr/local /usr/local
+ENV PATH=/usr/local/bin:$PATH
+
+# Install Elixir from the official precompiled bundle. Matches the
+# OTP major version baked into the image.
+RUN curl -fL -o /tmp/elixir.zip \
+        "https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/elixir-otp-28.zip" \
+    && unzip /tmp/elixir.zip -d /usr/local \
+    && rm /tmp/elixir.zip
+
+WORKDIR /app
+COPY mix.exs mix.lock ./
+RUN mix local.hex --force && \
+    mix local.rebar --force && \
+    mix deps.get
+
+COPY . .
+RUN mix compile
+
+# Smoke-test that the image actually runs: tiny 1s measurement on a
+# fast benchmark catches missing shared libs, broken OTP build, etc.
+# without waiting for a full ~5min sweep at runtime.
+RUN mix awfy.measure --benchmarks Bounce --time 1 --warmup 0 \
+        --ignore-preflight --label smoke --out /tmp/smoke && \
+    rm -rf /tmp/smoke
+
+# Default: full measurement run. Override with `docker run … <args>`.
+ENTRYPOINT ["mix"]
+CMD ["awfy.measure", "--ignore-preflight"]

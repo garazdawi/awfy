@@ -1,0 +1,323 @@
+name: bench
+
+on:
+  schedule:
+    # Daily 04:00 UTC — picks up whatever's on erlang/otp master.
+    # Most catch-up; per-commit triggers are out of scope for v1
+    # since this repo doesn't watch erlang/otp directly.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      otp_ref:
+        description: "OTP ref (branch/tag/SHA) to benchmark"
+        required: false
+        default: "master"
+      label:
+        description: "Run label (default: short OTP SHA)"
+        required: false
+      skip_macos:
+        description: "Skip the macOS leg (M5 unavailable)"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write   # push to gh-pages
+  packages: write   # push to GHCR
+  id-token: write   # OIDC for AWS (CodeBuild auth)
+
+# Don't pile up concurrent sweeps for the same ref. The macOS leg
+# in particular takes the M5 offline for ~25 min and queueing
+# multiple runs achieves nothing useful.
+concurrency:
+  group: bench-${{ github.event.inputs.otp_ref || 'master' }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ---------------------------------------------------------------
+  # Resolve the OTP ref to a concrete SHA + run label so every
+  # downstream job operates on identical inputs. Outputs are
+  # consumed by every measure job.
+  # ---------------------------------------------------------------
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      otp_sha: ${{ steps.r.outputs.sha }}
+      otp_short: ${{ steps.r.outputs.short }}
+      otp_ref: ${{ steps.r.outputs.ref }}
+      label: ${{ steps.r.outputs.label }}
+    steps:
+      - id: r
+        run: |
+          REF="${{ github.event.inputs.otp_ref || 'master' }}"
+          SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" | head -1 | cut -f1)"
+          if [ -z "$SHA" ]; then
+            echo "::error::could not resolve $REF on erlang/otp"
+            exit 1
+          fi
+          SHORT="${SHA:0:10}"
+          LABEL="${{ github.event.inputs.label }}"
+          [ -z "$LABEL" ] && LABEL="$SHORT"
+          {
+            echo "sha=$SHA"
+            echo "short=$SHORT"
+            echo "ref=$REF"
+            echo "label=$LABEL"
+          } >> "$GITHUB_OUTPUT"
+          echo "Benchmarking erlang/otp@$SHA ($REF) as label '$LABEL'"
+
+  # ---------------------------------------------------------------
+  # Build the Linux benchmarking image once per (commit, arch) and
+  # push to GHCR. Free GHA minutes on public repos. Subsequent runs
+  # benefit from BuildKit's GHA cache backend so a one-file commit
+  # rebuilds in 1-2 min instead of ~10.
+  # ---------------------------------------------------------------
+  build-linux:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
+          - { arch: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.linux
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            OTP_SHA=${{ needs.resolve.outputs.otp_sha }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}
+            ghcr.io/${{ github.repository }}:latest-${{ matrix.arch }}
+          cache-from: type=gha,scope=linux-${{ matrix.arch }}
+          cache-to: type=gha,scope=linux-${{ matrix.arch }},mode=max
+
+  # ---------------------------------------------------------------
+  # Linux measurements run on AWS CodeBuild as GitHub-hosted runners.
+  # Setup: a CodeBuild project per arch, named `awfy-bench-linux-x86_64`
+  # / `awfy-bench-linux-arm64`. See SETUP.md.
+  # ---------------------------------------------------------------
+  measure-linux:
+    needs: [resolve, build-linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm64]
+        flavor: [jit, emu]
+    runs-on:
+      - codebuild-awfy-bench-linux-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Pull benchmark image
+        run: |
+          docker pull "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}"
+      - name: Preflight
+        run: |
+          docker run --rm \
+            "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}" \
+            awfy.preflight --quiet
+      - name: Measure (${{ matrix.flavor }})
+        env:
+          ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+        run: |
+          mkdir -p "$PWD/results"
+          docker run --rm \
+            -e ERL_FLAGS="$ERL_FLAGS_VAL" \
+            -v "$PWD/results:/app/results" \
+            "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}" \
+            awfy.measure \
+              --label "${{ needs.resolve.outputs.label }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}" \
+              --ignore-preflight
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-linux-${{ matrix.arch }}-${{ matrix.flavor }}
+          path: results/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # Windows measurements: AWS CodeBuild Windows project named
+  # `awfy-bench-windows`. No Docker — too slow on Windows. Install
+  # OTP from the upstream installer artifact, then run measure
+  # directly on the runner.
+  # ---------------------------------------------------------------
+  measure-windows:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [jit, emu]
+    runs-on:
+      - codebuild-awfy-bench-windows-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OTP
+        shell: pwsh
+        env:
+          # Override per-commit if upstream master installer URL is wired up;
+          # falls back to OtpRef-based resolution for tagged releases.
+          OTP_WIN_INSTALLER_URL: ${{ vars.OTP_WIN_INSTALLER_URL }}
+        run: |
+          $prefix = ./bin/install-otp-windows.ps1 -OtpRef "${{ needs.resolve.outputs.otp_ref }}"
+          "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Install Elixir
+        shell: pwsh
+        run: |
+          $version = "1.19.5"
+          $url = "https://github.com/elixir-lang/elixir/releases/download/v$version/elixir-otp-28.zip"
+          $zip = "$env:TEMP\elixir.zip"
+          $dest = "$env:USERPROFILE\.local\elixir\$version"
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          "$dest\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Compile awfy
+        shell: pwsh
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Preflight
+        shell: pwsh
+        run: mix awfy.preflight --quiet
+      - name: Measure (${{ matrix.flavor }})
+        shell: pwsh
+        env:
+          ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+        run: |
+          mix awfy.measure `
+            --label "${{ needs.resolve.outputs.label }}-windows-x86_64-${{ matrix.flavor }}" `
+            --ignore-preflight
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-windows-x86_64-${{ matrix.flavor }}
+          path: results/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # macOS ARM64 measurements run on the self-hosted M5 with label
+  # `[self-hosted, macos-m5]`. The runner is registered by the
+  # operator (see SETUP.md). The measure task's preflight gate
+  # refuses to start if the M5 is busy, so the job retries the
+  # next time the runner is idle.
+  # ---------------------------------------------------------------
+  measure-macos:
+    needs: resolve
+    if: ${{ github.event.inputs.skip_macos != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [jit, emu]
+    runs-on: [self-hosted, macos-m5]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build OTP from source
+        id: otp
+        run: |
+          PREFIX="$(./bin/install-otp-source.sh ${{ needs.resolve.outputs.otp_ref }})"
+          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
+          echo "$PREFIX/bin" >> "$GITHUB_PATH"
+      - name: Compile awfy
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (${{ matrix.flavor }})
+        env:
+          ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+        run: |
+          mix awfy.measure \
+            --label "${{ needs.resolve.outputs.label }}-macos-arm64-${{ matrix.flavor }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: results-macos-arm64-${{ matrix.flavor }}
+          path: results/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # Aggregate every uploaded `results/` directory into the gh-pages
+  # branch and regenerate the dashboard. Runs even if some measure
+  # jobs failed — partial sweeps still produce a useful update.
+  # ---------------------------------------------------------------
+  publish:
+    needs: [resolve, measure-linux, measure-windows, measure-macos]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: results-*
+          merge-multiple: false
+
+      - name: Check out gh-pages worktree
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git worktree add -B gh-pages site origin/gh-pages
+          else
+            git worktree add --orphan -b gh-pages site
+            (cd site && git rm -rf . 2>/dev/null || true)
+          fi
+
+      - name: Merge new run dirs into gh-pages
+        # awfy.compare scans direct children of --out for meta.json,
+        # so run dirs go straight into site/, not site/results/.
+        run: |
+          shopt -s nullglob
+          for art in artifacts/results-*/; do
+            for run in "$art"*/; do
+              [ -d "$run" ] || continue
+              name="$(basename "$run")"
+              dest="site/$name"
+              [ -e "$dest" ] && continue
+              cp -r "$run" "$dest"
+            done
+          done
+
+      - name: Generate dashboard
+        run: |
+          shopt -s nullglob
+          metas=(site/*/meta.json)
+          if (( ${#metas[@]} == 0 )); then
+            echo "no run dirs in site/ — nothing to publish"
+            exit 0
+          fi
+          mix deps.get
+          mix awfy.compare --out site
+
+      - name: Commit and push
+        run: |
+          cd site
+          git add -A
+          if git diff --staged --quiet; then
+            echo "no changes to publish"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -m "publish: ${{ needs.resolve.outputs.label }} ($(date -u +%Y-%m-%d))"
+          git push origin gh-pages
