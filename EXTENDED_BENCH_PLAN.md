@@ -18,6 +18,11 @@ BEAM-specific operations that production code actually leans on:
 - The `phash2` BIF appears in every ETS lookup, every `dict`/`gb_set`,
   and the message scheduler. A regression there shows up *everywhere*
   — but the AWFY suite never calls `phash2`.
+- ETS underpins almost every long-lived OTP application (registry,
+  Phoenix LiveView PubSub, gen_server-backed caches, dets). Its
+  contention story (CA tree on `ordered_set`, `read_concurrency`,
+  `write_concurrency`) is a flagship BEAM perf feature with no
+  counterpart elsewhere — and AWFY never touches it.
 - Maps have changed significantly across OTP versions (small-map vs
   HAMT thresholds, JIT opcodes). AWFY uses lists and tuples almost
   exclusively.
@@ -57,12 +62,13 @@ Effort estimates: wall-clock for one experienced engineer.
 | 5 | `stdlib_bench_SUITE` | `binary` group | `binary:match` / `binary:matches` no-match, eventual, frequent | low |
 | 6 | `stdlib_bench_SUITE` | `unicode` group | `string:to_graphemes`, `unicode:characters_to_nfc_*`, `string:lexemes` | low |
 | 7 | `crypto_bench_SUITE` | `textblock_256` (`ciphers_128/256`, `chacha20`) | block + stream cipher throughput; isolates NIF dispatch overhead from JIT noise | low — port suite to drive Benchee, drop the cipher-loop scaffolding |
-| 8 | `estone_SUITE` | each `micros/0` entry as its own scenario | wide-spectrum: lists, msgp, pattern matching, BIF dispatch, ETS, int/float arith, generic, large datasets | medium — ~25 micros, each ~30 LoC of wrapping |
-| 9 | `mnesia_bench_SUITE` + `lib/mnesia/examples/bench/` | TPC-B `ram_copies` only, single-node | full Mnesia transaction throughput: fragmenter, lock manager, allocator under sustained load | medium-high — re-host the standalone bench under our framework |
-| 10 | `mnesia_bench_SUITE` | TPC-B `disc_only_copies`, single-node | adds disk I/O and dets — different perf profile, useful for catching disk-path regressions | medium — same wrapper as #9, different storage type |
+| 8 | `ets_SUITE` (stdlib) | `throughput_benchmark` family — see ETS section below | concurrent ETS reads/writes, CA-tree path on `ordered_set`, table-type matrix, key-type matrix | medium — wrap the existing throughput_benchmark, but pick a focused subset rather than running the whole 100-config matrix |
+| 9 | `estone_SUITE` | each `micros/0` entry as its own scenario | wide-spectrum: lists, msgp, pattern matching, BIF dispatch, ETS, int/float arith, generic, large datasets | medium — ~25 micros, each ~30 LoC of wrapping |
+| 10 | `mnesia_bench_SUITE` + `lib/mnesia/examples/bench/` | TPC-B `ram_copies` only, single-node | full Mnesia transaction throughput: fragmenter, lock manager, allocator under sustained load | medium-high — re-host the standalone bench under our framework |
+| 11 | `mnesia_bench_SUITE` | TPC-B `disc_only_copies`, single-node | adds disk I/O and dets — different perf profile, useful for catching disk-path regressions | medium — same wrapper as #10, different storage type |
 
-**Total**: 9 benchmark families (plus ~25 estone micros = effectively
-~33 distinct scenarios). All slot into the existing CI matrix.
+**Total**: 10 benchmark families (plus ~25 estone micros = effectively
+~40 distinct scenarios). All slot into the existing CI matrix.
 
 ## Code structure
 
@@ -77,6 +83,13 @@ lib/awfy/extended/
     ├── binary_match.ex
     ├── unicode_norm.ex
     ├── crypto_aes.ex
+    ├── ets/
+    │   ├── single_scheduler.ex   # 12 scenarios — table type × access pattern
+    │   ├── concurrency.ex        # 8 scenarios — multi-scheduler + read/write_concurrency
+    │   ├── update.ex             # update_counter / update_element
+    │   ├── bulk.ex               # insert/2 list, select/2, match/2
+    │   ├── key_types.ex          # int/atom/tuple/binary keys
+    │   └── catree_init.ex        # ordered_set par-vs-seq init regression hotspot
     └── estone/                   # one file per micros entry
         ├── lists.ex
         ├── msgp.ex
@@ -152,6 +165,43 @@ measure-extended:
 8 added jobs (4 platforms × 2 flavors), each ~10-15 min. Cost:
 ~$0.40 / sweep, ~$145/yr daily. Same publish flow.
 
+## ETS specifics
+
+`stdlib`'s `ets_SUITE.erl` contains a `throughput_benchmark/{0,1}`
+that drives a Cartesian matrix of (table-type × access-pattern ×
+scheduler-count × `read_concurrency` × `write_concurrency` ×
+key-distribution). Run uncut, it's ~100+ configurations and ~30
+minutes per platform — overkill for daily CI. We pick a focused
+subset that covers the real failure modes:
+
+1. **Single-scheduler baseline, all 4 table types**: `set`,
+   `ordered_set`, `bag`, `duplicate_bag` × { lookup-only,
+   insert-only, 50/50 mixed }. 12 scenarios. Catches per-op cost
+   regressions in the BIF dispatch path independent of locking.
+2. **Multi-scheduler contention**: `set` + `ordered_set`, both with
+   and without `read_concurrency: true` and `write_concurrency:
+   true`, at scheduler counts 2 / N (where N = `schedulers_online`).
+   Exercises the CA-tree path on `ordered_set` and the locking
+   strategy on `set`. ~8 scenarios.
+3. **Update path**: `update_counter/3` and `update_element/3` on
+   `set`, single-scheduler — these are atomic-update opcodes the
+   JIT specifically optimises for. 2 scenarios.
+4. **Bulk operations**: `insert/2` with a 1000-element list,
+   `select/2` against a known-row pattern, `match/2` against a
+   wildcard pattern. 3 scenarios.
+5. **Key-type matrix**: lookup on `set` with integer / atom / tuple
+   / binary keys — different hash + compare costs. 4 scenarios.
+
+That's ~29 ETS scenarios — comparable in volume to estone, distinct
+in coverage. Run them in a dedicated `ets` benchmark family
+(`lib/awfy/extended/benchmarks/ets/<flavor>.ex`) so they can be
+toggled with `mix awfy.measure_extended --benchmarks ets`.
+
+The `lookup_catree_par_vs_seq_init_benchmark` is interesting — it
+specifically measures the parallel-vs-sequential init path on
+`ordered_set`, which is a known regression hotspot. Add as a
+separate `ets_catree_init` scenario.
+
 ## Mnesia TPC-B specifics
 
 TPC-B is a debit-credit OLTP workload with a known
@@ -215,17 +265,20 @@ per Benchee iteration) rather than CLI-driven.
    binary:match, unicode, crypto AES. ~1 day each.
 3. `mix awfy.measure_extended` task; verify save / load / compare
    integration with the existing dashboard.
-4. Port estone (~25 micros). The micros all share a tight common
+4. Port ETS (#8). Start with single-scheduler scenarios (12), add
+   the concurrency matrix (8) once those are stable, then update /
+   bulk / key-type / catree_init. ~3-4 days total.
+5. Port estone (~25 micros). The micros all share a tight common
    shape so this is more wrap-paste than thinking.
-5. Port mnesia TPC-B `ram_copies`. Build the single-node setup
+6. Port mnesia TPC-B `ram_copies`. Build the single-node setup
    helper first (schema + populate); the transaction-loop wrapper
    is short.
-6. Port mnesia TPC-B `disc_only_copies`. Should be a one-line diff
-   from #5 once the framework exists.
-7. Wire the GHA job; first sweep will be slow (cold images for the
+7. Port mnesia TPC-B `disc_only_copies`. Should be a one-line diff
+   from #6 once the framework exists.
+8. Wire the GHA job; first sweep will be slow (cold images for the
    new measure task on every platform). Stabilise over 3-4 daily
    runs before judging numbers.
-8. Per-benchmark `:time` calibration pass — same pattern as the
+9. Per-benchmark `:time` calibration pass — same pattern as the
    compute calibration we did for AWFY.
 
 ## Why not …
