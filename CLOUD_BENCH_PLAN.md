@@ -213,6 +213,14 @@ Out of scope for v1.
 6. Wire `mix awfy.compare` against the S3 archive; publish a Pages site.
 7. Tune emu-pass `:time` once enough samples are in.
 
+## Per-benchmark VM isolation
+
+Every benchmark runs in a fresh BEAM peer node — see
+`ISOLATION_POLICY.md`. Adds ~3 min wall clock to a full sweep
+across the matrix; cost falls within CodeBuild per-minute
+rounding. Land before the network and extended plans start adding
+benchmarks.
+
 ## Why not …
 
 - **GHA hosted runners for measurement** — shared infrastructure,
