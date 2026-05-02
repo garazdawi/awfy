@@ -1,0 +1,24 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependabot keeps third-party GitHub Actions updated. Combined with
+# branch protection that requires CI to pass on PRs, this is the
+# pragmatic alternative to manually pinning every action by SHA:
+# Dependabot opens a PR for each version bump, CI validates it, the
+# operator merges. Set `commit-message: prefix: deps` so security
+# bumps are visible at a glance in the log.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One PR per week with all routine action updates batched
+      # together; security advisories still come as their own PR.
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "*"

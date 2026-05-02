@@ -21,10 +21,10 @@ on:
         type: boolean
         default: false
 
+# Default to read-only at the workflow level; jobs that need write
+# privileges declare them explicitly per-job (least privilege).
 permissions:
-  contents: write   # push to gh-pages
-  packages: write   # push to GHCR
-  id-token: write   # OIDC for AWS (CodeBuild auth)
+  contents: read
 
 # Don't pile up concurrent sweeps for the same ref. The macOS leg
 # in particular takes the M5 offline for ~25 min and queueing
@@ -42,6 +42,8 @@ jobs:
   # ---------------------------------------------------------------
   resolve:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       otp_sha: ${{ steps.r.outputs.sha }}
       otp_short: ${{ steps.r.outputs.short }}
@@ -49,15 +51,21 @@ jobs:
       label: ${{ steps.r.outputs.label }}
     steps:
       - id: r
+        # Inputs are routed through env vars rather than ${{ }} interpolation
+        # in the shell body — prevents script injection if a workflow_dispatch
+        # input contains shell metacharacters.
+        env:
+          INPUT_REF: ${{ github.event.inputs.otp_ref || 'master' }}
+          INPUT_LABEL: ${{ github.event.inputs.label }}
         run: |
-          REF="${{ github.event.inputs.otp_ref || 'master' }}"
+          REF="$INPUT_REF"
           SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" | head -1 | cut -f1)"
           if [ -z "$SHA" ]; then
             echo "::error::could not resolve $REF on erlang/otp"
             exit 1
           fi
           SHORT="${SHA:0:10}"
-          LABEL="${{ github.event.inputs.label }}"
+          LABEL="$INPUT_LABEL"
           [ -z "$LABEL" ] && LABEL="$SHORT"
           {
             echo "sha=$SHA"
@@ -75,6 +83,9 @@ jobs:
   # ---------------------------------------------------------------
   build-linux:
     needs: resolve
+    permissions:
+      contents: read
+      packages: write   # push image to GHCR
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +95,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -111,6 +124,9 @@ jobs:
   # ---------------------------------------------------------------
   measure-linux:
     needs: [resolve, build-linux]
+    permissions:
+      contents: read
+      packages: read   # pull image from GHCR
     strategy:
       fail-fast: false
       matrix:
@@ -120,6 +136,8 @@ jobs:
       - codebuild-awfy-bench-linux-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Login to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" \
@@ -158,6 +176,8 @@ jobs:
   # ---------------------------------------------------------------
   measure-windows:
     needs: resolve
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -166,14 +186,17 @@ jobs:
       - codebuild-awfy-bench-windows-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Install OTP
         shell: pwsh
         env:
           # Override per-commit if upstream master installer URL is wired up;
           # falls back to OtpRef-based resolution for tagged releases.
           OTP_WIN_INSTALLER_URL: ${{ vars.OTP_WIN_INSTALLER_URL }}
+          OTP_REF: ${{ needs.resolve.outputs.otp_ref }}
         run: |
-          $prefix = ./bin/install-otp-windows.ps1 -OtpRef "${{ needs.resolve.outputs.otp_ref }}"
+          $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
           "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Install Elixir
         shell: pwsh
@@ -218,6 +241,8 @@ jobs:
   # ---------------------------------------------------------------
   measure-macos:
     needs: resolve
+    permissions:
+      contents: read
     if: ${{ github.event.inputs.skip_macos != 'true' }}
     # Wait up to 3 days for the M5 runner to claim the job. The runner
     # is intentionally not running as a daemon — see SETUP.md and
@@ -232,10 +257,14 @@ jobs:
     runs-on: [self-hosted, macos-m5]
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Build OTP from source
         id: otp
+        env:
+          OTP_REF: ${{ needs.resolve.outputs.otp_ref }}
         run: |
-          PREFIX="$(./bin/install-otp-source.sh ${{ needs.resolve.outputs.otp_ref }})"
+          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
       - name: Compile awfy
@@ -263,6 +292,8 @@ jobs:
   # ---------------------------------------------------------------
   publish:
     needs: [resolve, measure-linux, measure-windows, measure-macos]
+    permissions:
+      contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
