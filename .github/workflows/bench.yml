@@ -15,11 +15,6 @@ on:
       label:
         description: "Run label (default: short OTP SHA)"
         required: false
-      skip_macos:
-        description: "Skip the macOS leg (M5 unavailable)"
-        required: false
-        type: boolean
-        default: false
 
 # Default to read-only at the workflow level; jobs that need write
 # privileges declare them explicitly per-job (least privilege).
@@ -232,58 +227,12 @@ jobs:
           path: results/
           retention-days: 7
 
-  # ---------------------------------------------------------------
-  # macOS ARM64 measurements run on the self-hosted M5 with label
-  # `[self-hosted, macos-m5]`. The runner is registered by the
-  # operator (see SETUP.md). The measure task's preflight gate
-  # refuses to start if the M5 is busy, so the job retries the
-  # next time the runner is idle.
-  # ---------------------------------------------------------------
-  measure-macos:
-    needs: resolve
-    permissions:
-      contents: read
-    if: ${{ github.event.inputs.skip_macos != 'true' }}
-    # Wait up to 3 days for the M5 runner to claim the job. The runner
-    # is intentionally not running as a daemon — see SETUP.md and
-    # bin/m5-drain.sh. If the user doesn't drain within 3 days the
-    # job times out, publish runs on whatever data is available, and
-    # the next sweep brings fresh data.
-    timeout-minutes: 4320
-    strategy:
-      fail-fast: false
-      matrix:
-        flavor: [jit, emu]
-    runs-on: [self-hosted, macos-m5]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Build OTP from source
-        id: otp
-        env:
-          OTP_REF: ${{ needs.resolve.outputs.otp_ref }}
-        run: |
-          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
-          echo "prefix=$PREFIX" >> "$GITHUB_OUTPUT"
-          echo "$PREFIX/bin" >> "$GITHUB_PATH"
-      - name: Compile awfy
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
-          mix compile
-      - name: Measure (${{ matrix.flavor }})
-        env:
-          ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
-        run: |
-          mix awfy.measure \
-            --label "${{ needs.resolve.outputs.label }}-macos-arm64-${{ matrix.flavor }}"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: results-macos-arm64-${{ matrix.flavor }}
-          path: results/
-          retention-days: 7
+  # macOS measurements are not part of this workflow — they are
+  # driven locally by `mix awfy.fill` on the operator's machine
+  # (see FILL_TASK_PLAN.md and SETUP.md). The fill task picks up
+  # any (otp_sha, macos-arm64, flavor) tuples missing from gh-pages
+  # and runs them at the operator's leisure, then commits to the
+  # gh-pages worktree for manual `git push`.
 
   # ---------------------------------------------------------------
   # Aggregate every uploaded `results/` directory into the gh-pages
@@ -291,7 +240,7 @@ jobs:
   # jobs failed — partial sweeps still produce a useful update.
   # ---------------------------------------------------------------
   publish:
-    needs: [resolve, measure-linux, measure-windows, measure-macos]
+    needs: [resolve, measure-linux, measure-windows]
     permissions:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}

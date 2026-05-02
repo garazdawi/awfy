@@ -71,86 +71,68 @@ minute (~$0.005/min for Linux x86 `general1.small`).
 | `measure-linux x86_64 emu` | same | ~10 min | ~$0.05 |
 | `measure-linux arm64 jit/emu` | ARM equivalent | ~10 min × 2 | ~$0.10 |
 | `measure-windows jit/emu`  | Windows medium                  | ~20 min × 2 | ~$0.30 |
-| `measure-macos jit/emu`    | self-hosted (your M5)           | ~12 min × 2 | $0.00 |
 
-Total: **~$0.50 per full sweep** on CodeBuild. (Higher than the
-$0.10 in `CLOUD_BENCH_PLAN.md` because CodeBuild charges per
-build-minute including queue setup, vs. raw EC2 per-second billing.
-Migrate to ephemeral EC2 runners via Terraform if the daily cost
-becomes annoying.)
+Total: **~$0.50 per full cloud sweep**. Daily for a year ≈ **$180**.
+Per-perf-relevant-commit (~200/yr) ≈ **$100**. (CodeBuild charges
+per build-minute including queue setup, vs. raw EC2 per-second
+billing; migrate to ephemeral EC2 runners via Terraform if the
+daily cost becomes annoying.)
 
-Daily for a year ≈ **$180**. Per-perf-relevant-commit (~200/yr) ≈ **$100**.
+macOS isn't part of the cloud cost — runs locally via
+`mix awfy.fill` on your M5; see section 3.
 
-## 3. macOS self-hosted runner
+## 3. macOS — local fill task
 
-The M5 is your daily-driver dev machine. We deliberately *don't*
-install the runner as a launchd service, because background jobs
-firing during your normal work would (a) ruin the timing data
-(the preflight gate would catch it but waste the run) and (b)
-make your machine sluggish without warning.
+The M5 is your daily-driver dev machine, not a CI box. Rather
+than register it as a self-hosted GHA runner that gets jobs
+forced on it while you're working, macOS measurements are driven
+locally by `mix awfy.fill`. The cloud workflow publishes Linux +
+Windows results to `gh-pages`; the fill task notices what's
+missing for `macos-arm64` and runs those at your leisure.
 
-Instead: register the runner once, then drain queued jobs at your
-leisure with `bin/m5-drain.sh`.
-
-### One-time setup
+### Prerequisites
 
 ```bash
-# Get a registration token from Settings → Actions → Runners → New self-hosted runner
-mkdir ~/actions-runner && cd ~/actions-runner
-curl -fL -o runner.tar.gz \
-    https://github.com/actions/runner/releases/latest/download/actions-runner-osx-arm64-<latest>.tar.gz
-tar xzf runner.tar.gz
-
-./config.sh --url https://github.com/<owner>/<repo> --token <reg-token> \
-    --labels macos-m5 --name m5
-# When asked "Enter the name of the work folder" → accept default (_work)
-# When asked "Run as a service?"                  → answer n
+xcode-select --install                  # one-time
+brew install autoconf openssl@3 ncurses # OTP build deps
 ```
 
-Prerequisites the runner needs locally:
-- Xcode Command Line Tools (`xcode-select --install`)
-- Homebrew, then `brew install autoconf openssl@3 ncurses gh`
-- A fast SSD for the OTP source builds the runner does on every
-  sweep (a few hundred MB per OTP commit; cleaned up by the
-  install-otp-source.sh script's content-addressed prefix).
-
-### Running jobs
+### Running
 
 When you have a moment — lunch break, end of day, between meetings —
-run the drain script:
+in the awfy repo:
 
 ```bash
-cd ~/code/awfy
-bin/m5-drain.sh                    # drain queue and exit
-bin/m5-drain.sh --watch            # keep accepting new jobs (Ctrl-C to stop)
-bin/m5-drain.sh --wait-secs 600    # wait up to 10 min for a job
-                                     # if you just kicked off a workflow
+mix awfy.fill                       # find missing SHAs, run, commit locally
+mix awfy.fill --max 3               # cap at 3 SHAs per session
+mix awfy.fill --since 2026-04-01    # only SHAs newer than this
+mix awfy.fill --dry-run             # show what would run, do nothing
 ```
 
-The script picks up one queued macOS-targeting job at a time, runs
-it to completion, then moves on. Defaults to drain-and-exit so it
-never lingers. If the queue is empty when you start it, it exits
-immediately (or waits, with `--wait-secs`).
+The task fetches `gh-pages` into a `_pages/` worktree, runs each
+missing measurement under a fresh OTP build (the install scripts
+are content-addressed by SHA so re-runs short-circuit), and
+commits new run-dirs locally. **It never pushes** — review with
+`git -C _pages log -1 --stat`, then publish with:
+
+```bash
+git -C _pages push origin gh-pages
+```
 
 ### Practical pattern
 
-The workflow waits up to **3 days** for the M5 to drain queued
-jobs (`timeout-minutes: 4320` on `measure-macos`). Within that
-window, your macOS results join the same sweep's `gh-pages`
-publish as Linux + Windows. After 3 days, the macOS jobs time out,
-`publish` runs without them (Linux + Windows still land), and the
-next sweep brings fresh data.
+- **Drain whenever**. The cloud workflow doesn't wait on macOS;
+  Linux + Windows publish immediately. Your fill commits land on
+  whatever cadence works for you — daily, weekly, after a holiday.
+- **Batches naturally**. If the M5 was off for a week, the next
+  fill picks up all the missed SHAs in one session.
+- **No registration to maintain**. There's no `actions-runner`
+  process to reinstall after macOS updates, no token to rotate,
+  no launchd plist to forget about.
 
-So the cadence:
-
-- **Drain at least every 2-3 days** to keep macOS data current.
-  A daily drain over morning coffee is the easiest pattern;
-  every-other-day works too.
-- If you go on holiday or just forget, you'll miss macOS data for
-  those sweeps. Each daily sweep is independent — Linux + Windows
-  data still publishes — so there's no compounding loss.
-- To backfill a missed day, manually trigger the workflow with
-  `workflow_dispatch` + the OTP SHA you want, then drain.
+The same `mix awfy.fill` works on any platform — handy if you
+ever want to fill from a Windows VM or a Linux ARM box without
+adding it to CodeBuild.
 
 ## 4. Optional: Windows installer URL for master commits
 
