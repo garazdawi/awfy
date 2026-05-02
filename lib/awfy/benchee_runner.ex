@@ -152,14 +152,56 @@ defmodule Awfy.BencheeRunner do
 
     benchee_opts = maybe_add_save(base_opts, name, opts)
 
+    IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
+
+    # Per ISOLATION_POLICY.md: every benchmark runs in a fresh peer.
+    # Set `AWFY_NO_ISOLATION=1` in env to fall back to in-process
+    # execution — useful for debugging and for the doctest paths that
+    # already run inside ExUnit's BEAM.
+    if System.get_env("AWFY_NO_ISOLATION") == "1" do
+      run_in_process(name, entries, inner_iter, benchee_opts)
+    else
+      run_isolated(name, entries, inner_iter, benchee_opts)
+    end
+
+    :ok
+  end
+
+  defp run_in_process(name, entries, inner_iter, benchee_opts) do
     scenarios =
       Map.new(entries, fn {lang, mod} ->
         {"#{name}/#{lang}", fn -> run_scenario({lang, mod}, inner_iter) end}
       end)
 
-    IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
     Benchee.run(scenarios, benchee_opts)
-    :ok
+  end
+
+  defp run_isolated(name, entries, inner_iter, benchee_opts) do
+    # Closure body uses only public `Awfy.verify/2` so the cross-node
+    # RPC doesn't depend on internal-function dispatch surviving the
+    # serialise/deserialise round-trip. (It does in practice when the
+    # same .beam is loaded both sides via `-pa`, but using public
+    # functions keeps the closure trivially safe to RPC.)
+    Awfy.PeerRunner.run(
+      fn ->
+        scenarios =
+          Map.new(entries, fn {lang, _mod} = entry ->
+            {"#{name}/#{lang}",
+             fn ->
+               case Awfy.verify(entry, inner_iter) do
+                 true ->
+                   :ok
+
+                 false ->
+                   raise "benchmark #{Awfy.name(entry)} produced an incorrect result"
+               end
+             end}
+          end)
+
+        Benchee.run(scenarios, benchee_opts)
+      end,
+      name
+    )
   end
 
   defp maybe_add_save(opts, name, run_opts) do
