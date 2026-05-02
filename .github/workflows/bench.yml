@@ -219,6 +219,12 @@ jobs:
   measure-macos:
     needs: resolve
     if: ${{ github.event.inputs.skip_macos != 'true' }}
+    # Wait up to 3 days for the M5 runner to claim the job. The runner
+    # is intentionally not running as a daemon — see SETUP.md and
+    # bin/m5-drain.sh. If the user doesn't drain within 3 days the
+    # job times out, publish runs on whatever data is available, and
+    # the next sweep brings fresh data.
+    timeout-minutes: 4320
     strategy:
       fail-fast: false
       matrix:
