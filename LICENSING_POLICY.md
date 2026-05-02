@@ -1,92 +1,123 @@
-# Licensing Policy — preserved attribution for ported benchmarks
+# Licensing Policy — REUSE-compliant attribution
 
 Cross-cuts every benchmark plan in this repo. When porting code from
 upstream sources (the AWFY suite, the OTP test suites, anywhere
 else), attribution and license terms travel with the code.
 
+This repo follows the [REUSE Specification](https://reuse.software/)
+for license declarations and copyright attribution. Compliance can
+be verified with `reuse lint` (Python tool, `pip install reuse`).
+
 ## Repo-level
 
-- Top-level `LICENSE` is **Apache-2.0**.
-- Choice rationale: OTP-derived code (the bulk of `EXTENDED_BENCH_PLAN.md`
-  and `NETWORK_BENCH_PLAN_TIER1.md`) is Apache-2.0; AWFY-derived code is
-  MIT (which Apache-2.0 covers); our own original code is fine under
-  Apache-2.0.
+- **License**: Apache-2.0 for original code authored in this repo.
+- **Location**: `LICENSES/Apache-2.0.txt` (canonical Apache 2.0 text).
+  This is the REUSE-preferred location; tooling discovers it
+  automatically. Additional license texts go alongside it
+  (`LICENSES/MIT.txt` etc.) only if a ported file genuinely cannot be
+  relicensed under Apache-2.0.
+- **Choice rationale**: Apache-2.0 is permissive enough to cover
+  MIT-derived code (upstream AWFY) via sublicensing, and matches
+  the OTP-derived code that dominates the future port surface
+  (`EXTENDED_BENCH_PLAN.md`, `NETWORK_BENCH_PLAN_TIER1.md`).
 
 ## Per-file requirements
 
-Every source file (`.erl`, `.ex`, `.exs`, `.sh`, `.ps1`, etc.) gets:
+Every source file (`.erl`, `.ex`, `.exs`, `.sh`, `.ps1`, `.yml`,
+`Dockerfile`, etc.) carries:
 
-1. An SPDX header on the first or second line:
-   ```
-   %% SPDX-License-Identifier: Apache-2.0
-   ```
-   (Erlang form; use `# SPDX-License-Identifier: Apache-2.0` for shell
-   / PowerShell, `// SPDX-License-Identifier: Apache-2.0` for any C
-   we end up with, etc.)
+1. One or more **`SPDX-FileCopyrightText`** lines naming copyright
+   holders (year + name + optional email).
+2. One **`SPDX-License-Identifier`** line naming the SPDX license
+   expression.
 
-2. **For ported files**: a copyright + provenance line directly after
-   the SPDX header that names the original project, the file path
-   inside that project, and (where applicable) the upstream copyright
-   holders. Example for an OTP-derived file:
+Comment-syntax matches the file (`%%`, `#`, `//`, `<!--`).
 
-   ```
-   %% SPDX-License-Identifier: Apache-2.0
-   %%
-   %% Ported from erlang/otp:lib/stdlib/test/ets_SUITE.erl
-   %%   Copyright Ericsson AB 1996-2025. All Rights Reserved.
-   %%
-   %% Adapted to drive Benchee scenarios; original logic preserved
-   %% where possible.
-   ```
+### Original code (no upstream)
 
-   Example for an AWFY-derived file:
+```erlang
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: Apache-2.0
+```
 
-   ```
-   %% SPDX-License-Identifier: MIT
-   %%
-   %% Ported from smarr/are-we-fast-yet:benchmarks/Ruby/bounce.rb
-   %%   Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
-   %%
-   %% Translated to Erlang; structure preserved.
-   ```
+### Ports from `erlang/otp` (Apache-2.0 upstream)
 
-3. **For original files** (no upstream): only the SPDX header.
-   The repo's top-level `LICENSE` covers them by default.
+Preserve the Ericsson copyright; add ours for the adaptation:
 
-## Per-license guidance
+```erlang
+%% SPDX-FileCopyrightText: 1996-2025 Ericsson AB. All Rights Reserved.
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: Apache-2.0
+%%
+%% Ported from erlang/otp:lib/stdlib/test/ets_SUITE.erl
+%% Adapted to drive Benchee scenarios; original logic preserved
+%% where possible.
+```
 
-| Source | License | What ships in the ported file |
-|--------|---------|-------------------------------|
-| `erlang/otp` | Apache-2.0 | Preserve the Ericsson copyright header verbatim; add SPDX |
-| `smarr/are-we-fast-yet` | MIT | Preserve Stefan Marr's copyright; SPDX line names MIT |
-| Original work | (Apache-2.0 by repo) | SPDX header only |
+### Ports from `smarr/are-we-fast-yet` (MIT upstream)
 
-If we ever pull from a project under a *different* license (BSD-3,
-MPL-2.0, etc.), pause and verify compatibility with Apache-2.0
-before porting. Don't paper over license differences with attribution
-alone — some licenses require additional notices in the LICENSE file
-or a separate `NOTICES` document.
+Sublicensed to Apache-2.0 (MIT permits this); preserve original
+copyright. The license expression names only the outbound license
+since downstream consumers receive Apache-2.0 only:
 
-## What this means for the existing AWFY ports
+```erlang
+%% SPDX-FileCopyrightText: 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: Apache-2.0
+%%
+%% Ported from smarr/are-we-fast-yet:benchmarks/Ruby/bounce.rb
+%% Translated to Erlang; structure preserved.
+```
+
+### Files that can't carry comments (binaries, etc.)
+
+Use a `.license` sidecar file alongside the binary. REUSE picks it
+up automatically. Format:
+
+```
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+```
+
+Currently we have no such files; documented for completeness.
+
+## Generated / vendored artefacts
+
+- `mix.lock` — covered by mix's own conventions; no header needed.
+- `priv/static/` (chart.js etc. served from CDN, not vendored) —
+  no files in the repo, so nothing to attribute.
+- If we ever vendor third-party JS/CSS, add per-file SPDX headers
+  or sidecars matching the upstream license.
+
+## Compatibility checks before porting from a new source
+
+If the upstream license isn't already Apache-2.0 or MIT, pause
+before porting and confirm:
+
+- Is sublicensing under Apache-2.0 permitted by the upstream
+  license? (MIT and BSD-style: yes. MPL-2.0: file-by-file. GPL-*:
+  no — incompatible.)
+- Are there NOTICE-file requirements that need to land at the repo
+  root?
+
+Don't paper over license differences with attribution alone.
+
+## Backfill: existing AWFY ports
 
 The 14 AWFY benchmarks already in `lib/awfy/benchmarks/` and `src/`
-have `Ported from upstream/...` lines but no SPDX headers and no
-explicit copyright attribution. Adding those is a one-time cleanup
-pass — touch every existing port to add `SPDX-License-Identifier:
-MIT` plus the upstream copyright line. Same for the support files
-(`Awfy.Random`, `awfy_random.erl` — both ported from AWFY).
+have informal `Ported from upstream/...` lines but no SPDX headers.
+Backfill task: touch each file to add the SPDX header pair plus
+Stefan Marr's copyright attribution. Same for support files
+(`Awfy.Random`, `awfy_random.erl`).
 
-## What this means for new ports
+## Verification
 
-Every benchmark added by `EXTENDED_BENCH_PLAN.md` or
-`NETWORK_BENCH_PLAN_TIER1.md` must include the SPDX + copyright +
-provenance lines from day one. Reviewers should bounce PRs that
-omit them.
+After any porting work:
 
-## Sequence
+```sh
+pip install reuse        # one-time
+reuse lint               # passes only when every tracked file is REUSE-compliant
+```
 
-1. Add `LICENSE` (Apache-2.0) at repo root. (Done in same commit
-   as this policy.)
-2. One-time backfill: add SPDX + attribution headers to existing
-   AWFY ports.
-3. New ports follow the per-file template from day one.
+CI integration (future): add a `reuse lint` step to the workflows
+so non-compliant PRs fail before merge.
