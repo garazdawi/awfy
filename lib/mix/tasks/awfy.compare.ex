@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 defmodule Mix.Tasks.Awfy.Compare do
   @shortdoc "Generate the cross-version dashboard from results/*"
   @moduledoc """

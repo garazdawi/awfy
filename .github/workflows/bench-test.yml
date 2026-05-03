@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 # Phase-0 validation workflow — see CLOUD_BENCH_PLAN.md.
 #
 # Runs the full benchmark pipeline on GitHub-hosted runners across

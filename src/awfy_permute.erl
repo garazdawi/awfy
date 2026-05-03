@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Permute — translated from upstream/benchmarks/Ruby/permute.rb.
 %%
 %% Recursively counts permutations of a 6-element array. The Ruby

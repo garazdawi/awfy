@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 defmodule AwfyTest.VersionedBench do
   @moduledoc """
   End-to-end smoke test for the versioned-bench pipeline:

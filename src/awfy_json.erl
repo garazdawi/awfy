@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Json — translated from upstream/benchmarks/Ruby/json.rb.
 %%
 %% A hand-written JSON parser plus a polymorphic JsonValue hierarchy.

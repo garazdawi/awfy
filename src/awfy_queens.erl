@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Eight Queens — translated from upstream/benchmarks/Ruby/queens.rb.
 %%
 %% Solves the 8-queens problem 10 times. Returns true if all 10 runs

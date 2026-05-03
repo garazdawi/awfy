@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: MIT
+
 defmodule Awfy.Som.Vector do
   @moduledoc """
   SOM Vector — translated from upstream/benchmarks/Ruby/som.rb.

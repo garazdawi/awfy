@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 defmodule Mix.Tasks.Awfy.Measure do
   @shortdoc "Measure benchmarks under the current OTP+Elixir, save to results/"
   @moduledoc """

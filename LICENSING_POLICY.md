@@ -10,16 +10,20 @@ be verified with `reuse lint` (Python tool, `pip install reuse`).
 
 ## Repo-level
 
-- **License**: Apache-2.0 for original code authored in this repo.
-- **Location**: `LICENSES/Apache-2.0.txt` (canonical Apache 2.0 text).
-  This is the REUSE-preferred location; tooling discovers it
-  automatically. Additional license texts go alongside it
-  (`LICENSES/MIT.txt` etc.) only if a ported file genuinely cannot be
-  relicensed under Apache-2.0.
-- **Choice rationale**: Apache-2.0 is permissive enough to cover
-  MIT-derived code (upstream AWFY) via sublicensing, and matches
-  the OTP-derived code that dominates the future port surface
-  (`EXTENDED_BENCH_PLAN.md`, `NETWORK_BENCH_PLAN_TIER1.md`).
+- **License (original code)**: Apache-2.0.
+- **Per-file licenses for ports**: match upstream. AWFY ports stay
+  under MIT, OTP ports stay under Apache-2.0. REUSE supports
+  per-file licensing — this is exactly the pattern it's designed for.
+- **License-text locations** (REUSE-preferred):
+  - `LICENSES/Apache-2.0.txt` — covers original code + OTP ports.
+  - `LICENSES/MIT.txt` — covers AWFY ports.
+- **Why not relicense AWFY ports to Apache-2.0?** MIT permits
+  sublicensing in principle, but its permission notice still has
+  to ride along with the file regardless of what we sublicense
+  to. So calling the SPDX identifier `Apache-2.0` while the MIT
+  notice is required to travel with the code is just a confusing
+  way to spell `MIT`. Cleaner to call it MIT and skip the
+  sublicensing argument.
 
 ## Per-file requirements
 
@@ -56,18 +60,24 @@ Preserve the Ericsson copyright; add ours for the adaptation:
 
 ### Ports from `smarr/are-we-fast-yet` (MIT upstream)
 
-Sublicensed to Apache-2.0 (MIT permits this); preserve original
-copyright. The license expression names only the outbound license
-since downstream consumers receive Apache-2.0 only:
+Stays under MIT — same license as upstream. The bulk of the IP is
+Stefan Marr's algorithms and structure; we translated to Erlang/Elixir
+but the original work dominates. Keeping the file under MIT preserves
+clear lineage and avoids the sublicensing ambiguity of "we relicensed
+to Apache-2.0 but still have to drag the MIT notice along anyway."
 
 ```erlang
-%% SPDX-FileCopyrightText: 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
 %% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
-%% SPDX-License-Identifier: Apache-2.0
+%% SPDX-License-Identifier: MIT
 %%
 %% Ported from smarr/are-we-fast-yet:benchmarks/Ruby/bounce.rb
 %% Translated to Erlang; structure preserved.
 ```
+
+Repo-level LICENSE remains Apache-2.0 for original framework code;
+AWFY ports are MIT per-file. REUSE supports per-file licensing —
+this is exactly the pattern it's designed for.
 
 ### Files that can't carry comments (binaries, etc.)
 

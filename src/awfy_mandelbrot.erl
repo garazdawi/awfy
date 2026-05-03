@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Mandelbrot — translated from upstream/benchmarks/Ruby/mandelbrot.rb.
 %%
 %% Bit-packed Mandelbrot escape-time computation. Verification depends

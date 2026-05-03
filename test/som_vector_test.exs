@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: MIT
+
 defmodule AwfyTest.SomVector do
   @moduledoc """
   Smoke tests for the Erlang SOM Vector port. Ensures it behaves like

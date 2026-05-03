@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 defmodule AwfyTest.Benchmarks do
   @moduledoc """
   Smoke test: every registered benchmark runs `inner_benchmark_loop(1)`

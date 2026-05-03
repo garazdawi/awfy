@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 defmodule Mix.Tasks.Awfy.Diff do
   @shortdoc "Print a per-benchmark delta between two saved labels"
   @moduledoc """

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: MIT
+
 defmodule Awfy.Benchmarks.Json do
   @moduledoc """
   Json — translated from upstream/benchmarks/Ruby/json.rb.

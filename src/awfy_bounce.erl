@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Bounce — translated from upstream/benchmarks/Ruby/bounce.rb.
 %%
 %% 100 balls bouncing inside a 500x500 box for 50 ticks. Returns the

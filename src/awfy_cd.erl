@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% CD — translated from upstream/benchmarks/Ruby/cd.rb.
 %%
 %% Aircraft collision detection. The Ruby version is heavily mutation-

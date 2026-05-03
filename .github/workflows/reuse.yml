@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# REUSE compliance check — runs on every PR + push to master.
+# Verifies that every tracked file has SPDX-FileCopyrightText and
+# SPDX-License-Identifier (per-file or via REUSE.toml), and that
+# the named licenses live in LICENSES/.
+
+name: reuse
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  reuse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: fsfe/reuse-action@v3

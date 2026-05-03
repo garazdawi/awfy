@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Sieve of Eratosthenes — translated from upstream/benchmarks/Ruby/sieve.rb.
 %%
 %% Counts primes up to 5000 using a 5000-element flag array. Mutable

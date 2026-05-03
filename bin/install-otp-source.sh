@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 #
 # Build OTP from source at a given git ref/SHA and install into a
 # prefix. Used by the macOS self-hosted runner (and locally for

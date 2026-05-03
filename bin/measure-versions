@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 # bin/measure-versions — run `mix awfy.measure` under each given asdf
 # Erlang version. Per-version MIX_BUILD_PATH avoids `.beam` clashes.
 #

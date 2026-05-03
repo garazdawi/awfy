@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Towers of Hanoi — translated from upstream/benchmarks/Ruby/towers.rb.
 %%
 %% 13-disk tower, counts moves (expected 8191 = 2^13 - 1). The Ruby

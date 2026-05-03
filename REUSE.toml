@@ -1,0 +1,26 @@
+version = 1
+SPDX-PackageName = "awfy"
+SPDX-PackageSupplier = "Lukas Backström <lukas@erlang.org>"
+
+# Documentation, plan/policy markdown — covered in bulk so we don't
+# need HTML-comment SPDX headers in every prose file.
+[[annotations]]
+path = "**.md"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
+SPDX-License-Identifier = "Apache-2.0"
+
+# Repo metadata (gitignore, gitmodules, tool-versions) — same.
+[[annotations]]
+path = [".gitignore", ".gitmodules", ".tool-versions"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
+SPDX-License-Identifier = "Apache-2.0"
+
+# Mix's lockfile is generated; CC0-1.0 marks it as "no rights
+# reserved" without polluting the source-license picture.
+[[annotations]]
+path = "mix.lock"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "NONE"
+SPDX-License-Identifier = "CC0-1.0"

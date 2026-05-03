@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% NBody — translated from upstream/benchmarks/Ruby/nbody.rb.
 %%
 %% 5-body planetary simulation. Verification depends on inner_iterations:

@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Storage — translated from upstream/benchmarks/Ruby/storage.rb.
 %%
 %% Recursively builds a tree of arrays. Stresses allocation and GC,

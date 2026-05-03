@@ -1,3 +1,7 @@
+%% SPDX-FileCopyrightText: Copyright (c) 2001-2016 Stefan Marr <git@stefan-marr.de>
+%% SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+%% SPDX-License-Identifier: MIT
+
 %% Deterministic LCG matching SOM's Random class. Seed = 74755.
 %%
 %% Pure-functional: next/1 returns {Value, NewSeed}.
