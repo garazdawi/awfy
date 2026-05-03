@@ -23,8 +23,15 @@ REF="${1:?git ref required}"
 PREFIX_BASE="${2:-$HOME/.local/otp}"
 
 # Resolve to a SHA up front so the install path is content-addressed.
-SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" \
-       | head -1 | cut -f1)"
+# Pre-resolved 40-hex SHAs are passed through as-is (ls-remote can't
+# look up commit SHAs, only refs); anything else is resolved via the
+# remote (tag, branch, etc.).
+if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+    SHA="$REF"
+else
+    SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" \
+           | head -1 | cut -f1)"
+fi
 
 if [ -z "$SHA" ]; then
     echo "could not resolve $REF on erlang/otp"
