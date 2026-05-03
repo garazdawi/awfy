@@ -179,70 +179,9 @@ does once.
 Plus shared SOM `Vector` infrastructure (`src/awfy_som_vector.erl`,
 `lib/awfy/som/vector.ex`) used by the polymorphic-heavy benchmarks.
 
-## Cross-language snapshot
-
-Single-shot times via `inner_benchmark_loop(N)` with `N` from
-`upstream/rebench.conf`. Apple M5, OTP 28.4.1 + Elixir 1.19.5, Ruby 3.3.0,
-no YJIT. Lower is better. Snapshot — for current/live numbers see the
-dashboard.
-
-| Benchmark   | Iter   | Erlang ms | Elixir ms | Ruby ms | Erlang vs Ruby |
-|-------------|-------:|----------:|----------:|--------:|---------------:|
-| Bounce      |  1500  |    85     |    89     |   542   | **6.4× faster** |
-| List        |  1500  |    35     |    91     |   653   | **18.7× faster** |
-| Mandelbrot  |   500  |   160     |   163     |   597   | 3.7× faster |
-| NBody       | 250000 |   270     |   344     |   888   | 3.3× faster |
-| Permute     |  1000  |   145     |   153     |   708   | 4.9× faster |
-| Queens      |  1000  |    90     |   130     |   599   | 6.7× faster |
-| Sieve       |  3000  |  1999     |  1369     |   952   | **0.48× (slower)** |
-| Storage     |  1000  |   199     |    73     |   554   | 2.8× faster |
-| Towers      |   600  |    63     |    55     |   668   | **10.6× faster** |
-| Richards    |   100  |   491     |  1122     |  1743   | 3.5× faster |
-| Json        |   100  |    46     |    73     |   466   | **10.1× faster** |
-| CD          |   250  |   464     |   516     |  1127   | 2.4× faster |
-| DeltaBlue   | 12000  |  1489     |  1442     |   208   | **0.14× (much slower)** |
-| Havlak      |  1500  |   641     |   647     |  1177   | 1.8× faster |
-
-Geomean: Erlang ~3.0× faster than Ruby, Elixir ~2.7× faster.
-
-### What the numbers say
-
-**Where the BEAM JIT shines (>5× over Ruby)**: List, Towers, Json,
-Bounce, Queens — code that's loop-heavy, allocates record/tuple values,
-and benefits cleanly from the JIT specialising on shape.
-
-**Where Ruby beats us (Sieve, DeltaBlue):**
-
-- **Sieve** is `:array` ops on a 5000-element flag table. Ruby's mutable
-  `Array#[i]=` is a single store; our persistent `:array` rewrites a
-  HAMT path log-N times per write. A flat 5000-tuple with `setelement/3`
-  ran 25× slower (the destructive-update optimization didn't fire across
-  the recursion); see `awfy_sieve.erl`. Closing the gap likely needs
-  `:atomics`/`:counters`, which breaks the persistent-semantics rule.
-- **DeltaBlue** is the worst: 7× behind Ruby. Mutation-heavy graph
-  carried in `world` maps keyed by id — every "object access" is a
-  `maps:get`, every "field write" a `maps:put`. MRI does these as direct
-  pointer writes. The structural overhead is the price of immutability;
-  closing the gap needs either tuple-of-records with destructive
-  `setelement` (and verifying the JIT optimization actually fires) or a
-  rule-breaking process-dictionary approach.
-
-### Erlang vs Elixir
-
-| Benchmark   | Erlang | Elixir | Elixir vs Erlang |
-|-------------|-------:|-------:|-----------------:|
-| List        |    35  |    91  | **2.6× slower** |
-| Richards    |   491  |  1122  | **2.3× slower** |
-| Storage     |   199  |    73  | **2.7× faster (!)** |
-| NBody       |   270  |   344  | 1.3× slower |
-| Sieve       |  1999  |  1369  | 1.5× faster |
-| (others)    |        |        | within ~10% |
-
-**List** and **Richards** punish Elixir's struct field access (atom-keyed
-maps with hash-and-lookup) against Erlang records (positional `element/2`
-reads, one instruction). **Storage** likely catches a faster
-`Tuple.duplicate(nil, n)` allocator path than `:erlang.make_tuple` for
-that exact shape — needs investigation.
+Cross-language and cross-version numbers will land on the dashboard
+once the cloud sweep starts publishing — running locally on a
+developer machine isn't reliable enough to quote in the README.
 
 ## Optimization pass — Phase 2 findings
 
@@ -251,12 +190,17 @@ idiomatic improvements. Highlights:
 
 - **DeltaBlue chain_test** had `lists:nth(I+1, Vars)` per iteration
   (O(N²) over 12000 vars). Replaced with pairwise `[V1, V2 | Rest]`
-  pattern match on the chain — O(N). 1864 → 1431 ms (~23% faster).
+  pattern match on the chain — O(N), measured ~23% faster.
 - **CD `is_in_voxel`**: Ruby relies on IEEE 754 ±Infinity when motion
   has zero Δx; Erlang's `/` crashes on /0, and substituting 0.0 made
   the predicate vacuously true, exploding the recursion (8 sec for
   inner=2 vs 1 ms after fix).
-- **Sieve tuple-store** experiment (above) — kept `:array`.
+- **Sieve flat-tuple experiment**: replaced the `:array` flag table
+  with a 5000-element tuple expecting BEAM's destructive-update
+  optimization to kick in across the recursion. It didn't — ran
+  ~25× slower. Reverted; closing the gap likely needs
+  `:atomics`/`:counters`, which breaks persistent semantics. See
+  `src/awfy_sieve.erl`.
 
 Open items for the next pass — see [`PROGRESS.md`](PROGRESS.md). Notable:
 detect when in-place tuple/binary update optimisations actually fire
