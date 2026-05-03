@@ -193,36 +193,11 @@ defmodule Mix.Tasks.Awfy.Compare do
     Enum.reverse(warnings)
   end
 
-  defp collect_warnings_suite(_rows, runs) do
-    warnings = []
-
-    machines =
-      runs
-      |> Enum.map(fn r -> {r.machine["hostname"], r.machine["cpu"]} end)
-      |> Enum.reject(fn {h, _} -> is_nil(h) end)
-      |> Enum.uniq()
-
-    warnings =
-      case machines do
-        [_] -> warnings
-        [] -> warnings
-        many -> ["machines differ across runs: #{inspect(many)}" | warnings]
-      end
-
-    flavors =
-      runs
-      |> Enum.map(fn r -> r.runtime["emu_flavor"] end)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
-    warnings =
-      case flavors do
-        [_] -> warnings
-        [] -> warnings
-        many -> ["emu_flavor differs across runs: #{inspect(many)}" | warnings]
-      end
-
-    Enum.reverse(warnings)
+  defp collect_warnings_suite(_rows, _runs) do
+    # The cross-platform dashboard intentionally shows multiple machines
+    # and both emu flavors as separate series. Warning about either
+    # being "different" is just noise — the chart legend already says so.
+    []
   end
 
   defp warnings_html([]), do: ""
@@ -240,6 +215,37 @@ defmodule Mix.Tasks.Awfy.Compare do
     |> String.replace("\"", "&quot;")
   end
 
+  # Collapse the GNU machine triple to a stable, human-friendly bucket
+  # the dashboard groups series by. Hostnames on CI runners are
+  # ephemeral (different every job), so series-keyed by hostname end
+  # up with a single data-point each — the chart shows nothing.
+  #
+  #   "x86_64-pc-linux-gnu"        -> "linux-x86_64"
+  #   "aarch64-apple-darwin24.6.0" -> "macos-arm64"
+  #   "x86_64-w64-mingw32"         -> "windows-x86_64"
+  defp machine_class(%{"arch" => arch}) when is_binary(arch) do
+    cpu =
+      cond do
+        String.starts_with?(arch, "x86_64") -> "x86_64"
+        String.starts_with?(arch, "aarch64") -> "arm64"
+        String.starts_with?(arch, "arm64") -> "arm64"
+        true -> arch |> String.split("-") |> hd()
+      end
+
+    os =
+      cond do
+        String.contains?(arch, "linux") -> "linux"
+        String.contains?(arch, "darwin") -> "macos"
+        String.contains?(arch, "mingw") or String.contains?(arch, "windows") -> "windows"
+        String.contains?(arch, "freebsd") -> "freebsd"
+        true -> "unknown"
+      end
+
+    "#{os}-#{cpu}"
+  end
+
+  defp machine_class(_), do: "unknown"
+
   # =====================================================================
   # Dataset encoding
   # =====================================================================
@@ -254,6 +260,7 @@ defmodule Mix.Tasks.Awfy.Compare do
           "hostname" => r.machine["hostname"],
           "cpu" => r.machine["cpu"],
           "arch" => r.machine["arch"],
+          "machine_class" => machine_class(r.machine),
           "emu_flavor" => r.runtime["emu_flavor"]
         }
       end)
@@ -268,6 +275,7 @@ defmodule Mix.Tasks.Awfy.Compare do
           "hostname" => r.hostname,
           "cpu" => r.cpu,
           "arch" => r.arch,
+          "machine_class" => machine_class(%{"arch" => r.arch}),
           "emu_flavor" => r.emu_flavor,
           "lang" => r.lang,
           "benchmark" => r.benchmark,
@@ -340,11 +348,8 @@ defmodule Mix.Tasks.Awfy.Compare do
         <div class="filter-group" id="filter-lang">
           <h4>Language</h4>
         </div>
-        <div class="filter-group" id="filter-machine">
+        <div class="filter-group" id="filter-machine_class">
           <h4>Machine</h4>
-        </div>
-        <div class="filter-group" id="filter-arch">
-          <h4>Arch</h4>
         </div>
         <div class="filter-group" id="filter-emu_flavor">
           <h4>Emu flavor</h4>
@@ -381,7 +386,10 @@ defmodule Mix.Tasks.Awfy.Compare do
     const STORAGE_KEY = "awfy.filters." + PAGE_KIND + "." + BENCH_NAME;
 
     function seriesKey(row) {
-      return [row.lang, row.hostname, row.arch, row.emu_flavor].join(" / ");
+      // Group by stable machine class (linux-x86_64 / macos-arm64 / …)
+      // rather than ephemeral hostnames, so multi-CI runs collapse
+      // into a single trend line per (lang × class × flavor).
+      return [row.lang, row.machine_class, row.emu_flavor].join(" / ");
     }
 
     function uniqueValues(rows, field) {
@@ -419,18 +427,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       });
     }
 
-    function activeFilters() {
-      const state = {};
-      ["lang", "hostname", "arch", "emu_flavor"].forEach(field => {
-        state[field] = [...document.querySelectorAll(
-          'input[type=checkbox][data-field="' + field + '"]:checked'
-        )].map(cb => cb.dataset.value);
-      });
-      // The container UI key is `machine` but the row field is `hostname`.
-      state.machine = state.hostname;
-      delete state.hostname;
-      return state;
-    }
+    // Filter UI fields. The HTML container IDs match these names.
+    const FILTER_FIELDS = ["lang", "machine_class", "emu_flavor"];
 
     function onFilterChange() {
       const state = readUIState();
@@ -440,10 +438,9 @@ defmodule Mix.Tasks.Awfy.Compare do
 
     function readUIState() {
       const state = {};
-      ["lang", "machine", "arch", "emu_flavor"].forEach(field => {
-        const sel = field === "machine" ? "hostname" : field;
+      FILTER_FIELDS.forEach(field => {
         state[field] = [...document.querySelectorAll(
-          'input[type=checkbox][data-field="' + sel + '"]:checked'
+          'input[type=checkbox][data-field="' + field + '"]:checked'
         )].map(cb => cb.dataset.value);
       });
       return state;
@@ -452,8 +449,7 @@ defmodule Mix.Tasks.Awfy.Compare do
     function applyFilters(rows, state) {
       return rows.filter(r =>
         (state.lang || []).includes(r.lang) &&
-        (state.machine || []).includes(r.hostname) &&
-        (state.arch || []).includes(r.arch) &&
+        (state.machine_class || []).includes(r.machine_class) &&
         (state.emu_flavor || []).includes(r.emu_flavor)
       );
     }
@@ -644,10 +640,9 @@ defmodule Mix.Tasks.Awfy.Compare do
     /* Init */
     (function () {
       const state = loadFilterState();
-      ["lang", "hostname", "arch", "emu_flavor"].forEach(field => {
-        const containerField = field === "hostname" ? "machine" : field;
+      FILTER_FIELDS.forEach(field => {
         const values = uniqueValues(DATASET.rows, field);
-        buildFilterUI(field, values, { ...state, hostname: state.machine });
+        buildFilterUI(field, values, state);
       });
 
       document.getElementById("x-axis").addEventListener("change", renderChart);
