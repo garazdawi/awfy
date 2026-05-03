@@ -3,9 +3,12 @@ SPDX-PackageName = "awfy"
 SPDX-PackageSupplier = "Lukas Backström <lukas@erlang.org>"
 
 # Documentation, plan/policy markdown — covered in bulk so we don't
-# need HTML-comment SPDX headers in every prose file.
+# need HTML-comment SPDX headers in every prose file. Listed at root
+# *and* `**/*.md` to remain compatible with older reuse-tool versions
+# (notably the one bundled with fsfe/reuse-action@v3) that interpret
+# `**.md` as root-only.
 [[annotations]]
-path = "**.md"
+path = ["*.md", "**/*.md"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
 SPDX-License-Identifier = "Apache-2.0"
@@ -24,3 +27,11 @@ path = "mix.lock"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "CC0-1.0"
+
+# Embedded test data for the Json benchmark, copied from the
+# upstream AWFY repo (Stefan Marr, MIT — see LICENSING_POLICY.md).
+[[annotations]]
+path = "priv/rap_benchmark.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Stefan Marr"
+SPDX-License-Identifier = "MIT"
