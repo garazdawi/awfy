@@ -52,6 +52,29 @@ defmodule Awfy.PeerRunner do
     end
   end
 
+  @doc """
+  Variant of `run/2` that takes an MFA tuple instead of a closure.
+  Useful when the caller's module isn't on the peer's code path
+  (e.g. ExUnit test modules) — closures defined in such modules
+  can't be deserialised on the peer, but a `module:function/arity`
+  reference to a module that *is* on the path always works.
+
+  Production benchmark code uses `run/2` with closures defined in
+  `Awfy.BencheeRunner` (which IS on the path). This variant is
+  intended for tests and any future caller in the same boat.
+  """
+  @spec run_mfa(module(), atom(), [any()], String.t()) :: any()
+  def run_mfa(module, function, args, name_hint)
+      when is_atom(module) and is_atom(function) and is_list(args) and is_binary(name_hint) do
+    {:ok, pid, _node} = start_peer(name_hint)
+
+    try do
+      :peer.call(pid, module, function, args, :infinity)
+    after
+      :peer.stop(pid)
+    end
+  end
+
   defp start_peer(name_hint) do
     safe_hint = String.replace(name_hint, ~r/[^a-zA-Z0-9_]/, "_")
 
