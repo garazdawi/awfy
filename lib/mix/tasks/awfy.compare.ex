@@ -224,24 +224,31 @@ defmodule Mix.Tasks.Awfy.Compare do
   #   "aarch64-apple-darwin24.6.0" -> "macos-arm64"
   #   "x86_64-w64-mingw32"         -> "windows-x86_64"
   defp machine_class(%{"arch" => arch}) when is_binary(arch) do
-    cpu =
-      cond do
-        String.starts_with?(arch, "x86_64") -> "x86_64"
-        String.starts_with?(arch, "aarch64") -> "arm64"
-        String.starts_with?(arch, "arm64") -> "arm64"
-        true -> arch |> String.split("-") |> hd()
-      end
+    # Older OTP Windows reports arch as a bare "win32"; modern OTP
+    # reports the full GNU triple "x86_64-pc-windows". Normalize both
+    # to the same bucket so series collapse correctly.
+    if arch in ["win32", "win64"] or String.starts_with?(arch, "win") do
+      "windows-x86_64"
+    else
+      cpu =
+        cond do
+          String.starts_with?(arch, "x86_64") -> "x86_64"
+          String.starts_with?(arch, "aarch64") -> "arm64"
+          String.starts_with?(arch, "arm64") -> "arm64"
+          true -> arch |> String.split("-") |> hd()
+        end
 
-    os =
-      cond do
-        String.contains?(arch, "linux") -> "linux"
-        String.contains?(arch, "darwin") -> "macos"
-        String.contains?(arch, "mingw") or String.contains?(arch, "windows") -> "windows"
-        String.contains?(arch, "freebsd") -> "freebsd"
-        true -> "unknown"
-      end
+      os =
+        cond do
+          String.contains?(arch, "linux") -> "linux"
+          String.contains?(arch, "darwin") -> "macos"
+          String.contains?(arch, "mingw") or String.contains?(arch, "windows") -> "windows"
+          String.contains?(arch, "freebsd") -> "freebsd"
+          true -> "unknown"
+        end
 
-    "#{os}-#{cpu}"
+      "#{os}-#{cpu}"
+    end
   end
 
   defp machine_class(_), do: "unknown"
