@@ -218,7 +218,12 @@ jobs:
       fail-fast: false
       matrix:
         target: ${{ fromJson(needs.resolve.outputs.targets) }}
-        flavor: [jit, emu]
+        # The upstream Windows installer ships JIT-only (no
+        # beam.emu.dll). Measuring emu on Windows would require
+        # building OTP from source on the runner (slow + fiddly on
+        # Windows). Drop emu here; pick it back up if/when we have a
+        # `make FLAVOR=emu` installer artifact to side-load.
+        flavor: [jit]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
