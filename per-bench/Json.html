@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>AWFY — Json</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { margin-bottom: 0.25rem; }
+    h1 + .sub { color: #666; margin-top: 0; margin-bottom: 1rem; }
+    .breadcrumb { margin-bottom: 1rem; }
+    .breadcrumb a { color: #06c; text-decoration: none; }
+    .warnings { background: #fff8e1; border-left: 4px solid #f6b73c; padding: 0.5rem 1rem; margin: 1rem 0; }
+    .controls { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1rem; }
+    .filter-group { border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem 0.75rem; }
+    .filter-group h4 { margin: 0 0 0.5rem 0; font-size: 0.85rem; text-transform: uppercase; color: #555; letter-spacing: 0.05em; }
+    .filter-group label { display: block; font-size: 0.9rem; margin-bottom: 0.15rem; cursor: pointer; }
+    .x-axis-toggle { font-size: 0.9rem; }
+    canvas { width: 100% !important; height: 480px !important; }
+    .bench-links { columns: 3; }
+    .bench-links li { margin-bottom: 0.25rem; }
+    details { margin-top: 1rem; }
+    summary { cursor: pointer; color: #555; }
+    pre { background: #f4f4f4; padding: 0.5rem; overflow-x: auto; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="breadcrumb"><a href="../index.html">&larr; Suite overview</a>
+</div>
+  <h1>Json</h1>
+  <p class="sub">Median runtime in milliseconds. Each line = one (lang × machine × arch × emu_flavor) combination across runs.</p>
+
+  
+
+  <div class="controls">
+    <div class="x-axis-toggle">
+      <label>X axis:
+        <select id="x-axis">
+          <option value="timestamp" selected>by timestamp</option>
+          <option value="otp">by OTP version</option>
+        </select>
+      </label>
+    </div>
+    <div class="filter-group" id="filter-lang">
+      <h4>Language</h4>
+    </div>
+    <div class="filter-group" id="filter-machine_class">
+      <h4>Machine</h4>
+    </div>
+    <div class="filter-group" id="filter-emu_flavor">
+      <h4>Emu flavor</h4>
+    </div>
+  </div>
+
+  <canvas id="chart"></canvas>
+
+  
+
+  <details>
+    <summary>Run metadata</summary>
+    <pre id="runs-meta"></pre>
+  </details>
+
+  <script>
+  const PAGE_KIND = "bench";
+  const BENCH_NAME = "Json";
+  const BASELINE_LABEL = "";
+  const DATASET = {"rows":[{"arch":"x86_64-pc-windows","benchmark":"Json","cpu":"unknown","elixir":"1.19.5","emu_flavor":"jit","hostname":"runnervmxu3fp","inner_iter":100,"label":"d900a834d0-test-windows-x86_64-jit","lang":"erlang","machine_class":"windows-x86_64","mean_ms":172.676,"median_ms":172.646,"otp":"29","samples_n":35,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":0.573,"timestamp":"2026-05-03T20:08:36.041000Z","verified":true},{"arch":"x86_64-pc-windows","benchmark":"Json","cpu":"unknown","elixir":"1.19.5","emu_flavor":"jit","hostname":"runnervmxu3fp","inner_iter":100,"label":"d900a834d0-test-windows-x86_64-jit","lang":"elixir","machine_class":"windows-x86_64","mean_ms":258.543,"median_ms":258.202,"otp":"29","samples_n":24,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":2.62,"timestamp":"2026-05-03T20:08:36.041000Z","verified":true},{"arch":"aarch64-apple-darwin24.6.0","benchmark":"Json","cpu":"Apple M1 (Virtual)","elixir":"1.19.5","emu_flavor":"jit","hostname":"sjc22-bm206-21b78594-006e-4b36-adf1-5832451a3e30-8A123F39D78A","inner_iter":100,"label":"d900a834d0-test-macos-arm64-jit","lang":"erlang","machine_class":"macos-arm64","mean_ms":112.435,"median_ms":101.461,"otp":"29","samples_n":54,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":31.755,"timestamp":"2026-05-03T20:13:47.447377Z","verified":true},{"arch":"aarch64-apple-darwin24.6.0","benchmark":"Json","cpu":"Apple M1 (Virtual)","elixir":"1.19.5","emu_flavor":"jit","hostname":"sjc22-bm206-21b78594-006e-4b36-adf1-5832451a3e30-8A123F39D78A","inner_iter":100,"label":"d900a834d0-test-macos-arm64-jit","lang":"elixir","machine_class":"macos-arm64","mean_ms":174.127,"median_ms":170.787,"otp":"29","samples_n":35,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":15.23,"timestamp":"2026-05-03T20:13:47.447377Z","verified":true},{"arch":"aarch64-apple-darwin24.6.0","benchmark":"Json","cpu":"Apple M1 (Virtual)","elixir":"1.19.5","emu_flavor":"emu","hostname":"sjc20-cw713-34566fd0-ef74-4a49-a1c4-62b7c38da27a-468BD9336C87","inner_iter":100,"label":"d900a834d0-test-macos-arm64-emu","lang":"erlang","machine_class":"macos-arm64","mean_ms":369.861,"median_ms":347.208,"otp":"29","samples_n":17,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":37.525,"timestamp":"2026-05-03T20:15:37.971673Z","verified":true},{"arch":"aarch64-apple-darwin24.6.0","benchmark":"Json","cpu":"Apple M1 (Virtual)","elixir":"1.19.5","emu_flavor":"emu","hostname":"sjc20-cw713-34566fd0-ef74-4a49-a1c4-62b7c38da27a-468BD9336C87","inner_iter":100,"label":"d900a834d0-test-macos-arm64-emu","lang":"elixir","machine_class":"macos-arm64","mean_ms":408.17,"median_ms":407.636,"otp":"29","samples_n":15,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":5.58,"timestamp":"2026-05-03T20:15:37.971673Z","verified":true},{"arch":"aarch64-unknown-linux-gnu","benchmark":"Json","cpu":"unknown","elixir":"1.19.5","emu_flavor":"jit","hostname":"208a4a169583","inner_iter":100,"label":"d900a834d0-test-linux-arm64-jit","lang":"erlang","machine_class":"linux-arm64","mean_ms":115.841,"median_ms":115.9,"otp":"29","samples_n":52,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":0.695,"timestamp":"2026-05-03T20:15:45.666750Z","verified":true},{"arch":"aarch64-unknown-linux-gnu","benchmark":"Json","cpu":"unknown","elixir":"1.19.5","emu_flavor":"jit","hostname":"208a4a169583","inner_iter":100,"label":"d900a834d0-test-linux-arm64-jit","lang":"elixir","machine_class":"linux-arm64","mean_ms":189.224,"median_ms":189.315,"otp":"29","samples_n":32,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":0.615,"timestamp":"2026-05-03T20:15:45.666750Z","verified":true},{"arch":"x86_64-pc-linux-gnu","benchmark":"Json","cpu":"AMD EPYC 7763 64-Core Processor","elixir":"1.19.5","emu_flavor":"jit","hostname":"5506e2a167f4","inner_iter":100,"label":"d900a834d0-test-linux-x86_64-jit","lang":"erlang","machine_class":"linux-x86_64","mean_ms":165.502,"median_ms":166.293,"otp":"29","samples_n":37,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":1.814,"timestamp":"2026-05-03T20:15:48.099942Z","verified":true},{"arch":"x86_64-pc-linux-gnu","benchmark":"Json","cpu":"AMD EPYC 7763 64-Core Processor","elixir":"1.19.5","emu_flavor":"jit","hostname":"5506e2a167f4","inner_iter":100,"label":"d900a834d0-test-linux-x86_64-jit","lang":"elixir","machine_class":"linux-x86_64","mean_ms":241.106,"median_ms":241.126,"otp":"29","samples_n":25,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":1.651,"timestamp":"2026-05-03T20:15:48.099942Z","verified":true},{"arch":"aarch64-unknown-linux-gnu","benchmark":"Json","cpu":"unknown","elixir":"1.19.5","emu_flavor":"emu","hostname":"fd8df3fb4838","inner_iter":100,"label":"d900a834d0-test-linux-arm64-emu","lang":"erlang","machine_class":"linux-arm64","mean_ms":271.474,"median_ms":271.49,"otp":"29","samples_n":23,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":0.89,"timestamp":"2026-05-03T20:16:33.099652Z","verified":true},{"arch":"aarch64-unknown-linux-gnu","benchmark":"Json","cpu":"unknown","elixir":"1.19.5","emu_flavor":"emu","hostname":"fd8df3fb4838","inner_iter":100,"label":"d900a834d0-test-linux-arm64-emu","lang":"elixir","machine_class":"linux-arm64","mean_ms":379.357,"median_ms":378.768,"otp":"29","samples_n":16,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":1.907,"timestamp":"2026-05-03T20:16:33.099652Z","verified":true},{"arch":"x86_64-pc-linux-gnu","benchmark":"Json","cpu":"AMD EPYC 9V74 80-Core Processor","elixir":"1.19.5","emu_flavor":"emu","hostname":"dd1816c88775","inner_iter":100,"label":"d900a834d0-test-linux-x86_64-emu","lang":"erlang","machine_class":"linux-x86_64","mean_ms":323.618,"median_ms":322.174,"otp":"29","samples_n":19,"source_sha256":"fab90cac597da5ef96e513290db688af2d9351c763285083d2e5020ad81605d2","stddev_ms":4.894,"timestamp":"2026-05-03T20:16:48.262511Z","verified":true},{"arch":"x86_64-pc-linux-gnu","benchmark":"Json","cpu":"AMD EPYC 9V74 80-Core Processor","elixir":"1.19.5","emu_flavor":"emu","hostname":"dd1816c88775","inner_iter":100,"label":"d900a834d0-test-linux-x86_64-emu","lang":"elixir","machine_class":"linux-x86_64","mean_ms":415.166,"median_ms":413.306,"otp":"29","samples_n":15,"source_sha256":"2c6cf262bf6a9e344a91f0e5fe37e6629fe762966437afec7d33bbcd094397c2","stddev_ms":10.101,"timestamp":"2026-05-03T20:16:48.262511Z","verified":true}],"runs":[{"arch":"x86_64-pc-windows","cpu":"unknown","elixir":"1.19.5","emu_flavor":"jit","hostname":"runnervmxu3fp","label":"d900a834d0-test-windows-x86_64-jit","machine_class":"windows-x86_64","otp":"29","timestamp":"2026-05-03T20:08:36.041000Z"},{"arch":"aarch64-apple-darwin24.6.0","cpu":"Apple M1 (Virtual)","elixir":"1.19.5","emu_flavor":"jit","hostname":"sjc22-bm206-21b78594-006e-4b36-adf1-5832451a3e30-8A123F39D78A","label":"d900a834d0-test-macos-arm64-jit","machine_class":"macos-arm64","otp":"29","timestamp":"2026-05-03T20:13:47.447377Z"},{"arch":"aarch64-apple-darwin24.6.0","cpu":"Apple M1 (Virtual)","elixir":"1.19.5","emu_flavor":"emu","hostname":"sjc20-cw713-34566fd0-ef74-4a49-a1c4-62b7c38da27a-468BD9336C87","label":"d900a834d0-test-macos-arm64-emu","machine_class":"macos-arm64","otp":"29","timestamp":"2026-05-03T20:15:37.971673Z"},{"arch":"aarch64-unknown-linux-gnu","cpu":"unknown","elixir":"1.19.5","emu_flavor":"jit","hostname":"208a4a169583","label":"d900a834d0-test-linux-arm64-jit","machine_class":"linux-arm64","otp":"29","timestamp":"2026-05-03T20:15:45.666750Z"},{"arch":"x86_64-pc-linux-gnu","cpu":"AMD EPYC 7763 64-Core Processor","elixir":"1.19.5","emu_flavor":"jit","hostname":"5506e2a167f4","label":"d900a834d0-test-linux-x86_64-jit","machine_class":"linux-x86_64","otp":"29","timestamp":"2026-05-03T20:15:48.099942Z"},{"arch":"aarch64-unknown-linux-gnu","cpu":"unknown","elixir":"1.19.5","emu_flavor":"emu","hostname":"fd8df3fb4838","label":"d900a834d0-test-linux-arm64-emu","machine_class":"linux-arm64","otp":"29","timestamp":"2026-05-03T20:16:33.099652Z"},{"arch":"x86_64-pc-linux-gnu","cpu":"AMD EPYC 9V74 80-Core Processor","elixir":"1.19.5","emu_flavor":"emu","hostname":"dd1816c88775","label":"d900a834d0-test-linux-x86_64-emu","machine_class":"linux-x86_64","otp":"29","timestamp":"2026-05-03T20:16:48.262511Z"}]};
+  </script>
+  <script>
+  /* AWFY dashboard — vanilla JS, no framework. */
+
+const STORAGE_KEY = "awfy.filters." + PAGE_KIND + "." + BENCH_NAME;
+
+function seriesKey(row) {
+  // Group by stable machine class (linux-x86_64 / macos-arm64 / …)
+  // rather than ephemeral hostnames, so multi-CI runs collapse
+  // into a single trend line per (lang × class × flavor).
+  return [row.lang, row.machine_class, row.emu_flavor].join(" / ");
+}
+
+function uniqueValues(rows, field) {
+  const set = new Set();
+  rows.forEach(r => { if (r[field]) set.add(r[field]); });
+  return [...set].sort();
+}
+
+function loadFilterState() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+
+function saveFilterState(state) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (e) {}
+}
+
+function buildFilterUI(field, values, state) {
+  const container = document.getElementById("filter-" + field);
+  const persisted = state[field];
+  values.forEach(v => {
+    const id = "f-" + field + "-" + v.replace(/[^a-z0-9]/gi, "_");
+    const div = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.id = id;
+    cb.dataset.field = field;
+    cb.dataset.value = v;
+    cb.checked = persisted ? persisted.includes(v) : true;
+    cb.addEventListener("change", onFilterChange);
+    div.appendChild(cb);
+    div.appendChild(document.createTextNode(" " + v));
+    container.appendChild(div);
+  });
+}
+
+// Filter UI fields. The HTML container IDs match these names.
+const FILTER_FIELDS = ["lang", "machine_class", "emu_flavor"];
+
+function onFilterChange() {
+  const state = readUIState();
+  saveFilterState(state);
+  renderChart();
+}
+
+function readUIState() {
+  const state = {};
+  FILTER_FIELDS.forEach(field => {
+    state[field] = [...document.querySelectorAll(
+      'input[type=checkbox][data-field="' + field + '"]:checked'
+    )].map(cb => cb.dataset.value);
+  });
+  return state;
+}
+
+function applyFilters(rows, state) {
+  return rows.filter(r =>
+    (state.lang || []).includes(r.lang) &&
+    (state.machine_class || []).includes(r.machine_class) &&
+    (state.emu_flavor || []).includes(r.emu_flavor)
+  );
+}
+
+/* Build series: group rows by (lang, machine, arch, emu_flavor). */
+function buildSeries(rows, xAxis) {
+  const groups = {};
+  rows.forEach(row => {
+    const key = seriesKey(row);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+  });
+
+  const xKey = xAxis === "otp" ? "otp" : "timestamp";
+
+  return Object.entries(groups).map(([key, items]) => {
+    const sorted = [...items].sort((a, b) => {
+      if (a[xKey] < b[xKey]) return -1;
+      if (a[xKey] > b[xKey]) return 1;
+      return a.timestamp < b.timestamp ? -1 : 1;
+    });
+    return {
+      label: key,
+      data: sorted.map(r => ({
+        x: xAxis === "otp" ? r.otp : r.timestamp,
+        y: r.median_ms,
+        stddev: r.stddev_ms,
+        run_label: r.label,
+        inner_iter: r.inner_iter
+      }))
+    };
+  });
+}
+
+/* For the suite page: roll up rows into per-(run × series) geomean
+   ratios.
+
+   Two modes for picking the (series-key, benchmark) → baseline_ms
+   reference:
+
+   1. Per-series (default). Each series uses its own earliest row
+      (by timestamp) for each benchmark as the baseline. This makes
+      the chart robust to mixed hostnames/labels — every series
+      curve starts at 1.0 and shows its own trend.
+
+   2. Pinned (when BASELINE_LABEL is explicitly set AND that label
+      actually exists in DATASET.runs). All series normalize
+      against rows from that label. Useful for "regression vs
+      before-jit2" comparisons. Series whose hostname/arch/etc.
+      differs from the pinned label have no reference and
+      contribute nothing — that's intentional, the user asked for
+      a specific reference.
+*/
+function buildSuiteSeries(rows, xAxis) {
+  const pinned = BASELINE_LABEL &&
+    (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null);
+
+  const baseIdx = {};
+  if (pinned) {
+    rows.filter(r => r.label === BASELINE_LABEL).forEach(r => {
+      const k = seriesKey(r) + "|" + r.benchmark;
+      baseIdx[k] = r.median_ms;
+    });
+  } else {
+    // Per-series-earliest baseline.
+    rows.forEach(r => {
+      const k = seriesKey(r) + "|" + r.benchmark;
+      if (!baseIdx[k] || r.timestamp < baseIdx[k].ts) {
+        baseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
+      }
+    });
+    Object.keys(baseIdx).forEach(k => { baseIdx[k] = baseIdx[k].ms; });
+  }
+
+  // Group all rows by (label, series-key)
+  const groups = {};
+  rows.forEach(r => {
+    const sk = seriesKey(r);
+    const gk = r.label + "|" + sk;
+    if (!groups[gk]) groups[gk] = { label: r.label, sk, rows: [], runMeta: null };
+    groups[gk].rows.push(r);
+    groups[gk].runMeta = DATASET.runs.find(x => x.label === r.label);
+  });
+
+  const seriesByKey = {};
+  Object.values(groups).forEach(g => {
+    const ratios = [];
+    g.rows.forEach(r => {
+      const bk = g.sk + "|" + r.benchmark;
+      const baseMs = baseIdx[bk];
+      if (baseMs && r.median_ms) {
+        ratios.push(r.median_ms / baseMs);
+      }
+    });
+    if (ratios.length === 0) return;
+    const sumLog = ratios.reduce((a, b) => a + Math.log(b), 0);
+    const gm = Math.exp(sumLog / ratios.length);
+
+    if (!seriesByKey[g.sk]) seriesByKey[g.sk] = { label: g.sk, data: [] };
+    const xVal = xAxis === "otp" ? g.runMeta.otp : g.runMeta.timestamp;
+    seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: g.label, n_benchmarks: ratios.length });
+  });
+
+  Object.values(seriesByKey).forEach(s => {
+    s.data.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
+  });
+
+  return Object.values(seriesByKey);
+}
+
+let chart = null;
+
+function renderChart() {
+  const xAxis = document.getElementById("x-axis").value;
+  const state = readUIState();
+  const filtered = applyFilters(DATASET.rows, state);
+
+  const series = PAGE_KIND === "suite"
+    ? buildSuiteSeries(filtered, xAxis)
+    : buildSeries(filtered, xAxis);
+
+  const palette = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+  ];
+
+  const datasets = series.map((s, i) => ({
+    label: s.label,
+    data: s.data,
+    borderColor: palette[i % palette.length],
+    backgroundColor: palette[i % palette.length],
+    fill: false,
+    spanGaps: false,
+    tension: 0.05,
+    pointRadius: 4,
+    pointHoverRadius: 6
+  }));
+
+  const yLabel = PAGE_KIND === "suite"
+    ? (BASELINE_LABEL && (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null)
+        ? "geomean ratio vs " + BASELINE_LABEL + " (lower = faster)"
+        : "geomean ratio vs each series's earliest data-point (lower = faster)")
+    : "median ms";
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      parsing: false,
+      interaction: { intersect: false, mode: "nearest" },
+      scales: {
+        x: xAxis === "timestamp"
+          ? { type: "time", time: { tooltipFormat: "yyyy-MM-dd HH:mm", displayFormats: { hour: "MM/dd HH:mm" } }, title: { display: true, text: "timestamp" } }
+          : { type: "category", title: { display: true, text: "OTP version" } },
+        y: { title: { display: true, text: yLabel }, beginAtZero: PAGE_KIND === "suite" ? false : true }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const r = ctx.raw;
+              const parts = [ctx.dataset.label + ": " + (r.y).toFixed(3)];
+              if (r.run_label) parts.push("run=" + r.run_label);
+              if (r.stddev !== undefined && r.stddev !== null) parts.push("σ=" + r.stddev.toFixed(2));
+              if (r.inner_iter) parts.push("iter=" + r.inner_iter);
+              if (r.n_benchmarks) parts.push("n=" + r.n_benchmarks);
+              return parts.join("  ");
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderRunsMeta() {
+  const lines = DATASET.runs.map(r =>
+    r.timestamp + "  " + r.label.padEnd(20) +
+    "  otp=" + r.otp + "  elixir=" + r.elixir +
+    "  " + (r.hostname || "?") + " (" + (r.cpu || "?") + ")  emu=" + (r.emu_flavor || "?")
+  );
+  document.getElementById("runs-meta").textContent = lines.join("\n");
+}
+
+/* Init */
+(function () {
+  const state = loadFilterState();
+  FILTER_FIELDS.forEach(field => {
+    const values = uniqueValues(DATASET.rows, field);
+    buildFilterUI(field, values, state);
+  });
+
+  document.getElementById("x-axis").addEventListener("change", renderChart);
+  renderRunsMeta();
+  renderChart();
+})();
+
+  </script>
+</body>
+</html>
