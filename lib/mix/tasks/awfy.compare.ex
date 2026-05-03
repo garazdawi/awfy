@@ -64,7 +64,10 @@ defmodule Mix.Tasks.Awfy.Compare do
 
     File.mkdir_p!(Path.join(out_dir, "per-bench"))
 
-    baseline_label = opts[:baseline] || latest_label(data.runs)
+    # Default: nil → dashboard JS picks each series's own earliest
+    # data-point as the baseline. `--baseline LABEL` pins all series
+    # to that one run, matching the original "regression vs X" use.
+    baseline_label = opts[:baseline]
 
     Enum.each(bench_names, fn name ->
       page = render_per_bench(name, data, baseline_label)
@@ -87,15 +90,6 @@ defmodule Mix.Tasks.Awfy.Compare do
   defp filter_names(names, allow) do
     set = MapSet.new(allow)
     Enum.filter(names, &MapSet.member?(set, &1))
-  end
-
-  defp latest_label(runs) do
-    runs
-    |> Enum.max_by(& &1.timestamp, fn -> nil end)
-    |> case do
-      nil -> nil
-      run -> run.label
-    end
   end
 
   # =====================================================================
@@ -147,7 +141,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       title: "AWFY — Suite Dashboard",
       heading: "AWFY Suite — Cross-version Dashboard",
       subhead:
-        "Geometric mean of `median / baseline_median` across all benchmarks. Lower is faster. Each line = one (lang × machine × arch × emu_flavor) combination.",
+        "Geometric mean of `median / baseline_median` across all benchmarks. Each line = one (lang × machine × arch × emu_flavor) combination, normalized to its own earliest data-point (or to a pinned <code>--baseline LABEL</code> if specified). Lower is faster.",
       breadcrumb: "",
       warnings_html: warnings_html(warnings),
       dataset_json: dataset_json,
@@ -495,18 +489,44 @@ defmodule Mix.Tasks.Awfy.Compare do
     }
 
     /* For the suite page: roll up rows into per-(run × series) geomean
-       ratios against the baseline label. */
-    function buildSuiteSeries(rows, xAxis) {
-      const baseline = (DATASET.runs.find(r => r.label === BASELINE_LABEL) || {}).label;
-      if (!baseline) return [];
+       ratios.
 
-      // Group baseline rows by (series-key, benchmark) -> median_ms
-      const baseRows = rows.filter(r => r.label === baseline);
+       Two modes for picking the (series-key, benchmark) → baseline_ms
+       reference:
+
+       1. Per-series (default). Each series uses its own earliest row
+          (by timestamp) for each benchmark as the baseline. This makes
+          the chart robust to mixed hostnames/labels — every series
+          curve starts at 1.0 and shows its own trend.
+
+       2. Pinned (when BASELINE_LABEL is explicitly set AND that label
+          actually exists in DATASET.runs). All series normalize
+          against rows from that label. Useful for "regression vs
+          before-jit2" comparisons. Series whose hostname/arch/etc.
+          differs from the pinned label have no reference and
+          contribute nothing — that's intentional, the user asked for
+          a specific reference.
+    */
+    function buildSuiteSeries(rows, xAxis) {
+      const pinned = BASELINE_LABEL &&
+        (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null);
+
       const baseIdx = {};
-      baseRows.forEach(r => {
-        const k = seriesKey(r) + "|" + r.benchmark;
-        baseIdx[k] = r.median_ms;
-      });
+      if (pinned) {
+        rows.filter(r => r.label === BASELINE_LABEL).forEach(r => {
+          const k = seriesKey(r) + "|" + r.benchmark;
+          baseIdx[k] = r.median_ms;
+        });
+      } else {
+        // Per-series-earliest baseline.
+        rows.forEach(r => {
+          const k = seriesKey(r) + "|" + r.benchmark;
+          if (!baseIdx[k] || r.timestamp < baseIdx[k].ts) {
+            baseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
+          }
+        });
+        Object.keys(baseIdx).forEach(k => { baseIdx[k] = baseIdx[k].ms; });
+      }
 
       // Group all rows by (label, series-key)
       const groups = {};
@@ -518,7 +538,6 @@ defmodule Mix.Tasks.Awfy.Compare do
         groups[gk].runMeta = DATASET.runs.find(x => x.label === r.label);
       });
 
-      // For each group: intersection of benchmarks with baseline; geomean ratio.
       const seriesByKey = {};
       Object.values(groups).forEach(g => {
         const ratios = [];
@@ -538,7 +557,6 @@ defmodule Mix.Tasks.Awfy.Compare do
         seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: g.label, n_benchmarks: ratios.length });
       });
 
-      // Sort each series' points
       Object.values(seriesByKey).forEach(s => {
         s.data.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
       });
@@ -575,7 +593,9 @@ defmodule Mix.Tasks.Awfy.Compare do
       }));
 
       const yLabel = PAGE_KIND === "suite"
-        ? "geomean ratio vs " + BASELINE_LABEL + " (lower = faster)"
+        ? (BASELINE_LABEL && (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null)
+            ? "geomean ratio vs " + BASELINE_LABEL + " (lower = faster)"
+            : "geomean ratio vs each series's earliest data-point (lower = faster)")
         : "median ms";
 
       if (chart) chart.destroy();

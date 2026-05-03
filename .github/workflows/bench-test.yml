@@ -7,37 +7,36 @@
 # Linux x86/ARM, macOS ARM, Windows x86. Free on public repos.
 # Numbers are noisy (shared infrastructure) but pipeline correctness
 # is the goal: confirm Dockerfile builds, installers work, mix tasks
-# run, gh-pages publish succeeds. Once green across all platforms,
-# promote to bench.yml (AWS + M5).
+# run, gh-pages publish succeeds.
 #
-# Triggers on every push so wiring changes get exercised immediately;
-# inputs default to OTP master. Daily cron belongs in bench.yml,
-# not here.
+# Three triggers, three default scopes for `otp_refs`:
+#   * push            → "master"            (single ref, fast wiring check)
+#   * schedule        → "26,27,28,master"   (cross-version data accumulation)
+#   * workflow_dispatch → user-provided, default "26,27,28,master"
+#
+# `26` / `27` / `28` are shorthand — resolved to the latest patch tag
+# (e.g. `OTP-26.2.5.20`) by the resolve job at run time.
 
 name: bench-test
 
 on:
   push:
+  schedule:
+    # Weekly Monday 06:00 UTC sweep across the 4 reference OTP versions.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
-      otp_ref:
-        description: "OTP ref (branch/tag/SHA) to benchmark"
+      otp_refs:
+        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 26|27|28)"
         required: false
-        default: "master"
-      label:
-        description: "Run label (default: short OTP SHA, suffixed -test)"
-        required: false
-      skip_macos:
-        description: "Skip the macOS leg"
-        required: false
-        type: boolean
-        default: false
+        default: "26,27,28,master"
 
 permissions:
   contents: read
 
 concurrency:
-  group: bench-test-${{ github.event.inputs.otp_ref || 'master' }}
+  # Multiple runs on the same trigger don't need to coexist; later cancels older.
+  group: bench-test-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
@@ -47,32 +46,54 @@ jobs:
     permissions:
       contents: read
     outputs:
-      otp_sha: ${{ steps.r.outputs.sha }}
-      otp_short: ${{ steps.r.outputs.short }}
-      otp_ref: ${{ steps.r.outputs.ref }}
-      label: ${{ steps.r.outputs.label }}
+      targets: ${{ steps.r.outputs.targets }}
     steps:
       - id: r
         env:
-          INPUT_REF: ${{ github.event.inputs.otp_ref || 'master' }}
-          INPUT_LABEL: ${{ github.event.inputs.label }}
+          INPUT_REFS: >-
+            ${{ inputs.otp_refs ||
+                (github.event_name == 'schedule' && '26,27,28,master' || 'master') }}
         run: |
-          REF="$INPUT_REF"
-          SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" | head -1 | cut -f1)"
-          if [ -z "$SHA" ]; then
-            echo "::error::could not resolve $REF on erlang/otp"
-            exit 1
-          fi
-          SHORT="${SHA:0:10}"
-          LABEL="$INPUT_LABEL"
-          [ -z "$LABEL" ] && LABEL="${SHORT}-test"
-          {
-            echo "sha=$SHA"
-            echo "short=$SHORT"
-            echo "ref=$REF"
-            echo "label=$LABEL"
-          } >> "$GITHUB_OUTPUT"
-          echo "Phase-0 benchmarking erlang/otp@$SHA ($REF) as label '$LABEL'"
+          set -euo pipefail
+
+          # Expand shorthand "26"/"27"/"28" to the latest matching OTP-X.Y.Z tag.
+          expand_ref() {
+            local r="$1"
+            case "$r" in
+              2[6-9]|3[0-9])
+                git ls-remote --tags --refs https://github.com/erlang/otp.git "OTP-$r.*" \
+                  | awk '{print $2}' \
+                  | sed 's|refs/tags/||' \
+                  | grep -E "^OTP-$r\.[0-9.]+$" \
+                  | sort -V | tail -1
+                ;;
+              *) echo "$r" ;;
+            esac
+          }
+
+          targets="["
+          sep=""
+          for raw in $(echo "$INPUT_REFS" | tr ',' ' '); do
+            raw="$(echo "$raw" | xargs)" # trim whitespace
+            ref="$(expand_ref "$raw")"
+            if [ -z "$ref" ]; then
+              echo "::error::could not expand shorthand '$raw'"
+              exit 1
+            fi
+            sha="$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1)"
+            if [ -z "$sha" ]; then
+              echo "::error::could not resolve ref '$ref' on erlang/otp"
+              exit 1
+            fi
+            short="${sha:0:10}"
+            label="${short}-test"
+            targets="${targets}${sep}{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\"}"
+            sep=","
+            echo "Resolved $raw → $ref → $sha"
+          done
+          targets="${targets}]"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+          echo "Targets: $targets"
 
   build-linux:
     needs: resolve
@@ -82,10 +103,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
-          - { arch: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
-    runs-on: ${{ matrix.runner }}
+        target: ${{ fromJson(needs.resolve.outputs.targets) }}
+        arch:
+          - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
+          - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.arch.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,28 +122,29 @@ jobs:
         with:
           context: .
           file: Dockerfile.linux
-          platforms: ${{ matrix.platform }}
+          platforms: ${{ matrix.arch.platform }}
           push: true
           build-args: |
-            OTP_SHA=${{ needs.resolve.outputs.otp_sha }}
+            OTP_SHA=${{ matrix.target.sha }}
           tags: |
-            ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}-test
-          cache-from: type=gha,scope=linux-${{ matrix.arch }}
-          cache-to: type=gha,scope=linux-${{ matrix.arch }},mode=max
+            ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test
+          cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
+          cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
 
   measure-linux:
     needs: [resolve, build-linux]
     permissions:
       contents: read
-      packages: read   # pull image from GHCR
+      packages: read
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: x86_64, runner: ubuntu-latest }
-          - { arch: arm64,  runner: ubuntu-24.04-arm }
+        target: ${{ fromJson(needs.resolve.outputs.targets) }}
+        arch:
+          - { name: x86_64, runner: ubuntu-latest }
+          - { name: arm64,  runner: ubuntu-24.04-arm }
         flavor: [jit, emu]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -132,11 +155,11 @@ jobs:
             | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Pull benchmark image
         run: |
-          docker pull "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}-test"
+          docker pull "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test"
       - name: Preflight (advisory only — GHA runners always WARN)
         run: |
           docker run --rm \
-            "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}-test" \
+            "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test" \
             awfy.preflight || true
       - name: Measure (${{ matrix.flavor }})
         env:
@@ -146,13 +169,13 @@ jobs:
           docker run --rm \
             -e ERL_FLAGS="$ERL_FLAGS_VAL" \
             -v "$PWD/results:/app/results" \
-            "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}-test" \
+            "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test" \
             awfy.measure \
-              --label "${{ needs.resolve.outputs.label }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}" \
+              --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
               --ignore-preflight
       - uses: actions/upload-artifact@v4
         with:
-          name: results-linux-${{ matrix.arch }}-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
           path: results/
           retention-days: 7
 
@@ -164,6 +187,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets) }}
         flavor: [jit, emu]
     runs-on: windows-latest
     steps:
@@ -174,9 +198,7 @@ jobs:
         shell: pwsh
         env:
           OTP_WIN_INSTALLER_URL: ${{ vars.OTP_WIN_INSTALLER_URL }}
-          OTP_REF: ${{ needs.resolve.outputs.otp_ref }}
-          # Used by `gh run download` against erlang/otp to fetch the
-          # CI installer artifact for non-tag refs.
+          OTP_REF: ${{ matrix.target.ref }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
@@ -200,18 +222,18 @@ jobs:
           mix compile
       - name: Preflight (advisory only — GHA runners always WARN)
         shell: pwsh
-        run: mix awfy.preflight; if ($LASTEXITCODE -ne 0) { exit 0 }
+        run: mix awfy.preflight || $true
       - name: Measure (${{ matrix.flavor }})
         shell: pwsh
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
         run: |
           mix awfy.measure `
-            --label "${{ needs.resolve.outputs.label }}-windows-x86_64-${{ matrix.flavor }}" `
+            --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
             --ignore-preflight
       - uses: actions/upload-artifact@v4
         with:
-          name: results-windows-x86_64-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
           path: results/
           retention-days: 7
 
@@ -219,10 +241,10 @@ jobs:
     needs: resolve
     permissions:
       contents: read
-    if: ${{ github.event.inputs.skip_macos != 'true' }}
     strategy:
       fail-fast: false
       matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets) }}
         flavor: [jit, emu]
     runs-on: macos-latest
     steps:
@@ -234,13 +256,12 @@ jobs:
       - name: Build OTP from source
         id: otp
         env:
-          OTP_REF: ${{ needs.resolve.outputs.otp_ref }}
+          OTP_REF: ${{ matrix.target.ref }}
         run: |
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
       - name: Install Elixir
-        run: |
-          brew install elixir
+        run: brew install elixir
       - name: Compile awfy
         run: |
           mix local.hex --force
@@ -254,11 +275,11 @@ jobs:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
         run: |
           mix awfy.measure \
-            --label "${{ needs.resolve.outputs.label }}-macos-arm64-${{ matrix.flavor }}" \
+            --label "${{ matrix.target.label }}-macos-arm64-${{ matrix.flavor }}" \
             --ignore-preflight
       - uses: actions/upload-artifact@v4
         with:
-          name: results-macos-arm64-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-macos-arm64-${{ matrix.flavor }}
           path: results/
           retention-days: 7
 
@@ -286,45 +307,46 @@ jobs:
         run: |
           if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
             git fetch origin gh-pages
-            git worktree add -B gh-pages site origin/gh-pages
+            git worktree add -B gh-pages _pages origin/gh-pages
           else
-            git worktree add --orphan -b gh-pages site
-            (cd site && git rm -rf . 2>/dev/null || true)
+            git worktree add --orphan -b gh-pages _pages
+            (cd _pages && git rm -rf . || true)
           fi
 
-      - name: Merge new run dirs into gh-pages
+      - name: Stage new run-dirs
         run: |
           shopt -s nullglob
-          for art in artifacts/results-*/; do
+          for art in artifacts/*/; do
             for run in "$art"*/; do
-              [ -d "$run" ] || continue
-              name="$(basename "$run")"
-              dest="site/$name"
-              [ -e "$dest" ] && continue
+              base="$(basename "$run")"
+              dest="_pages/$base"
+              if [ -d "$dest" ]; then
+                echo "[skip] $base already on gh-pages"
+                continue
+              fi
               cp -r "$run" "$dest"
+              echo "[copy] $base"
             done
           done
 
-      - name: Generate dashboard
+      - name: Regenerate dashboard
         run: |
-          shopt -s nullglob
-          metas=(site/*/meta.json)
-          if (( ${#metas[@]} == 0 )); then
-            echo "no run dirs in site/ — nothing to publish"
-            exit 0
-          fi
           mix deps.get
-          mix awfy.compare --out site
+          mix compile
+          mix awfy.compare --out _pages
 
-      - name: Commit and push
+      - name: Commit + push
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
         run: |
-          cd site
+          cd _pages
           git add -A
           if git diff --staged --quiet; then
-            echo "no changes to publish"
+            echo "[publish] no changes"
             exit 0
           fi
-          git -c user.name="github-actions[bot]" \
-              -c user.email="github-actions[bot]@users.noreply.github.com" \
-              commit -m "publish-test: ${{ needs.resolve.outputs.label }} ($(date -u +%Y-%m-%d))"
+          git commit -m "bench-test: $(date -u +%Y-%m-%dT%H:%MZ)"
           git push origin gh-pages
