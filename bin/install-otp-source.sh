@@ -81,6 +81,12 @@ fi
 make -j"$JOBS"
 make install
 
+# Build and install the non-JIT (interpreter) emulator alongside the
+# default JIT one. After this, both `-emu_flavor jit` and
+# `-emu_flavor emu` resolve under the same prefix.
+make -j"$JOBS" FLAVOR=emu
+make FLAVOR=emu install
+
 # Verify the install runs at all. We don't try `-emu_flavor jit/emu`
 # here — the available flavor names changed across OTP versions
 # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill

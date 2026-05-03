@@ -52,7 +52,9 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         --without-et \
         --without-jinterface && \
     make -j"$(nproc)" && \
-    make install
+    make install && \
+    make -j"$(nproc)" FLAVOR=emu && \
+    make FLAVOR=emu install
 
 # Sanity: confirm `erl` runs. We don't try `-emu_flavor jit/emu` here —
 # the available flavor names changed across OTP versions (OTP 26/27:

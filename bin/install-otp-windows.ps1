@@ -3,17 +3,26 @@
 
 # Install OTP on the Windows benchmark runner.
 #
-# Two modes:
+# Three modes (selected automatically by `-OtpRef`):
 #   1. Release tag (e.g. "OTP-28.0", "v28.0") — fetched from the
 #      erlang/otp GitHub Releases as `otp_win64_<version>.exe`.
-#   2. master / arbitrary SHA — fetched from the upstream OTP CI
-#      master-build artifact ($OtpMasterInstallerUrl). The artifact
-#      URL is configurable via the env var below or the -InstallerUrl
-#      parameter, since the upstream URL pattern may shift.
+#   2. Branch / SHA (e.g. "master", "d900a834d0…") — resolved against
+#      erlang/otp's `Build and check Erlang/OTP` workflow, downloading
+#      the `otp_win32_installer` artifact from the most recent
+#      successful run on that ref. (Despite the artifact name, the
+#      file inside is the 64-bit installer.)
+#   3. Manual override — pass `-InstallerUrl` or set
+#      `OTP_WIN_INSTALLER_URL` to a stable URL pointing at an .exe.
 #
-# Usage (CI):
-#   ./bin/install-otp-windows.ps1 -OtpRef master -InstallerUrl <url>
+# Modes 2 + 3 require `gh` CLI on PATH and a token with
+# `actions:read` on erlang/otp (the standard `GITHUB_TOKEN` GHA
+# provides is fine on public repos).
+#
+# Usage:
 #   ./bin/install-otp-windows.ps1 -OtpRef OTP-28.0
+#   ./bin/install-otp-windows.ps1 -OtpRef master
+#   ./bin/install-otp-windows.ps1 -OtpRef <sha>
+#   ./bin/install-otp-windows.ps1 -OtpRef foo -InstallerUrl <url>
 #
 # The script writes the install prefix path to stdout on success so
 # callers can capture and add it to PATH.
@@ -27,22 +36,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Resolve-InstallerUrl {
-    param([string]$Ref, [string]$Url)
-
-    if ($Url) { return $Url }
-
-    # Treat refs that look like release tags as Releases lookups.
-    if ($Ref -match "^(OTP-|v)\d") {
-        $tag = $Ref -replace "^v", "OTP-"
-        $version = $tag -replace "^OTP-", ""
-        return "https://github.com/erlang/otp/releases/download/$tag/otp_win64_$version.exe"
-    }
-
-    throw "OtpRef '$Ref' is not a release tag — pass -InstallerUrl explicitly or set OTP_WIN_INSTALLER_URL"
-}
-
-$installerUrl = Resolve-InstallerUrl -Ref $OtpRef -Url $InstallerUrl
 $prefix = Join-Path $InstallRoot $OtpRef
 $installer = Join-Path $env:TEMP "otp_win64_installer.exe"
 
@@ -54,8 +47,71 @@ if (Test-Path (Join-Path $prefix "bin\erl.exe")) {
 
 New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
 
-Write-Host "Downloading $installerUrl"
-Invoke-WebRequest -Uri $installerUrl -OutFile $installer -UseBasicParsing
+# Download the installer into $installer using whichever resolution
+# strategy fits the ref.
+function Fetch-FromUrl {
+    param([string]$Url)
+    Write-Host "Downloading $Url"
+    Invoke-WebRequest -Uri $Url -OutFile $installer -UseBasicParsing
+}
+
+function Fetch-FromTag {
+    param([string]$Ref)
+    $tag = $Ref -replace "^v", "OTP-"
+    $version = $tag -replace "^OTP-", ""
+    Fetch-FromUrl "https://github.com/erlang/otp/releases/download/$tag/otp_win64_$version.exe"
+}
+
+function Fetch-FromCiArtifact {
+    param([string]$Ref)
+
+    # Find the most recent run of the build workflow for this ref.
+    Write-Host "Locating erlang/otp build run for ref '$Ref' …"
+    $runJson = gh api `
+        "repos/erlang/otp/actions/runs?branch=$Ref&per_page=20" `
+        --jq '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0]'
+
+    if (-not $runJson -or $runJson -eq "null") {
+        # Fall back to head_sha lookup in case Ref is a SHA, not a branch.
+        $runJson = gh api `
+            "repos/erlang/otp/actions/runs?head_sha=$Ref&per_page=20" `
+            --jq '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0]'
+    }
+
+    if (-not $runJson -or $runJson -eq "null") {
+        throw "No 'Build and check Erlang/OTP' run found for ref '$Ref'"
+    }
+
+    $run = $runJson | ConvertFrom-Json
+    Write-Host "Found run id=$($run.id) sha=$($run.head_sha) status=$($run.status) conclusion=$($run.conclusion)"
+
+    # Pull the otp_win32_installer artifact (which is the 64-bit
+    # installer despite the name — see header comment).
+    $tmpDir = Join-Path $env:TEMP "otp_win_artifact"
+    Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+
+    gh run download $run.id --repo erlang/otp --name otp_win32_installer --dir $tmpDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "gh run download failed (exit $LASTEXITCODE)"
+    }
+
+    $exe = Get-ChildItem -Path $tmpDir -Filter "otp_win64_*.exe" `
+        | Select-Object -First 1
+    if (-not $exe) {
+        throw "no otp_win64_*.exe found inside artifact"
+    }
+
+    Move-Item -Force $exe.FullName $installer
+}
+
+if ($InstallerUrl) {
+    Fetch-FromUrl $InstallerUrl
+} elseif ($OtpRef -match "^(OTP-|v)\d") {
+    Fetch-FromTag $OtpRef
+} else {
+    Fetch-FromCiArtifact $OtpRef
+}
 
 Write-Host "Installing to $prefix"
 # /S = silent, /D=<path> = install dir (NSIS convention; must be last and unquoted)

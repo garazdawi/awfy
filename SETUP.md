@@ -134,20 +134,23 @@ The same `mix awfy.fill` works on any platform — handy if you
 ever want to fill from a Windows VM or a Linux ARM box without
 adding it to CodeBuild.
 
-## 4. Optional: Windows installer URL for master commits
+## 4. Windows installer resolution (no setup needed)
 
-By default the Windows job resolves OTP refs that look like release
-tags (`OTP-28.0`, `v28.0`) via GitHub Releases. For arbitrary master
-SHAs, set repository variable `OTP_WIN_INSTALLER_URL` (Settings →
-Variables → Actions) to a stable URL pattern. Examples:
+The Windows job picks the right installer automatically:
 
-- A static URL pointing at the latest upstream master installer
-  artifact.
-- An S3 bucket the operator publishes to via a separate cron job
-  that mirrors upstream CI artifacts.
+- **Tagged releases** (`OTP-28.0`, `v28.0`) → `otp_win64_<ver>.exe`
+  from `erlang/otp` Releases.
+- **Branch / SHA** (`master`, `<sha>`) → the `otp_win32_installer`
+  artifact from the most recent `Build and check Erlang/OTP` run on
+  that ref. (The artifact name is legacy "Win32" nomenclature; the
+  file inside is the 64-bit installer.)
+- **Override** — set repository variable `OTP_WIN_INSTALLER_URL`
+  (Settings → Variables → Actions) to a stable URL to bypass both
+  paths. Useful if you need a specific installer build that isn't
+  the upstream-CI one.
 
-If unset, master sweeps will fail the Windows leg until configured.
-The workflow's other legs continue normally.
+The artifact path uses the `GITHUB_TOKEN` already granted to the
+workflow (via `permissions: actions: read`); no extra secret needed.
 
 ## 5. First-run sanity check
 
