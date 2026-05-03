@@ -292,7 +292,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       "rows" => rows_json
     }
 
-    payload |> :json.encode() |> IO.iodata_to_binary()
+    Jason.encode!(payload)
   end
 
   # =====================================================================

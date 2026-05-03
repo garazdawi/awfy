@@ -254,8 +254,7 @@ defmodule Mix.Tasks.Awfy.Measure do
       "benchmarks" => benchmark_records(ctx)
     }
 
-    json_iodata = :json.encode(meta)
-    File.write!(Path.join(dir, "meta.json"), json_iodata)
+    File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
   end
 
   defp benchmark_records(ctx) do

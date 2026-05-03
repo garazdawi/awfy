@@ -23,7 +23,9 @@ defmodule Awfy.MixProject do
 
   defp deps do
     [
-      {:benchee, "~> 1.5", only: [:dev, :test], runtime: false}
+      {:benchee, "~> 1.5", only: [:dev, :test], runtime: false},
+      # OTP's `:json` module is OTP-27+; we measure against OTP 26 too.
+      {:jason, "~> 1.4"}
     ]
   end
 end

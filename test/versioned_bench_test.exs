@@ -39,7 +39,7 @@ defmodule AwfyTest.VersionedBench do
     assert File.dir?(run_dir)
 
     meta_json = File.read!(Path.join(run_dir, "meta.json"))
-    {meta, _, _} = :json.decode(meta_json, :ok, %{})
+    meta = Jason.decode!(meta_json)
 
     assert meta["format_version"] == 1
     assert meta["label"] == "test1"

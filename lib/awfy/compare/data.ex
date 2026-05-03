@@ -77,7 +77,7 @@ defmodule Awfy.Compare.Data do
     meta_path = Path.join(dir, "meta.json")
 
     with {:ok, json} <- File.read(meta_path),
-         {meta, _, _} <- :json.decode(json, :ok, %{}) do
+         {:ok, meta} <- Jason.decode(json) do
       %{
         dir: dir,
         label: get(meta, "label"),
