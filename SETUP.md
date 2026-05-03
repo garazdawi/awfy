@@ -152,12 +152,21 @@ The workflow's other legs continue normally.
 ## 5. First-run sanity check
 
 1. **Manually trigger the workflow** with `workflow_dispatch`,
-   `otp_ref=master`, `skip_macos=true` (skip M5 the first time).
+   `otp_ref=master`. The workflow has no `skip_macos` toggle —
+   macOS isn't part of `bench.yml` at all (it's local-fill, see
+   section 3).
 2. Wait for `build-linux` to push images to GHCR.
 3. Watch `measure-linux` jobs queue and run on CodeBuild — first run
    will be slow (cold layer cache, ~15 min total). Subsequent runs
    reuse the cache.
 4. Confirm `publish` creates the `gh-pages` branch and pushes.
 5. Visit `https://<owner>.github.io/<repo>/` — should show the AWFY
-   dashboard with one set of timings.
-6. Re-run with `skip_macos=false` once the M5 runner is registered.
+   dashboard with Linux + Windows timings.
+6. On the M5: `mix awfy.fill` to add the macOS-arm64 column, then
+   `git -C _pages push origin gh-pages` to publish.
+
+For a no-AWS dry run of the wiring, use the parallel
+`bench-test.yml` workflow — it runs the same matrix on
+GHA-hosted runners (free, noisy timings). See
+`CLOUD_BENCH_PLAN.md` § Phase 0 for what it does and doesn't
+validate.

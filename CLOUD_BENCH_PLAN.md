@@ -47,9 +47,17 @@ commits per year, of which a handful shift the suite by >2%.
                      │  measure-linux-x86       │ ── docker run on AWS c7i.large
                      │  measure-linux-arm       │ ── docker run on AWS c7g.large
                      │  measure-windows         │ ── installer on AWS c7i+Win
-                     │  measure-macos           │ ── self-hosted on M5
                      │                          │
-                     │  collect-results         │ ── upload to S3 / artifact
+                     │  publish (gh-pages)      │ ── push run-dirs + dashboard
+                     └──────────────────────────┘
+                                                   ▲
+                                                   │ git push
+                                                   │
+                     ┌──────────────────────────┐  │
+   user, on M5 ────► │ mix awfy.fill            │──┘
+                     │  reads gh-pages, runs    │
+                     │  missing macos-arm64     │
+                     │  SHAs, commits locally   │
                      └──────────────────────────┘
 ```
 
@@ -63,11 +71,15 @@ commits per year, of which a handful shift the suite by >2%.
 - **Windows** — Each OTP commit produces an installer in upstream CI; the
   AWS Windows runner downloads, installs, and measures. No Docker
   (Windows containers are slow + expensive).
-- **macOS ARM64** — Self-hosted GHA runner on the M5, labeled
-  `macos-m5`. Build via standard `./configure && make` (~8 min on M5).
-- **GHA hosted runners are NOT used for measurement** — too noisy
-  (shared infrastructure, virtualised). They're fine for *building* the
-  Docker image, just not for timing.
+- **macOS ARM64** — Local-fill via `mix awfy.fill` on the M5. The cloud
+  workflow doesn't depend on macOS to publish; the M5 picks up missing
+  SHAs from gh-pages on the operator's schedule. See
+  `FILL_TASK_PLAN.md`.
+- **GHA hosted runners are NOT used for measurement in `bench.yml`** —
+  too noisy (shared infrastructure, virtualised). They're fine for
+  *building* the Docker image. The parallel `bench-test.yml` workflow
+  uses them for end-to-end pipeline validation only — see Phase 0
+  below.
 
 ## Cost per sweep
 
@@ -78,7 +90,7 @@ A "sweep" = one `(commit, platform, jit/emu)` matrix run = 8 measurements.
 | Linux x86 (Docker pull + run) | ~13 min | $0.09/h | $0.02 |
 | Linux ARM (Docker pull + run) | ~13 min | $0.07/h | $0.02 |
 | Windows x86 (installer + measure) | ~20 min | $0.18/h | $0.06 |
-| macOS ARM (M5, self-hosted) | n/a | $0 | $0 |
+| macOS ARM (M5, local fill) | n/a | $0 | $0 |
 | | | **Total** | **~$0.10** |
 
 **Annualised**:
@@ -105,7 +117,7 @@ or asking the user to start a self-hosted runner.
 | `build-linux` (already) | `ubuntu-latest`, `ubuntu-24.04-arm` |
 | `measure-linux` | `ubuntu-latest`, `ubuntu-24.04-arm` |
 | `measure-windows` | `windows-latest` |
-| `measure-macos` | `macos-latest` (Apple Silicon) |
+| `measure-macos` | `macos-latest` (Apple Silicon — Phase-0 only, replaces local fill for the GHA dry run) |
 | `publish` (already) | `ubuntu-latest` |
 
 **What Phase 0 validates:**
@@ -178,21 +190,22 @@ Triggers:
 - Daily `schedule` cron as a fallback (catches anything the path filter
   missed).
 
-Matrix:
+Matrix (cloud-driven legs only — macOS lives in `mix awfy.fill`):
 ```yaml
 strategy:
   matrix:
     target:
-      - { os: linux,   arch: x86_64, runner: ubuntu-latest }
-      - { os: linux,   arch: arm64,  runner: ubuntu-24.04-arm }
-      - { os: windows, arch: x86_64, runner: windows-latest }   # build only
-      - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5] }
+      - { os: linux,   arch: x86_64, runner: codebuild-awfy-bench-linux-x86_64 }
+      - { os: linux,   arch: arm64,  runner: codebuild-awfy-bench-linux-arm64 }
+      - { os: windows, arch: x86_64, runner: codebuild-awfy-bench-windows }
 ```
 
 Build jobs (Linux only) push to
-`ghcr.io/<org>/awfy-bench:<otp-sha>-<arch>`. Measure jobs (all four)
-take the artifact, run `mix awfy.preflight && mix awfy.measure`, upload
-`results/<run-dir>/` to S3 + as a workflow artifact.
+`ghcr.io/<org>/awfy-bench:<otp-sha>-<arch>`. Measure jobs take the
+artifact, run `mix awfy.preflight && mix awfy.measure`, upload
+`results/<run-dir>/` as a workflow artifact, then `publish` aggregates
+them onto `gh-pages`. macOS results join the dashboard later, when the
+operator runs `mix awfy.fill` and pushes.
 
 ### AWS runner provisioning
 
@@ -213,17 +226,18 @@ Two options — pick one to start, switch later if needed:
 Start with B for time-to-first-measurement, migrate to A if the daily
 cost outgrows it.
 
-### Self-hosted M5 runner
+### macOS via local-fill (no self-hosted runner)
 
-`actions-runner` daemon installed on the M5 with label `macos-m5`. The
-preflight gate (`mix awfy.measure` already calls
-`Awfy.Preflight.blocking_warnings/0`) refuses to start if the M5 is
-under load — i.e. the user is in the middle of a build. Job retries
-automatically the next time the runner is idle.
+The M5 is the operator's daily-driver, not a CI box, so it is **not**
+registered as a self-hosted GHA runner. macOS measurements are driven
+locally by `mix awfy.fill`, which reads `gh-pages`, computes which
+SHAs are missing for `macos-arm64`, and runs them on the operator's
+schedule. See `FILL_TASK_PLAN.md` for the design and `SETUP.md` § 3
+for the operator workflow.
 
-For dedicated benchmark windows: optionally a launchd job that disables
-Spotlight + Time Machine + nightly cron during a scheduled window.
-Out of scope for v1.
+The preflight gate (`Awfy.Preflight.blocking_warnings/0`) protects each
+local run from drifting into measurement under noisy conditions —
+Spotlight indexing, Time Machine, low battery, etc.
 
 ## Open questions
 
@@ -256,24 +270,33 @@ Out of scope for v1.
 
 ## Sequence
 
-1. Spike: build the Docker image locally, run a measure inside it on
-   this Mac, sanity-check that timings match a bare install (within ±1%).
-2. Write the GHA workflow with the Linux-only Docker build first; have
-   the measure job run on `ubuntu-latest` (free, but noisy) to validate
-   the full pipeline end-to-end.
-3. Wire AWS runner provisioning (option B — CodeBuild-as-runner).
-4. Add Windows installer fetch + measure.
-5. Register the M5 as a self-hosted runner.
-6. Wire `mix awfy.compare` against the S3 archive; publish a Pages site.
-7. Tune emu-pass `:time` once enough samples are in.
+1. ~~Author `Dockerfile.linux` for the build/measure split.~~
+   Sanity-check that timings inside the container match a bare
+   install (within ±1%): pending — requires a Linux x86 host (the
+   M5 can build the image but can't time-validate it under QEMU).
+   Will fall out of Phase 0 / first dedicated-runner sweep.
+2. ~~Write the GHA workflow with the Linux-only Docker build first.~~
+   (`bench.yml`; Phase-0 `bench-test.yml` for hosted-runner validation.)
+3. ~~Wire AWS runner provisioning (option B — CodeBuild-as-runner).~~
+   Workflow uses `runs-on: codebuild-…`; CodeBuild project setup
+   is documented in `SETUP.md` (the user does this once).
+4. ~~Add Windows installer fetch + measure.~~
+   (`bin/install-otp-windows.ps1` + `measure-windows` job.)
+5. ~~Register the M5 as a self-hosted runner.~~ Replaced by
+   `mix awfy.fill` — see `FILL_TASK_PLAN.md`.
+6. ~~Wire `mix awfy.compare` against the gh-pages archive; publish
+   a Pages site.~~ (`bench.yml` → `publish` job.)
+7. **Pending**: run Phase 0 (`bench-test.yml`) end-to-end on
+   hosted runners, confirm the dashboard renders, then promote to
+   `bench.yml` against AWS.
+8. Tune emu-pass `:time` once enough samples are in.
 
 ## Per-benchmark VM isolation
 
-Every benchmark runs in a fresh BEAM peer node — see
-`ISOLATION_POLICY.md`. Adds ~3 min wall clock to a full sweep
-across the matrix; cost falls within CodeBuild per-minute
-rounding. Land before the network and extended plans start adding
-benchmarks.
+Every benchmark runs in a fresh BEAM peer node (`Awfy.PeerRunner`
+behind `Awfy.BencheeRunner`) — see `ISOLATION_POLICY.md`. Adds
+~3 min wall clock to a full sweep across the matrix; cost falls
+within CodeBuild per-minute rounding.
 
 ## Why not …
 
@@ -281,7 +304,8 @@ benchmarks.
   virtualised, ~5-10× higher CV than dedicated. Fine for *building*,
   not for timing.
 - **Build OTP on AWS** — wastes paid minutes on free GHA work. Only
-  applies to Linux; Windows uses the upstream installer, macOS uses M5.
+  applies to Linux; Windows uses the upstream installer, macOS uses
+  local-fill on the M5.
 - **Renting a Mac in the cloud** (AWS `mac2-m2.metal`, Scaleway,
   MacStadium) — Apple licensing requires 24-hour minimum allocation
   everywhere, so a single sweep costs ~$22 vs $0 on the M5. Only worth

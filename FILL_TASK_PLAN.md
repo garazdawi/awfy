@@ -100,19 +100,18 @@ change needed.
 
 ## Open questions
 
-1. **Where does `_pages/` live in `.gitignore`?** Add to the main
-   branch's `.gitignore` so it never accidentally gets committed
-   into `master`.
+1. ~~Where does `_pages/` live in `.gitignore`?~~ — landed
+   (`.gitignore` includes `_pages/` and `_fill_results/`).
 2. **OTP install caching across SHAs.** The installer scripts are
    content-addressed by SHA; running the task twice for the same
    SHA reuses the cached install. But the cache grows over time
    (~200 MB per SHA). Add a `--prune-otp-older-than <date>` flag
    in v2 if disk pressure becomes real.
 3. **Subprocess output handling.** A 5-minute child `mix awfy.measure`
-   emits a lot of output. Stream it through to the parent's stdout
-   (via `Port.open` with `:stream`) rather than buffering all of it
-   in `System.cmd`'s captured output, otherwise long fills look
-   silent for minutes.
+   emits a lot of output. Currently the task uses `System.cmd` which
+   buffers — long fills look silent for minutes, then dump everything
+   on completion. Switch to `Port.open` with `:stream` (or
+   `IO.stream`) before this becomes annoying in practice.
 4. **Concurrent fills.** If the user has two machines and both run
    `mix awfy.fill` at the same time, they could pick the same SHA
    for the same platform (rare since each machine is a different
@@ -127,19 +126,23 @@ change needed.
 
 ## Sequence
 
-1. Add `_pages/` to `.gitignore`.
-2. Implement `Mix.Tasks.Awfy.Fill` and break out parsing /
-   orchestration into testable helpers.
-3. Wire `_fill_results/` as a temp landing area before moving
-   into `_pages/` (keeps the worktree clean if a run fails partway).
-4. Spike: invoke `mix awfy.fill --dry-run` against a populated
-   gh-pages, validate the SHA-diff math.
-5. End-to-end test: drop one run-dir from a local gh-pages copy,
-   confirm `mix awfy.fill --shas <that-sha>` reproduces it.
-6. Update `SETUP.md` to replace the m5-drain section with the fill
-   task section. Delete `bin/m5-drain.sh`.
-7. Update `bench.yml` to drop the `measure-macos` job (the macOS
-   leg becomes pure local-fill).
+1. ~~Add `_pages/` to `.gitignore`.~~
+2. ~~Implement `Mix.Tasks.Awfy.Fill` and break out parsing /
+   orchestration into testable helpers.~~ (Pure logic in
+   `Awfy.Fill.Diff`, tested in `test/fill/diff_test.exs`.)
+3. ~~Wire `_fill_results/` as a temp landing area before moving
+   into `_pages/` (keeps the worktree clean if a run fails partway).~~
+4. **Pending**: spike `mix awfy.fill --dry-run` against a populated
+   gh-pages, validate the SHA-diff math end-to-end. (Blocked on
+   first cloud Linux run populating gh-pages, or a manual
+   `--shas <sha>` shakeout.)
+5. **Pending**: end-to-end test — drop one run-dir from a local
+   gh-pages copy, confirm `mix awfy.fill --shas <that-sha>`
+   reproduces it.
+6. ~~Update `SETUP.md` to replace the m5-drain section with the fill
+   task section. Delete `bin/m5-drain.sh`.~~
+7. ~~Update `bench.yml` to drop the `measure-macos` job (the macOS
+   leg becomes pure local-fill).~~
 
 ## Why not …
 
