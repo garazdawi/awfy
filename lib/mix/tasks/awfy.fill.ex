@@ -124,10 +124,14 @@ defmodule Mix.Tasks.Awfy.Fill do
     abs_dir = Path.expand(dir)
 
     cond do
-      File.dir?(Path.join(abs_dir, ".git")) or
-          File.exists?(Path.join(abs_dir, "HEAD")) ->
-        {_, 0} = System.cmd("git", ["-C", abs_dir, "fetch", "origin", "gh-pages"])
-        {_, 0} = System.cmd("git", ["-C", abs_dir, "reset", "--hard", "origin/gh-pages"])
+      worktree?(abs_dir) ->
+        # Pull updates if there's an origin/gh-pages to pull from; otherwise
+        # this is an orphan worktree from a prior bootstrap, leave it alone.
+        if remote_has_branch?("gh-pages") do
+          {_, 0} = System.cmd("git", ["-C", abs_dir, "fetch", "origin", "gh-pages"])
+          {_, 0} = System.cmd("git", ["-C", abs_dir, "reset", "--hard", "origin/gh-pages"])
+        end
+
         abs_dir
 
       File.exists?(abs_dir) ->
@@ -146,6 +150,13 @@ defmodule Mix.Tasks.Awfy.Fill do
         File.cd!(abs_dir, fn -> System.cmd("git", ["rm", "-rf", "."], stderr_to_stdout: true) end)
         abs_dir
     end
+  end
+
+  # In a git worktree, `.git` is a regular file ("gitdir: …") pointing at
+  # the main repo. In a plain clone, `.git` is a directory. In a bare
+  # checkout, there's no `.git` at all but `HEAD` lives at the root.
+  defp worktree?(dir) do
+    File.exists?(Path.join(dir, ".git")) or File.exists?(Path.join(dir, "HEAD"))
   end
 
   defp remote_has_branch?(branch) do
