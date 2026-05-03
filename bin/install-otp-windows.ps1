@@ -67,10 +67,11 @@ if ($proc.ExitCode -ne 0) {
     throw "Installer exited $($proc.ExitCode)"
 }
 
-# Confirm both emulator flavors are usable.
+# Confirm erl runs. We don't try `-emu_flavor jit/emu` — flavor names
+# changed across OTP versions (26/27: `smp`; 28+: `jit`/`emu`). The
+# benchmark child sets ERL_FLAGS per-version when emu is requested.
 $erl = Join-Path $prefix "bin\erl.exe"
-& $erl -emu_flavor jit -noshell -eval 'io:format("jit ok~n"),halt()'
-& $erl -emu_flavor emu -noshell -eval 'io:format("emu ok~n"),halt()'
+& $erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
 
 Remove-Item $installer -ErrorAction SilentlyContinue
 Write-Output $prefix

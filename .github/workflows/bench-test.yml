@@ -120,7 +120,11 @@ jobs:
         include:
           - { arch: x86_64, runner: ubuntu-latest }
           - { arch: arm64,  runner: ubuntu-24.04-arm }
-        flavor: [jit, emu]
+        # emu disabled for Phase 0 — the default OTP build only ships
+        # `-emu_flavor smp` (which IS the JIT). Producing a separate
+        # interpreter binary needs extra configure flags we haven't
+        # wired up yet. Track in CLOUD_BENCH_PLAN.md.
+        flavor: [jit]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -160,10 +164,19 @@ jobs:
     needs: resolve
     permissions:
       contents: read
+    # On master refs the Windows leg needs OTP_WIN_INSTALLER_URL
+    # (a stable URL pattern for upstream master installers — see
+    # SETUP.md § 4). Until that's configured at the repo level, let
+    # Windows fail without blocking the rest of the Phase-0 dry run.
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        flavor: [jit, emu]
+        # emu disabled for Phase 0 — the default OTP build only ships
+        # `-emu_flavor smp` (which IS the JIT). Producing a separate
+        # interpreter binary needs extra configure flags we haven't
+        # wired up yet. Track in CLOUD_BENCH_PLAN.md.
+        flavor: [jit]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -219,7 +232,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flavor: [jit, emu]
+        # emu disabled for Phase 0 — the default OTP build only ships
+        # `-emu_flavor smp` (which IS the JIT). Producing a separate
+        # interpreter binary needs extra configure flags we haven't
+        # wired up yet. Track in CLOUD_BENCH_PLAN.md.
+        flavor: [jit]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

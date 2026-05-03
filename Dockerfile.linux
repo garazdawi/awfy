@@ -54,10 +54,11 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     make -j"$(nproc)" && \
     make install
 
-# Sanity: confirm both flavors are present (jit + emu) so the bench
-# can switch via ERL_FLAGS="-emu_flavor emu".
-RUN /usr/local/bin/erl -emu_flavor jit -noshell -eval 'io:format("jit ok~n"),halt()' && \
-    /usr/local/bin/erl -emu_flavor emu -noshell -eval 'io:format("emu ok~n"),halt()'
+# Sanity: confirm `erl` runs. We don't try `-emu_flavor jit/emu` here —
+# the available flavor names changed across OTP versions (OTP 26/27:
+# `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The benchmark child sets
+# ERL_FLAGS per-version when emu is requested.
+RUN /usr/local/bin/erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
 
 FROM debian:bookworm-slim AS app
 ARG ELIXIR_VERSION
