@@ -3,10 +3,7 @@ SPDX-PackageName = "awfy"
 SPDX-PackageSupplier = "Lukas Backström <lukas@erlang.org>"
 
 # Documentation, plan/policy markdown — covered in bulk so we don't
-# need HTML-comment SPDX headers in every prose file. Listed at root
-# *and* `**/*.md` to remain compatible with older reuse-tool versions
-# (notably the one bundled with fsfe/reuse-action@v3) that interpret
-# `**.md` as root-only.
+# need HTML-comment SPDX headers in every prose file.
 [[annotations]]
 path = ["*.md", "**/*.md"]
 precedence = "aggregate"
