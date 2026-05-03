@@ -6,8 +6,13 @@
 # Minimal Linux benchmarking image for AWFY.
 #
 # Build args:
-#   OTP_SHA       — git SHA on erlang/otp to build (resolved upfront)
-#   ELIXIR_VERSION — Elixir release version
+#   OTP_SHA          — git SHA on erlang/otp to build (resolved upfront)
+#   ELIXIR_VERSION   — Elixir release tag (e.g. 1.19.5)
+#   ELIXIR_OTP_MAJOR — OTP major the bundle was built for (26/27/28).
+#                      Selects the elixir-otp-XX.zip download URL.
+#                      Must match the OTP_SHA's major or `mix` will refuse
+#                      to start. Elixir 1.19 dropped OTP 26 — caller picks
+#                      1.18.5 for OTP 26 targets.
 #
 # The OTP build is intentionally trimmed to what AWFY exercises:
 # no wx, odbc, observer, debugger, megaco, et — roughly halves the
@@ -19,6 +24,7 @@
 # cold build (~10 min on a 4-core GHA runner).
 
 ARG ELIXIR_VERSION=1.19.5
+ARG ELIXIR_OTP_MAJOR=28
 
 FROM debian:bookworm-slim AS otp-build
 ARG OTP_SHA
@@ -64,6 +70,7 @@ RUN /usr/local/bin/erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_in
 
 FROM debian:bookworm-slim AS app
 ARG ELIXIR_VERSION
+ARG ELIXIR_OTP_MAJOR
 
 # Runtime deps only — no build chain in the final image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -75,10 +82,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=otp-build /usr/local /usr/local
 ENV PATH=/usr/local/bin:$PATH
 
-# Install Elixir from the official precompiled bundle. Matches the
-# OTP major version baked into the image.
+# Install Elixir from the official precompiled bundle. The bundle name
+# encodes the OTP major it was built against — caller picks the matching
+# pair (Elixir 1.18 ships otp-26/27, Elixir 1.19 ships otp-27/28).
 RUN curl -fL -o /tmp/elixir.zip \
-        "https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/elixir-otp-28.zip" \
+        "https://github.com/elixir-lang/elixir/releases/download/v${ELIXIR_VERSION}/elixir-otp-${ELIXIR_OTP_MAJOR}.zip" \
     && unzip /tmp/elixir.zip -d /usr/local \
     && rm /tmp/elixir.zip
 

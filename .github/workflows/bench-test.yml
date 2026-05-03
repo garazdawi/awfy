@@ -71,6 +71,33 @@ jobs:
             esac
           }
 
+          # Determine the OTP major from the (possibly expanded) ref.
+          # Used downstream to pick the right elixir-otp-XX.zip bundle —
+          # Elixir 1.19 dropped OTP 26, so OTP 26 needs Elixir 1.18.
+          otp_major_for_ref() {
+            local r="$1"
+            case "$r" in
+              OTP-*)
+                echo "$r" | sed 's|^OTP-||' | cut -d. -f1
+                ;;
+              master|main)
+                # Bumps when erlang/otp's master moves to the next major.
+                echo "28"
+                ;;
+              maint-*)
+                echo "$r" | sed 's|^maint-||'
+                ;;
+              *)
+                # Fall back to fetching OTP_VERSION from the resolved SHA.
+                local sha="$2"
+                local v
+                v="$(curl -fsSL "https://raw.githubusercontent.com/erlang/otp/$sha/OTP_VERSION" 2>/dev/null \
+                     | head -1 | cut -d. -f1)"
+                [ -n "$v" ] && echo "$v" || echo "28"
+                ;;
+            esac
+          }
+
           targets="["
           sep=""
           for raw in $(echo "$INPUT_REFS" | tr ',' ' '); do
@@ -87,9 +114,10 @@ jobs:
             fi
             short="${sha:0:10}"
             label="${short}-test"
-            targets="${targets}${sep}{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\"}"
+            major="$(otp_major_for_ref "$ref" "$sha")"
+            targets="${targets}${sep}{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\"}"
             sep=","
-            echo "Resolved $raw → $ref → $sha"
+            echo "Resolved $raw → $ref → $sha (OTP $major)"
           done
           targets="${targets}]"
           echo "targets=$targets" >> "$GITHUB_OUTPUT"
@@ -126,6 +154,8 @@ jobs:
           push: true
           build-args: |
             OTP_SHA=${{ matrix.target.sha }}
+            ELIXIR_OTP_MAJOR=${{ matrix.target.major }}
+            ELIXIR_VERSION=${{ matrix.target.major == '26' && '1.18.5' || '1.19.5' }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test
           cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
@@ -205,11 +235,14 @@ jobs:
           "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Install Elixir
         shell: pwsh
+        env:
+          # Elixir 1.19 dropped OTP 26 — keep 1.18 for OTP 26 only.
+          ELIXIR_VERSION: ${{ matrix.target.major == '26' && '1.18.5' || '1.19.5' }}
+          ELIXIR_OTP_MAJOR: ${{ matrix.target.major }}
         run: |
-          $version = "1.19.5"
-          $url = "https://github.com/elixir-lang/elixir/releases/download/v$version/elixir-otp-28.zip"
+          $url = "https://github.com/elixir-lang/elixir/releases/download/v$env:ELIXIR_VERSION/elixir-otp-$env:ELIXIR_OTP_MAJOR.zip"
           $zip = "$env:TEMP\elixir.zip"
-          $dest = "$env:USERPROFILE\.local\elixir\$version"
+          $dest = "$env:USERPROFILE\.local\elixir\$env:ELIXIR_VERSION"
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           "$dest\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
@@ -261,7 +294,19 @@ jobs:
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
       - name: Install Elixir
-        run: brew install elixir
+        # `brew install elixir` always pulls latest (1.19) which dropped
+        # OTP 26. Use the precompiled bundle so we can pick the right
+        # release per target.
+        env:
+          ELIXIR_VERSION: ${{ matrix.target.major == '26' && '1.18.5' || '1.19.5' }}
+          ELIXIR_OTP_MAJOR: ${{ matrix.target.major }}
+        run: |
+          dest="$HOME/.local/elixir/$ELIXIR_VERSION"
+          mkdir -p "$dest"
+          url="https://github.com/elixir-lang/elixir/releases/download/v$ELIXIR_VERSION/elixir-otp-$ELIXIR_OTP_MAJOR.zip"
+          curl -fL "$url" -o /tmp/elixir.zip
+          unzip -q /tmp/elixir.zip -d "$dest"
+          echo "$dest/bin" >> "$GITHUB_PATH"
       - name: Compile awfy
         run: |
           mix local.hex --force
