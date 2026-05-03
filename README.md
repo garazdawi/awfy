@@ -1,150 +1,190 @@
-# Are We Fast Yet — Erlang + Elixir Port
+# Are We Fast Yet — BEAM continuous benchmarking
 
-Mix project porting [Are We Fast Yet (AWFY)](https://github.com/smarr/are-we-fast-yet) to **both Erlang and Elixir**. AWFY is the de-facto cross-language JIT comparison suite — 14 benchmarks already ported to 11 languages. Adding BEAM ports lets us measure JIT progress against V8, YJIT, LuaJIT, JVM, and others on the same code.
+Mix project porting [Are We Fast Yet (AWFY)](https://github.com/smarr/are-we-fast-yet)
+to **Erlang and Elixir**, with the surrounding infrastructure to run the
+suite continuously across OTP commits and platforms.
 
-- **Detailed plan**: [`PORT_PLAN.md`](PORT_PLAN.md)
-- **Motivation**: [`../IDEAS/32-jit-benchmarks.md`](../IDEAS/32-jit-benchmarks.md)
-- **Upstream reference**: [`upstream/`](upstream/) (git submodule of `smarr/are-we-fast-yet`)
+Two layered concerns live here:
 
-## Layout
+1. **The benchmarks.** All 14 AWFY benchmarks ported twice — once in Erlang,
+   once in Elixir — preserving the original algorithms and data structures
+   so the BEAM numbers compare cleanly against the upstream Ruby/JS/JVM
+   ports.
+2. **The infrastructure.** Mix tasks and a GitHub Actions workflow that
+   measure every relevant `erlang/otp` master commit on Linux + Windows
+   in CI, plus a cross-platform `mix awfy.fill` task that lets any local
+   machine (M5, Windows VM, ARM Linux box) backfill the remaining columns
+   on its own schedule. Results publish to `gh-pages` as a static HTML
+   dashboard.
+
+Live dashboard: https://garazdawi.github.io/awfy/ (once Pages is enabled
+on the published `gh-pages` branch).
+
+## What lives here
 
 ```
 awfy/
-├── upstream/                       # AWFY source (submodule, reference only)
-├── PORT_PLAN.md                    # detailed port plan
-├── .tool-versions                  # asdf: erlang 28.4.1, elixir 1.19.5, ruby 3.3.0
-├── mix.exs                         # single Mix project for both ports
-├── lib/                            # Elixir benchmarks
-│   ├── awfy.ex                     # public API
-│   └── awfy/
-│       ├── benchmark.ex            # Elixir behaviour
-│       ├── random.ex               # SOM-compatible LCG
-│       └── benchmarks/
-│           └── bounce.ex
-├── src/                            # Erlang benchmarks (compiled by mix)
-│   ├── awfy_benchmark.erl          # Erlang behaviour
-│   ├── awfy_random.erl
-│   └── awfy_bounce.erl
-└── test/
-    ├── test_helper.exs
-    ├── benchmarks_test.exs         # one ExUnit test per registered benchmark
-    └── random_test.exs             # Random ports match Ruby reference
+├── src/                           # 14 Erlang benchmarks + SOM Vector helpers
+├── lib/awfy/benchmarks/           # 14 Elixir benchmarks
+├── lib/awfy/                      # framework: BencheeRunner, PeerRunner,
+│   │                              #            Compare.Data, Fill.Diff,
+│   │                              #            Measure.Helpers, Preflight.Parse
+│   ├── compare/                   # cross-version dashboard data + math
+│   ├── fill/                      # platform diff for `mix awfy.fill`
+│   ├── measure/                   # label/run-dir naming
+│   └── preflight/                 # OS-specific stability parsers
+├── lib/mix/tasks/                 # awfy.{benchee,measure,compare,diff,fill,preflight}
+├── bin/                           # install-otp-source.sh / -windows.ps1 /
+│                                  # measure-versions (asdf sweep)
+├── test/                          # 165 ExUnit tests
+├── .github/workflows/             # bench.yml (prod), bench-test.yml (Phase-0),
+│                                  # reuse.yml (license compliance)
+├── upstream/                      # AWFY source (submodule, reference only)
+├── *.md                           # plan docs — see "Documentation" below
+└── mix.exs
 ```
 
-## Running the tests
+## Mix tasks
 
-```
-$ mix test
-....
-Finished in 0.00 seconds (0.00s async, 0.00s sync)
-4 tests, 0 failures
-```
+| Task                  | Purpose |
+|-----------------------|---------|
+| `mix awfy.benchee`    | Interactive Benchee runner, the inner-loop tool when you're tuning a JIT change. |
+| `mix awfy.measure`    | Record one OTP+Elixir version's numbers under `results/<run-dir>/`. Runs the preflight gate first. |
+| `mix awfy.compare`    | Generate the static HTML dashboard from `results/`. |
+| `mix awfy.diff`       | Console two-label delta with per-benchmark % change and a suite geomean. |
+| `mix awfy.fill`       | Cross-platform: read `gh-pages`, find `(SHA, platform, flavor)` tuples missing for the current host, run them locally, commit (no push). |
+| `mix awfy.preflight`  | System check for Low-Power-Mode, Spotlight, swap pressure, CPU governor, etc. |
 
-Each registered benchmark gets one test that runs `inner_benchmark_loop(1)` and asserts the result is correct. As we port more benchmarks, each new one adds two tests (Erlang + Elixir).
+Run `mix help awfy.<task>` for the full option list.
 
-## Benchmarking with Benchee
+## How to use it
 
-The `mix awfy.benchee` task runs benchmarks under [Benchee](https://hexdocs.pm/benchee), which gives us an interactive Erlang-vs-Elixir comparison alongside ips/median/deviation.
+### Compare two OTP versions on your local machine
 
-```
-$ mix awfy.benchee Bounce
-=== Bounce (inner_iter=1500) ===
+```sh
+asdf shell erlang 27.3.4.11
+mix awfy.measure --label otp27
 
-Name                    ips        average  deviation         median         99th %
-Bounce/erlang          8.70      114.90 ms     ±1.17%      115.33 ms      116.33 ms
-Bounce/elixir          8.36      119.68 ms     ±5.12%      122.99 ms      125.07 ms
+asdf shell erlang 28.5.0
+mix awfy.measure --label otp28
 
-Comparison:
-Bounce/erlang          8.70
-Bounce/elixir          8.36 - 1.04x slower +4.78 ms
-```
-
-Default `inner_iter` per benchmark mirrors `upstream/rebench.conf`. Common flags:
-
-```
-mix awfy.benchee                       # all benchmarks, both languages
-mix awfy.benchee Bounce                # one benchmark, both languages
-mix awfy.benchee --lang erlang         # all benchmarks, Erlang only
-mix awfy.benchee Bounce --inner-iter 100
-mix awfy.benchee Bounce --time 1 --warmup 0   # quicker iteration
+mix awfy.diff otp27 otp28          # console summary
+mix awfy.compare && open results/index.html   # browser dashboard
 ```
 
-This is the BEAM-native way to iterate on JIT changes — flip `+JMsingle false` (or whichever flag turns T2 on/off when ready) and rerun. For the canonical AWFY-format numbers (matching the upstream `harness.rb` output), use the AWFY-style runner that lands in Phase 5.
+### Sweep across asdf-managed versions in one go
 
-## Versioned benchmarks (cross-version dashboard)
-
-`mix awfy.benchee` is the live tuning loop. For durable, version-tagged measurement and a cross-version dashboard, use `mix awfy.measure` + `mix awfy.compare` (and `mix awfy.diff` for a console regression check). See [`BENCH_VERSIONS_PLAN.md`](BENCH_VERSIONS_PLAN.md) for the design and the locked-in decisions.
-
-```
-# 1. Measure under the current OTP+Elixir, save to results/<auto-label>/
-mix awfy.measure                                  # auto-label = git SHA (or SHA-dirty + ts)
-mix awfy.measure --label before-jit2              # custom label
-mix awfy.measure --benchmarks Bounce,Json         # subset
-mix awfy.measure --lang erlang                    # one language
-
-# 2. Sweep across asdf-managed OTP versions:
-bin/measure-versions 28.4.1 28.5.0 master
-
-# 3. Generate the dashboard
-mix awfy.compare                                  # results/index.html + per-bench/*.html
-mix awfy.compare --baseline before-jit2           # geomean ratios vs that label
-mix awfy.compare --benchmarks Havlak              # one benchmark page only
-
-# 4. Quick console check (no browser needed)
-mix awfy.diff before-jit2 after-jit2
+```sh
+bin/measure-versions 27.3.4.11 28.5.0 master
 ```
 
-Each `mix awfy.measure` writes a directory under `results/`:
+### Tune a JIT change
+
+```sh
+mix awfy.benchee Bounce            # one benchmark, both langs, ~30s
+mix awfy.benchee --lang erlang     # all benchmarks, Erlang only
+mix awfy.benchee Bounce --time 1 --warmup 0  # quick iterations
+```
+
+### Pick up missing measurements from CI (M5 / Windows VM / Linux ARM box)
+
+```sh
+mix awfy.fill                      # find missing SHAs, run, commit locally
+mix awfy.fill --max 3              # cap to N runs per invocation
+mix awfy.fill --dry-run            # show what would run, do nothing
+git -C _pages push origin gh-pages # publish when satisfied (operator action)
+```
+
+`mix awfy.fill` was built so non-Linux runners can stay out of the cloud
+matrix — Linux + Windows publish from CI, then any human-driven box fills
+in its slice on its own schedule. See [`FILL_TASK_PLAN.md`](FILL_TASK_PLAN.md).
+
+## Run-dir layout
+
+Every `mix awfy.measure` invocation writes one directory:
 
 ```
 results/<timestamp>_otp<v>_elixir<v>_<label>/
-├── meta.json          # versions, machine, runtime info, source hashes
-├── Bounce.benchee     # one Benchee save per benchmark
+├── meta.json         # OTP/Elixir versions, machine + CPU info, runtime knobs,
+│                     #   git SHA + dirty flag, per-benchmark source SHA256
+├── Bounce.benchee    # one Benchee save per benchmark
 ├── Havlak.benchee
 └── …
 ```
 
-`meta.json` records OTP/Elixir versions, machine + CPU info, runtime knobs (`emu_flavor`, `schedulers_online`, etc.), git SHA + dirty flag, and a SHA256 of each benchmark's source file. The dashboard reads these to detect inner-iter / machine / source-code mismatches across loaded saves and surfaces them as warnings on the report. Filters in the dashboard let you slice by language, machine, arch, and emu flavor; selections persist via `localStorage` so your view sticks across visits.
+`meta.json` is what the dashboard reads to detect inner-iter / machine /
+source-code mismatches across loaded saves and surface them as warnings.
+The two-pass design (verify, then time) means a regression in one of
+(Erlang, Elixir) doesn't invalidate the other — failing scenarios get
+marked `verified: false` in `meta.json` and skipped in the timing pass.
 
-The two-pass design (verify-then-time) means a regression in one of (Erlang, Elixir) doesn't invalidate the other — failing scenarios get marked `verified: false` in `meta.json` and skipped in the timing pass.
+## Per-benchmark VM isolation
 
-## Running the Ruby reference
+Each benchmark scenario runs in a fresh BEAM peer node (`Awfy.PeerRunner`,
+`:peer.start_link` over `:standard_io`). This eliminates cross-benchmark
+variance from one scenario warming up Mnesia / crypto NIFs / ETS tables
+for the next. Adds ~3 min to a full sweep; see
+[`ISOLATION_POLICY.md`](ISOLATION_POLICY.md) for the cost/benefit
+analysis. Override with `AWFY_NO_ISOLATION=1` for ad-hoc work.
 
-From `upstream/benchmarks/Ruby/`:
+## CI architecture
 
 ```
-ruby harness.rb Bounce     1 100
-ruby harness.rb DeltaBlue  1 100
-ruby harness.rb Richards   1 5
+   master push ───►  ┌──────────────────────────┐
+                     │ GitHub Actions matrix    │
+                     │  build-linux-x86 (free)  │ ── docker push ───► GHCR
+                     │  build-linux-arm (free)  │ ── docker push ───► GHCR
+                     │  measure-linux-x86       │ ── docker run on AWS CodeBuild
+                     │  measure-linux-arm       │ ── docker run on AWS CodeBuild
+                     │  measure-windows         │ ── installer on AWS CodeBuild
+                     │  publish (gh-pages)      │ ── push run-dirs + dashboard
+                     └──────────────────────────┘
+                                                ▲
+                       user, on M5 ─► mix awfy.fill ──┘
 ```
 
-The `inner_iterations` count amortizes startup; AWFY's `rebench.conf` specifies appropriate defaults per benchmark.
+Linux is the cadence (CI on every relevant master commit); macOS joins
+later via local fill; Windows is in the CI matrix today but could move
+to local-fill if CodeBuild's per-minute markup becomes annoying.
 
-## Status
+`bench-test.yml` is a parallel workflow that runs the same matrix on
+free GHA-hosted runners — it validates the wiring end-to-end without
+spending an AWS dollar. Use it before promoting to `bench.yml` against
+CodeBuild. Numbers from hosted runners are too noisy for regression
+detection; this is for pipeline correctness only.
 
-All 14 benchmarks ported in both languages, plus SOM Vector infrastructure.
+See [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) and
+[`SETUP.md`](SETUP.md) for the AWS / CodeBuild setup the repo owner
+does once.
 
-| Benchmark   | Erlang | Elixir | Notes |
-|-------------|--------|--------|-------|
-| Bounce      | ✅     | ✅     | 1331 |
-| List        | ✅     | ✅     | Custom Element record/struct |
-| Mandelbrot  | ✅     | ✅     | InnerIter-dependent verify (1→128, 500→191, 750→50) |
-| NBody       | ✅     | ✅     | InnerIter-dependent verify, bit-exact match at 250000 |
-| Permute     | ✅     | ✅     | 8660 |
-| Queens      | ✅     | ✅     | 8-queens × 10 |
-| Richards    | ✅     | ✅     | bit-exact: queue_count=23246, hold_count=9297 |
-| Sieve       | ✅     | ✅     | 669 (primes ≤ 5000) |
-| Storage     | ✅     | ✅     | 5461 (depth-7 tree) |
-| Towers      | ✅     | ✅     | 8191 = 2^13 - 1 |
-| Json        | ✅     | ✅     | self-contained parser, 25 KB embedded test string |
-| DeltaBlue   | ✅     | ✅     | constraint solver (chain_test + projection_test) |
-| Havlak      | ✅     | ✅     | union-find loop recognizer; bit-exact at iter 1/15/150/1500/15000 |
-| CD          | ✅     | ✅     | custom Red-Black tree, voxel collision detection |
-| **SOM Vector** | ✅ | ✅     | infrastructure for the polymorphic-heavy benchmarks |
+## The 14 benchmarks
 
-## Cross-language numbers (Apple M5, Erlang 28.4.1 + Elixir 1.19.5, Ruby 3.3.0, no YJIT)
+| Benchmark   | Verify result | Notes |
+|-------------|---------------|-------|
+| Bounce      | 1331 | |
+| List        | 10 | Custom `Element` record/struct |
+| Mandelbrot  | InnerIter-dependent (1→128, 500→191, 750→50) | |
+| NBody       | InnerIter-dependent, bit-exact at 250000 | |
+| Permute     | 8660 | |
+| Queens      | 8-queens × 10 | |
+| Richards    | bit-exact: queue_count=23246, hold_count=9297 | |
+| Sieve       | 669 (primes ≤ 5000) | |
+| Storage     | 5461 (depth-7 tree) | |
+| Towers      | 8191 = 2¹³ − 1 | |
+| Json        | self-contained parser, 25 KB embedded test string | |
+| DeltaBlue   | constraint solver (chain_test + projection_test) | |
+| Havlak      | union-find loop recognizer; bit-exact at iter 1/15/150/1500/15000 | |
+| CD          | custom red-black tree, voxel collision detection | |
 
-Single-shot times via `inner_benchmark_loop(N)` with `N` from `upstream/rebench.conf`. Lower is better.
+Plus shared SOM `Vector` infrastructure (`src/awfy_som_vector.erl`,
+`lib/awfy/som/vector.ex`) used by the polymorphic-heavy benchmarks.
+
+## Cross-language snapshot
+
+Single-shot times via `inner_benchmark_loop(N)` with `N` from
+`upstream/rebench.conf`. Apple M5, OTP 28.4.1 + Elixir 1.19.5, Ruby 3.3.0,
+no YJIT. Lower is better. Snapshot — for current/live numbers see the
+dashboard.
 
 | Benchmark   | Iter   | Erlang ms | Elixir ms | Ruby ms | Erlang vs Ruby |
 |-------------|-------:|----------:|----------:|--------:|---------------:|
@@ -163,15 +203,29 @@ Single-shot times via `inner_benchmark_loop(N)` with `N` from `upstream/rebench.
 | DeltaBlue   | 12000  |  1489     |  1442     |   208   | **0.14× (much slower)** |
 | Havlak      |  1500  |   641     |   647     |  1177   | 1.8× faster |
 
-Geomean across all 14: Erlang ~3.0× faster than Ruby, Elixir ~2.7× faster.
+Geomean: Erlang ~3.0× faster than Ruby, Elixir ~2.7× faster.
 
 ### What the numbers say
 
-**Where the BEAM JIT shines (>5× over Ruby)**: List, Towers, Json, Bounce, Queens — code that's loop-heavy, allocates record/tuple values, and benefits cleanly from the JIT specialising on shape.
+**Where the BEAM JIT shines (>5× over Ruby)**: List, Towers, Json,
+Bounce, Queens — code that's loop-heavy, allocates record/tuple values,
+and benefits cleanly from the JIT specialising on shape.
 
-**Where Ruby beats us (Sieve, DeltaBlue)**:
-- **Sieve** is `:array` ops on a 5000-element flag table. The Ruby's mutable `Array#[i]=` is a single store instruction; our persistent `:array` rewrites a HAMT path log-N times per write. Tried switching to a flat 5000-tuple expecting BEAM's destructive-update optimization — it didn't fire across the recursion, ran 25× slower (see `awfy_sieve.erl`). Likely needs `:atomics` or `:counters` to close the gap, but that breaks the persistent-semantics rule. Documented in PROGRESS.md.
-- **DeltaBlue** is the worst result: 7× behind Ruby. Mutation-heavy graph: a Variable holds a constraint list, constraints reference variables, the planner mutates current_mark. The port carries everything in `world` maps keyed by id — every "object access" becomes a `maps:get` and every "field write" a `maps:put`. Ruby's MRI does these as direct pointer writes. The structural overhead is the price of immutability; closing the gap needs either tuple-of-records with destructive `setelement` (try and verify the JIT optimization actually fires this time) or a process-dictionary approach (rule-breaking).
+**Where Ruby beats us (Sieve, DeltaBlue):**
+
+- **Sieve** is `:array` ops on a 5000-element flag table. Ruby's mutable
+  `Array#[i]=` is a single store; our persistent `:array` rewrites a
+  HAMT path log-N times per write. A flat 5000-tuple with `setelement/3`
+  ran 25× slower (the destructive-update optimization didn't fire across
+  the recursion); see `awfy_sieve.erl`. Closing the gap likely needs
+  `:atomics`/`:counters`, which breaks the persistent-semantics rule.
+- **DeltaBlue** is the worst: 7× behind Ruby. Mutation-heavy graph
+  carried in `world` maps keyed by id — every "object access" is a
+  `maps:get`, every "field write" a `maps:put`. MRI does these as direct
+  pointer writes. The structural overhead is the price of immutability;
+  closing the gap needs either tuple-of-records with destructive
+  `setelement` (and verifying the JIT optimization actually fires) or a
+  rule-breaking process-dictionary approach.
 
 ### Erlang vs Elixir
 
@@ -184,20 +238,72 @@ Geomean across all 14: Erlang ~3.0× faster than Ruby, Elixir ~2.7× faster.
 | Sieve       |  1999  |  1369  | 1.5× faster |
 | (others)    |        |        | within ~10% |
 
-**List (2.6×)** and **Richards (2.3×)**: heavy record/struct field access in tight inner loops. Erlang records compile to tuples with positional `element/2` reads (one-instruction); Elixir structs are atom-keyed maps with hash-and-lookup. Gap is the cost of map vs tuple field read on the hot path.
-
-**Storage (Elixir wins, 2.7×)**: builds throwaway depth-7 trees of nil-filled tuples. Elixir's `Tuple.duplicate(nil, size)` may take a faster allocator path than Erlang's `erlang:make_tuple` for this exact shape — needs more investigation.
+**List** and **Richards** punish Elixir's struct field access (atom-keyed
+maps with hash-and-lookup) against Erlang records (positional `element/2`
+reads, one instruction). **Storage** likely catches a faster
+`Tuple.duplicate(nil, n)` allocator path than `:erlang.make_tuple` for
+that exact shape — needs investigation.
 
 ## Optimization pass — Phase 2 findings
 
-After Phase 1 (correctness), one pass over the 14 benchmarks for idiomatic-but-not-rule-breaking improvements. Highlights:
+After Phase 1 (correctness), one pass over the 14 benchmarks for
+idiomatic improvements. Highlights:
 
-- **DeltaBlue chain_test** had `lists:nth(I+1, Vars)` per iteration (O(N²) over 12000 vars). Replaced with pairwise pattern match `[V1, V2 | Rest]` on the chain — O(N). 1864 → 1431 ms (~23% faster).
-- **CD `is_in_voxel`**: Ruby relies on IEEE 754 ±Infinity when motion has zero Δx; Erlang's `/` crashes on /0 and substituting 0.0 made the predicate vacuously true, exploding the recursion (8 sec for inner=2 vs 1 ms after fix).
-- **Sieve tuple-store** experiment (see above) — kept `:array`.
+- **DeltaBlue chain_test** had `lists:nth(I+1, Vars)` per iteration
+  (O(N²) over 12000 vars). Replaced with pairwise `[V1, V2 | Rest]`
+  pattern match on the chain — O(N). 1864 → 1431 ms (~23% faster).
+- **CD `is_in_voxel`**: Ruby relies on IEEE 754 ±Infinity when motion
+  has zero Δx; Erlang's `/` crashes on /0, and substituting 0.0 made
+  the predicate vacuously true, exploding the recursion (8 sec for
+  inner=2 vs 1 ms after fix).
+- **Sieve tuple-store** experiment (above) — kept `:array`.
 
-Open items for the next pass (PROGRESS.md):
+Open items for the next pass — see [`PROGRESS.md`](PROGRESS.md). Notable:
+detect when in-place tuple/binary update optimisations actually fire
+in hot paths (`setelement_inplace`, writable binary), so the
+DeltaBlue/Havlak/CD id-keyed-map structures can be safely restructured
+as tuple-of-records.
 
-- Use `erlc` flags to detect when destructive tuple/binary update optimizations fire in hot paths (`setelement_inplace`, writable binary). For the id-keyed maps in DeltaBlue / Havlak / CD, restructuring as a tuple-of-records with `setelement` could be a big win — *if* the JIT optimization actually applies. The Sieve attempt suggests it doesn't always fire across function calls; need to verify with compiler diagnostics rather than guessing.
-- Json's `:binary.at/2` index access could be replaced with binary pattern matching (the canonical Erlang idiom) to enable the writable-binary optimization on the capture buffer.
-- Tail-call audit on the slowest benchmarks (Havlak, DeltaBlue): every recursive function should be in tail position; non-TC recursion adds heap growth.
+## Documentation
+
+- [`PORT_PLAN.md`](PORT_PLAN.md) — original port plan, per-benchmark notes.
+- [`PROGRESS.md`](PROGRESS.md) — Phase 2 optimization checklist.
+- [`BENCH_VERSIONS_PLAN.md`](BENCH_VERSIONS_PLAN.md) — design behind
+  `mix awfy.measure` / `mix awfy.compare` / `mix awfy.diff`.
+- [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) — CI architecture, AWS
+  CodeBuild rationale, cost analysis.
+- [`SETUP.md`](SETUP.md) — one-time setup for the workflow operator.
+- [`FILL_TASK_PLAN.md`](FILL_TASK_PLAN.md) — `mix awfy.fill` design.
+- [`ISOLATION_POLICY.md`](ISOLATION_POLICY.md) — per-benchmark peer-node
+  isolation rationale.
+- [`LICENSING_POLICY.md`](LICENSING_POLICY.md) — REUSE compliance, mixed
+  AWFY-MIT / framework-Apache-2.0.
+- [`EXTENDED_BENCH_PLAN.md`](EXTENDED_BENCH_PLAN.md) — planned mnesia
+  TPC-B / ETS / scheduler-stress / message-passing families
+  (not implemented).
+- [`NETWORK_BENCH_PLAN_TIER1.md`](NETWORK_BENCH_PLAN_TIER1.md) — planned
+  single-host network ladder (not implemented).
+
+## Tests
+
+```sh
+mix test
+# 165 tests, 0 failures
+```
+
+Coverage: every benchmark has a verify-result test (Erlang + Elixir);
+plus unit tests for `Awfy.PeerRunner`, `Awfy.BencheeRunner`,
+`Awfy.Compare.Data`, `Awfy.Fill.Diff`, `Awfy.Measure.Helpers`, and
+`Awfy.Preflight.Parse`.
+
+## License
+
+- Original framework code (Mix tasks, modules under `lib/awfy/` other
+  than `benchmarks/`, scripts under `bin/`): **Apache-2.0**, copyright
+  Lukas Backström.
+- Ported AWFY benchmarks (`src/awfy_*.erl`, `lib/awfy/benchmarks/*.ex`,
+  `lib/awfy/som/`): **MIT**, attributed to Stefan Marr (upstream).
+- All files carry SPDX headers; the repo is REUSE-compliant. CI enforces
+  this via `.github/workflows/reuse.yml`.
+
+See [`LICENSING_POLICY.md`](LICENSING_POLICY.md).
