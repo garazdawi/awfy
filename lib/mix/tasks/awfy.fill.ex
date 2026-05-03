@@ -59,7 +59,7 @@ defmodule Mix.Tasks.Awfy.Fill do
     Mix.Task.run("compile", [])
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
 
-    platform = opts[:platform] || Diff.detect_platform(:os.type(), to_string(:erlang.system_info(:system_architecture)))
+    platform = opts[:platform] || detect_platform()
     flavors = Diff.parse_csv(opts[:flavors]) || @flavors_default
     pages_dir = opts[:pages_dir] || "_pages"
 
@@ -81,12 +81,11 @@ defmodule Mix.Tasks.Awfy.Fill do
 
     cond do
       target == [] ->
-        Mix.shell().info(
-          "[fill] nothing to do — gh-pages already has #{platform} for every SHA"
-        )
+        Mix.shell().info("[fill] nothing to do — gh-pages already has #{platform} for every SHA")
 
       opts[:dry_run] ->
         Mix.shell().info("[fill] would run #{length(target)} measurement(s):")
+
         Enum.each(target, fn {sha, flavor} ->
           Mix.shell().info("       #{sha} / #{flavor}")
         end)
@@ -111,6 +110,10 @@ defmodule Mix.Tasks.Awfy.Fill do
           """)
         end
     end
+  end
+
+  defp detect_platform do
+    Diff.detect_platform(:os.type(), to_string(:erlang.system_info(:system_architecture)))
   end
 
   # ===================================================================
@@ -247,21 +250,23 @@ defmodule Mix.Tasks.Awfy.Fill do
     out_dir = Path.join("_fill_results", label)
     File.mkdir_p!(out_dir)
 
-    with {_, 0} <- System.cmd("mix", ["local.hex", "--force"], env: env),
-         {_, 0} <- System.cmd("mix", ["local.rebar", "--force"], env: env),
-         {_, 0} <- System.cmd("mix", ["deps.get"], env: env),
-         {_, 0} <- System.cmd("mix", ["compile"], env: env),
-         {_, 0} <-
-           System.cmd(
-             "mix",
-             ["awfy.measure", "--label", label, "--ignore-preflight", "--out", out_dir],
-             env: env
-           ) do
-      {:ok, out_dir}
-    else
-      {out, code} ->
-        {:error, "mix subprocess exited #{code}: #{String.slice(out || "", 0, 500)}"}
-    end
+    steps = [
+      ["local.hex", "--force"],
+      ["local.rebar", "--force"],
+      ["deps.get"],
+      ["compile"],
+      ["awfy.measure", "--label", label, "--ignore-preflight", "--out", out_dir]
+    ]
+
+    Enum.reduce_while(steps, {:ok, out_dir}, fn args, _ ->
+      case System.cmd("mix", args, env: env) do
+        {_, 0} ->
+          {:cont, {:ok, out_dir}}
+
+        {out, code} ->
+          {:halt, {:error, "mix #{hd(args)} exited #{code}: #{String.slice(out || "", 0, 500)}"}}
+      end
+    end)
   end
 
   defp move_results_to_pages(results_dir, pages_dir) do
@@ -284,7 +289,6 @@ defmodule Mix.Tasks.Awfy.Fill do
   defp commit_pages(pages_dir) do
     Mix.shell().info("[fill] regenerating dashboard…")
     {_, 0} = System.cmd("mix", ["awfy.compare", "--out", pages_dir])
-
     {_, 0} = System.cmd("git", ["-C", pages_dir, "add", "-A"])
 
     case System.cmd("git", ["-C", pages_dir, "diff", "--staged", "--quiet"]) do
@@ -292,10 +296,8 @@ defmodule Mix.Tasks.Awfy.Fill do
         Mix.shell().info("[fill] no changes to commit")
 
       {_, 1} ->
-        user = System.get_env("USER", "fill")
-        msg = "fill: #{Date.utc_today() |> Date.to_string()} (#{user})"
+        msg = "fill: #{Date.utc_today()} (#{System.get_env("USER", "fill")})"
         {_, 0} = System.cmd("git", ["-C", pages_dir, "commit", "-m", msg])
     end
   end
-
 end

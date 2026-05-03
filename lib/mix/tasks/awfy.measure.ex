@@ -166,9 +166,7 @@ defmodule Mix.Tasks.Awfy.Measure do
         :ok
 
       warns ->
-        Mix.shell().error(
-          "Preflight: machine state will distort timings during this run:"
-        )
+        Mix.shell().error("Preflight: machine state will distort timings during this run:")
 
         Enum.each(warns, fn {_, label, msg, fix} ->
           Mix.shell().error("  - #{label}: #{msg}")
@@ -187,19 +185,16 @@ defmodule Mix.Tasks.Awfy.Measure do
   end
 
   defp git_state do
-    sha =
-      case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
-        {out, 0} -> String.trim(out)
-        _ -> "unknown"
-      end
-
-    dirty? =
-      case System.cmd("git", ["status", "--porcelain"], stderr_to_stdout: true) do
-        {out, 0} -> String.trim(out) != ""
-        _ -> false
-      end
-
+    sha = git(["rev-parse", "--short", "HEAD"]) || "unknown"
+    dirty? = (git(["status", "--porcelain"]) || "") != ""
     {sha, dirty?}
+  end
+
+  defp git(args) do
+    case System.cmd("git", args, stderr_to_stdout: true) do
+      {out, 0} -> String.trim(out)
+      _ -> nil
+    end
   end
 
   defp verify_pass(candidates) do
@@ -265,53 +260,34 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   defp benchmark_records(ctx) do
     ok_set = MapSet.new(ctx.ok_entries)
+    broken = Enum.map(ctx.broken_entries, fn {entry, _} -> entry end)
 
-    by_name =
-      (ctx.ok_entries ++ Enum.map(ctx.broken_entries, fn {entry, _} -> entry end))
-      |> Enum.group_by(fn entry -> Awfy.name(entry) end)
-
-    by_name
-    |> Map.keys()
-    |> Enum.sort()
-    |> Enum.map(fn name ->
-      entries = Map.fetch!(by_name, name)
-      iter = Awfy.BencheeRunner.inner_iter_for(name)
-
-      langs =
-        Map.new(entries, fn {lang, mod} = entry ->
-          verified = MapSet.member?(ok_set, entry)
-          sha = source_sha256(entry)
-
-          {to_string(lang),
-           %{
-             "module" => to_string(mod),
-             "verified" => verified,
-             "source_sha256" => sha
-           }}
-        end)
-
+    (ctx.ok_entries ++ broken)
+    |> Enum.group_by(&Awfy.name/1)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {name, entries} ->
       %{
         "name" => name,
-        "inner_iter" => iter,
-        "languages" => langs
+        "inner_iter" => Awfy.BencheeRunner.inner_iter_for(name),
+        "languages" =>
+          Map.new(entries, fn {lang, mod} = entry ->
+            {to_string(lang),
+             %{
+               "module" => to_string(mod),
+               "verified" => MapSet.member?(ok_set, entry),
+               "source_sha256" => source_sha256(entry)
+             }}
+          end)
       }
     end)
   end
 
-  defp source_sha256({:erlang, mod}) do
-    path = Path.join("src", "#{mod}.erl")
-    sha_file(path)
-  end
+  defp source_sha256({:erlang, mod}), do: sha_file(Path.join("src", "#{mod}.erl"))
 
   defp source_sha256({:elixir, mod}) do
     case mod.module_info(:compile)[:source] do
-      nil ->
-        ""
-
-      raw ->
-        path = List.to_string(raw)
-        rel = if Path.type(path) == :absolute, do: Path.relative_to_cwd(path), else: path
-        sha_file(rel)
+      nil -> ""
+      raw -> raw |> List.to_string() |> Path.relative_to_cwd() |> sha_file()
     end
   end
 
@@ -324,45 +300,23 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   defp os_string do
     case :os.type() do
-      {:unix, :darwin} ->
-        case System.cmd("uname", ["-sr"]) do
-          {out, 0} -> String.trim(out)
-          _ -> "Darwin"
-        end
-
-      {:unix, :linux} ->
-        case System.cmd("uname", ["-sr"]) do
-          {out, 0} -> String.trim(out)
-          _ -> "Linux"
-        end
-
-      {family, name} ->
-        "#{family}/#{name}"
+      {:unix, :darwin} -> trim_cmd("uname", ["-sr"]) || "Darwin"
+      {:unix, :linux} -> trim_cmd("uname", ["-sr"]) || "Linux"
+      {family, name} -> "#{family}/#{name}"
     end
   end
 
   defp cpu_string do
     case :os.type() do
       {:unix, :darwin} ->
-        case System.cmd("sysctl", ["-n", "machdep.cpu.brand_string"], stderr_to_stdout: true) do
-          {out, 0} -> String.trim(out)
-          _ -> "unknown"
-        end
+        trim_cmd("sysctl", ["-n", "machdep.cpu.brand_string"]) || "unknown"
 
       {:unix, :linux} ->
-        case File.read("/proc/cpuinfo") do
-          {:ok, bin} ->
-            bin
-            |> String.split("\n")
-            |> Enum.find_value("unknown", fn l ->
-              case String.split(l, ":", parts: 2) do
-                ["model name" <> _, val] -> String.trim(val)
-                _ -> false
-              end
-            end)
-
-          _ ->
-            "unknown"
+        with {:ok, bin} <- File.read("/proc/cpuinfo"),
+             field when is_binary(field) <- Awfy.Preflight.Parse.cpuinfo_field(bin, "model name") do
+          field
+        else
+          _ -> "unknown"
         end
 
       _ ->
@@ -370,4 +324,10 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
   end
 
+  defp trim_cmd(cmd, args) do
+    case System.cmd(cmd, args, stderr_to_stdout: true) do
+      {out, 0} -> String.trim(out)
+      _ -> nil
+    end
+  end
 end
