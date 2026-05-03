@@ -126,8 +126,13 @@ if ($proc.ExitCode -ne 0) {
 # Confirm erl runs. We don't try `-emu_flavor jit/emu` — flavor names
 # changed across OTP versions (26/27: `smp`; 28+: `jit`/`emu`). The
 # benchmark child sets ERL_FLAGS per-version when emu is requested.
+#
+# Pipe to `Out-Host` so the verification line goes to the host stream,
+# not stdout — callers do `$prefix = ./install-otp-windows.ps1 ...` and
+# would otherwise capture both the "erl ok" line and the prefix path,
+# producing a corrupt PATH entry.
 $erl = Join-Path $prefix "bin\erl.exe"
-& $erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
+& $erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()' | Out-Host
 
 Remove-Item $installer -ErrorAction SilentlyContinue
 Write-Output $prefix

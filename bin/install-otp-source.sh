@@ -34,14 +34,21 @@ else
 fi
 
 if [ -z "$SHA" ]; then
-    echo "could not resolve $REF on erlang/otp"
+    echo "could not resolve $REF on erlang/otp" >&2
     exit 1
 fi
 
 PREFIX="$PREFIX_BASE/$SHA"
 
+# Everything except the final `echo "$PREFIX"` writes to stderr. Callers
+# capture stdout via `$(./install-otp-source.sh ...)` to get the prefix
+# back, and a single `make install` run can produce megabytes of output
+# (xmerl in OTP 26 has so many .beam files that one `/usr/bin/install`
+# line exceeds MAXPATHLEN — leaking that into stdout corrupts GITHUB_PATH
+# and triggers ENAMETOOLONG in the GHA runner).
+
 if [ -x "$PREFIX/bin/erl" ] && "$PREFIX/bin/erl" -noshell -eval 'halt()' >/dev/null 2>&1; then
-    echo "OTP $SHA already installed at $PREFIX"
+    echo "OTP $SHA already installed at $PREFIX" >&2
     echo "$PREFIX"
     exit 0
 fi
@@ -49,48 +56,50 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-echo "Fetching erlang/otp@$SHA …"
-curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" \
-    | tar xz -C "$WORK"
-SRC="$WORK/otp-$SHA"
+{
+    echo "Fetching erlang/otp@$SHA …"
+    curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" \
+        | tar xz -C "$WORK"
+    SRC="$WORK/otp-$SHA"
 
-cd "$SRC"
-export ERL_TOP="$SRC"
+    cd "$SRC"
+    export ERL_TOP="$SRC"
 
-# Match the Linux Docker image's configure flags so cross-platform
-# numbers compare apples-to-apples.
-./configure \
-    --prefix="$PREFIX" \
-    --disable-debug \
-    --without-javac \
-    --without-wx \
-    --without-odbc \
-    --without-observer \
-    --without-debugger \
-    --without-megaco \
-    --without-et \
-    --without-jinterface
+    # Match the Linux Docker image's configure flags so cross-platform
+    # numbers compare apples-to-apples.
+    ./configure \
+        --prefix="$PREFIX" \
+        --disable-debug \
+        --without-javac \
+        --without-wx \
+        --without-odbc \
+        --without-observer \
+        --without-debugger \
+        --without-megaco \
+        --without-et \
+        --without-jinterface
 
-# macOS reports CPU count via sysctl; Linux via nproc.
-if command -v nproc >/dev/null 2>&1; then
-    JOBS="$(nproc)"
-else
-    JOBS="$(sysctl -n hw.ncpu)"
-fi
+    # macOS reports CPU count via sysctl; Linux via nproc.
+    if command -v nproc >/dev/null 2>&1; then
+        JOBS="$(nproc)"
+    else
+        JOBS="$(sysctl -n hw.ncpu)"
+    fi
 
-make -j"$JOBS"
-make install
+    make -j"$JOBS"
+    make install
 
-# Build and install the non-JIT (interpreter) emulator alongside the
-# default JIT one. After this, both `-emu_flavor jit` and
-# `-emu_flavor emu` resolve under the same prefix.
-make -j"$JOBS" FLAVOR=emu
-make FLAVOR=emu install
+    # Build and install the non-JIT (interpreter) emulator alongside the
+    # default JIT one. After this, both `-emu_flavor jit` and
+    # `-emu_flavor emu` resolve under the same prefix.
+    make -j"$JOBS" FLAVOR=emu
+    make FLAVOR=emu install
 
-# Verify the install runs at all. We don't try `-emu_flavor jit/emu`
-# here — the available flavor names changed across OTP versions
-# (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
-# task's flavor argument is mapped per-version when we set ERL_FLAGS.
-"$PREFIX/bin/erl" -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
+    # Verify the install runs at all. We don't try `-emu_flavor jit/emu`
+    # here — the available flavor names changed across OTP versions
+    # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
+    # task's flavor argument is mapped per-version when we set ERL_FLAGS.
+    "$PREFIX/bin/erl" -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
+} >&2
 
 echo "$PREFIX"

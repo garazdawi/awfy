@@ -155,7 +155,7 @@ jobs:
           build-args: |
             OTP_SHA=${{ matrix.target.sha }}
             ELIXIR_OTP_MAJOR=${{ matrix.target.major }}
-            ELIXIR_VERSION=${{ matrix.target.major == '26' && '1.18.5' || '1.19.5' }}
+            ELIXIR_VERSION=${{ matrix.target.major == '26' && '1.18.4' || '1.19.5' }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test
           cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
@@ -237,7 +237,7 @@ jobs:
         shell: pwsh
         env:
           # Elixir 1.19 dropped OTP 26 — keep 1.18 for OTP 26 only.
-          ELIXIR_VERSION: ${{ matrix.target.major == '26' && '1.18.5' || '1.19.5' }}
+          ELIXIR_VERSION: ${{ matrix.target.major == '26' && '1.18.4' || '1.19.5' }}
           ELIXIR_OTP_MAJOR: ${{ matrix.target.major }}
         run: |
           $url = "https://github.com/elixir-lang/elixir/releases/download/v$env:ELIXIR_VERSION/elixir-otp-$env:ELIXIR_OTP_MAJOR.zip"
@@ -298,7 +298,7 @@ jobs:
         # OTP 26. Use the precompiled bundle so we can pick the right
         # release per target.
         env:
-          ELIXIR_VERSION: ${{ matrix.target.major == '26' && '1.18.5' || '1.19.5' }}
+          ELIXIR_VERSION: ${{ matrix.target.major == '26' && '1.18.4' || '1.19.5' }}
           ELIXIR_OTP_MAJOR: ${{ matrix.target.major }}
         run: |
           dest="$HOME/.local/elixir/$ELIXIR_VERSION"
