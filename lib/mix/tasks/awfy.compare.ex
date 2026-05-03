@@ -481,7 +481,10 @@ defmodule Mix.Tasks.Awfy.Compare do
         return {
           label: key,
           data: sorted.map(r => ({
-            x: xAxis === "otp" ? r.otp : r.timestamp,
+            // Chart.js with `parsing: false` + time scale requires
+            // numeric x (epoch ms) — strings get silently skipped on
+            // mobile Safari, leaving an empty chart.
+            x: xAxis === "otp" ? r.otp : Date.parse(r.timestamp),
             y: r.median_ms,
             stddev: r.stddev_ms,
             run_label: r.label,
@@ -556,7 +559,9 @@ defmodule Mix.Tasks.Awfy.Compare do
         const gm = Math.exp(sumLog / ratios.length);
 
         if (!seriesByKey[g.sk]) seriesByKey[g.sk] = { label: g.sk, data: [] };
-        const xVal = xAxis === "otp" ? g.runMeta.otp : g.runMeta.timestamp;
+        // Convert timestamp string → epoch ms; Chart.js' time scale with
+        // `parsing: false` ignores string x values on mobile Safari.
+        const xVal = xAxis === "otp" ? g.runMeta.otp : Date.parse(g.runMeta.timestamp);
         seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: g.label, n_benchmarks: ratios.length });
       });
 

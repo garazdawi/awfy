@@ -292,8 +292,17 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   defp sha_file(path) do
     case File.read(path) do
-      {:ok, bin} -> :crypto.hash(:sha256, bin) |> Base.encode16(case: :lower)
-      _ -> ""
+      {:ok, bin} ->
+        # Strip CR before hashing so a CRLF Windows checkout matches an
+        # LF Linux/macOS checkout. .gitattributes pins LF for source
+        # files we ship, but defending against the hash drift directly
+        # keeps the dashboard's "source changed" warning quiet even if
+        # someone clones with a different core.autocrlf setting.
+        canonical = :binary.replace(bin, "\r", "", [:global])
+        :crypto.hash(:sha256, canonical) |> Base.encode16(case: :lower)
+
+      _ ->
+        ""
     end
   end
 
