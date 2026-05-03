@@ -81,8 +81,10 @@ fi
 make -j"$JOBS"
 make install
 
-# Verify both flavors built.
-"$PREFIX/bin/erl" -emu_flavor jit -noshell -eval 'io:format("jit ok~n"),halt()'
-"$PREFIX/bin/erl" -emu_flavor emu -noshell -eval 'io:format("emu ok~n"),halt()'
+# Verify the install runs at all. We don't try `-emu_flavor jit/emu`
+# here — the available flavor names changed across OTP versions
+# (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
+# task's flavor argument is mapped per-version when we set ERL_FLAGS.
+"$PREFIX/bin/erl" -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
 
 echo "$PREFIX"
