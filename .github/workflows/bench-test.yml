@@ -10,11 +10,14 @@
 # run, gh-pages publish succeeds. Once green across all platforms,
 # promote to bench.yml (AWS + M5).
 #
-# Manual-trigger only — daily cron belongs in bench.yml.
+# Triggers on every push so wiring changes get exercised immediately;
+# inputs default to OTP master. Daily cron belongs in bench.yml,
+# not here.
 
 name: bench-test
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       otp_ref:
