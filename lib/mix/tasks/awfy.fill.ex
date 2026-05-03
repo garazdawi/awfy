@@ -40,6 +40,8 @@ defmodule Mix.Tasks.Awfy.Fill do
 
   use Mix.Task
 
+  alias Awfy.Fill.Diff
+
   @switches [
     max: :integer,
     since: :string,
@@ -57,8 +59,8 @@ defmodule Mix.Tasks.Awfy.Fill do
     Mix.Task.run("compile", [])
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
 
-    platform = opts[:platform] || detect_platform()
-    flavors = parse_csv(opts[:flavors]) || @flavors_default
+    platform = opts[:platform] || Diff.detect_platform(:os.type(), to_string(:erlang.system_info(:system_architecture)))
+    flavors = Diff.parse_csv(opts[:flavors]) || @flavors_default
     pages_dir = opts[:pages_dir] || "_pages"
 
     Mix.shell().info("[fill] platform=#{platform} flavors=#{Enum.join(flavors, ",")}")
@@ -69,8 +71,8 @@ defmodule Mix.Tasks.Awfy.Fill do
       case opts[:shas] do
         nil ->
           existing = scan_existing(pages)
-          missing = compute_missing(existing, platform, flavors, opts[:since])
-          maybe_limit(missing, opts[:max])
+          missing = Diff.compute_missing(existing, platform, flavors, opts[:since])
+          Diff.maybe_limit(missing, opts[:max])
 
         s ->
           shas = String.split(s, ",", trim: true)
@@ -108,31 +110,6 @@ defmodule Mix.Tasks.Awfy.Fill do
                  publish with:   git -C #{pages} push origin gh-pages
           """)
         end
-    end
-  end
-
-  # ===================================================================
-  # Platform detection
-  # ===================================================================
-
-  defp detect_platform do
-    arch = arch_string()
-
-    case :os.type() do
-      {:unix, :darwin} -> "macos-#{arch}"
-      {:unix, :linux} -> "linux-#{arch}"
-      {:win32, _} -> "windows-#{arch}"
-      {family, name} -> "#{family}-#{name}-#{arch}"
-    end
-  end
-
-  defp arch_string do
-    sysarch = to_string(:erlang.system_info(:system_architecture))
-
-    cond do
-      sysarch =~ "aarch64" or sysarch =~ "arm64" -> "arm64"
-      sysarch =~ "x86_64" or sysarch =~ "amd64" -> "x86_64"
-      true -> sysarch |> String.split("-") |> hd()
     end
   end
 
@@ -185,84 +162,9 @@ defmodule Mix.Tasks.Awfy.Fill do
     pages_dir
     |> File.ls!()
     |> Enum.filter(&File.dir?(Path.join(pages_dir, &1)))
-    |> Enum.map(&parse_run_dir/1)
+    |> Enum.map(&Diff.parse_run_dir/1)
     |> Enum.reject(&is_nil/1)
   end
-
-  # Run-dir name shape (from Mix.Tasks.Awfy.Measure.run_dir/2):
-  #   <ts>_otp<release>_elixir<version>_<label>
-  # Where label is "<otp_short>-<os>-<arch>-<flavor>" for fill/CI runs.
-  defp parse_run_dir(name) do
-    case Regex.run(~r/^(\d{8}T\d{4})_otp([^_]+)_elixir([^_]+)_(.+)$/, name) do
-      [_, ts, _otp_release, _elixir, label] ->
-        case String.split(label, "-") do
-          [otp_short, os, arch, flavor] ->
-            %{
-              run_dir: name,
-              timestamp: ts,
-              otp_sha: otp_short,
-              platform: "#{os}-#{arch}",
-              flavor: flavor
-            }
-
-          _ ->
-            nil
-        end
-
-      _ ->
-        nil
-    end
-  end
-
-  # ===================================================================
-  # Compute which (sha, flavor) pairs are missing for current platform
-  # ===================================================================
-
-  defp compute_missing(existing, platform, flavors, since) do
-    have = MapSet.new(existing, fn r -> {r.otp_sha, r.platform, r.flavor} end)
-
-    # Universe = every SHA seen on any platform. Linux's daily run
-    # becomes the de-facto schedule without hard-coding it.
-    all_shas =
-      existing
-      |> Enum.map(& &1.otp_sha)
-      |> Enum.uniq()
-      |> filter_since(existing, since)
-
-    for sha <- all_shas,
-        flavor <- flavors,
-        not MapSet.member?(have, {sha, platform, flavor}) do
-      {sha, flavor}
-    end
-    |> Enum.sort_by(
-      fn {sha, _flavor} ->
-        existing
-        |> Enum.filter(&(&1.otp_sha == sha))
-        |> Enum.map(& &1.timestamp)
-        |> Enum.max()
-      end,
-      :desc
-    )
-  end
-
-  defp filter_since(shas, _existing, nil), do: shas
-
-  defp filter_since(shas, existing, since) do
-    cutoff = String.replace(since, "-", "") <> "T0000"
-
-    Enum.filter(shas, fn sha ->
-      ts =
-        existing
-        |> Enum.filter(&(&1.otp_sha == sha))
-        |> Enum.map(& &1.timestamp)
-        |> Enum.min(fn -> "00000000T0000" end)
-
-      ts >= cutoff
-    end)
-  end
-
-  defp maybe_limit(list, nil), do: list
-  defp maybe_limit(list, n) when is_integer(n) and n > 0, do: Enum.take(list, n)
 
   # ===================================================================
   # Run a single measurement
@@ -396,8 +298,4 @@ defmodule Mix.Tasks.Awfy.Fill do
     end
   end
 
-  # ===================================================================
-
-  defp parse_csv(nil), do: nil
-  defp parse_csv(s), do: String.split(s, ",", trim: true)
 end

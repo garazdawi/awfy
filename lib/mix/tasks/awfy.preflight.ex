@@ -28,6 +28,8 @@ defmodule Mix.Tasks.Awfy.Preflight do
 
   use Mix.Task
 
+  alias Awfy.Preflight.Parse
+
   @switches [quiet: :boolean]
 
   # ===================================================================
@@ -124,7 +126,7 @@ defmodule Mix.Tasks.Awfy.Preflight do
     os_ver = trim_cmd("sw_vers", ["-productVersion"]) || "?"
 
     IO.puts("=== AWFY benchmark preflight ===")
-    IO.puts("OS:     macOS #{os_ver} (Darwin #{:os.version() |> tuple_to_dotted()})")
+    IO.puts("OS:     macOS #{os_ver} (Darwin #{:os.version() |> Parse.tuple_to_dotted()})")
     IO.puts("CPU:    #{cpu} (#{cores} cores)")
     IO.puts("Memory: #{mem_gb} GB")
     IO.puts("")
@@ -210,16 +212,16 @@ defmodule Mix.Tasks.Awfy.Preflight do
   defp check_macos_power do
     case run_cmd("pmset", ["-g", "batt"]) do
       {:ok, out} ->
-        cond do
-          String.contains?(out, "AC Power") ->
+        case Parse.power_source(out) do
+          :ac ->
             {:ok, "AC power", "drawing from AC adapter", nil}
 
-          String.contains?(out, "Battery Power") ->
+          :battery ->
             {:warn, "On battery power",
              "battery-powered macOS throttles aggressively under thermal/charge constraints",
              "plug in the AC adapter"}
 
-          true ->
+          :unknown ->
             {:info, "Power source", String.trim(out), nil}
         end
 
@@ -231,16 +233,16 @@ defmodule Mix.Tasks.Awfy.Preflight do
   defp check_macos_low_power_mode do
     case run_cmd("pmset", ["-g"]) do
       {:ok, out} ->
-        case Regex.run(~r/lowpowermode\s+(\d)/, out) do
-          [_, "1"] ->
+        case Parse.lowpowermode(out) do
+          :on ->
             {:warn, "Low Power Mode enabled",
              "the OS deliberately reduces CPU clock to save battery",
              "System Settings → Battery → Low Power Mode → Off"}
 
-          [_, "0"] ->
+          :off ->
             {:ok, "Low Power Mode", "disabled", nil}
 
-          _ ->
+          :unknown ->
             {:skip, "Low Power Mode", "could not parse pmset output", nil}
         end
 
@@ -252,19 +254,19 @@ defmodule Mix.Tasks.Awfy.Preflight do
   defp check_macos_spotlight do
     case run_cmd("mdutil", ["-s", "/"]) do
       {:ok, out} ->
-        cond do
-          String.contains?(out, "Indexing in progress") ->
+        case Parse.spotlight_state(out) do
+          :indexing ->
             {:warn, "Spotlight indexing in progress",
              "mdworker can saturate CPU and disk I/O for minutes at a time",
              "wait for indexing to finish, or temporarily: sudo mdutil -i off /"}
 
-          String.contains?(out, "Indexing enabled") ->
+          :idle ->
             {:ok, "Spotlight", "indexed but idle", nil}
 
-          String.contains?(out, "Indexing disabled") ->
+          :disabled ->
             {:info, "Spotlight", "indexing disabled (no concern)", nil}
 
-          true ->
+          :unknown ->
             {:info, "Spotlight", String.trim(out), nil}
         end
 
@@ -276,16 +278,16 @@ defmodule Mix.Tasks.Awfy.Preflight do
   defp check_macos_time_machine do
     case run_cmd("tmutil", ["status"]) do
       {:ok, out} ->
-        cond do
-          String.contains?(out, "Running = 1") ->
+        case Parse.time_machine_state(out) do
+          :running ->
             {:warn, "Time Machine backup in progress",
              "backupd reads the whole disk and can spike CPU/IO unpredictably",
              "tmutil stopbackup (will resume next scheduled run)"}
 
-          String.contains?(out, "Running = 0") ->
+          :idle ->
             {:ok, "Time Machine", "no backup in progress", nil}
 
-          true ->
+          :unknown ->
             {:info, "Time Machine", "status unclear", nil}
         end
 
@@ -300,21 +302,7 @@ defmodule Mix.Tasks.Awfy.Preflight do
         case Regex.run(~r/load averages?:\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/, out) do
           [_, l1, _l5, _l15] ->
             cores = sysctl_int("hw.ncpu") || 1
-            l1f = parse_float(l1)
-            ratio = l1f / cores
-
-            cond do
-              ratio < 0.3 ->
-                {:ok, "Load average", "1m=#{l1} (#{Float.round(ratio, 2)}× cores)", nil}
-
-              ratio < 0.7 ->
-                {:info, "Load average", "1m=#{l1} (#{Float.round(ratio, 2)}× cores) — moderate", nil}
-
-              true ->
-                {:warn, "Load average high",
-                 "1m=#{l1} on #{cores} cores (#{Float.round(ratio, 2)}× saturation)",
-                 "wait for current workload to finish or close CPU-heavy apps"}
-            end
+            Parse.judge_load_avg(Parse.parse_float(l1), cores)
 
           _ ->
             {:skip, "Load average", "could not parse uptime", nil}
@@ -328,31 +316,12 @@ defmodule Mix.Tasks.Awfy.Preflight do
   defp check_macos_memory_pressure do
     case run_cmd("memory_pressure", []) do
       {:ok, out} ->
-        cond do
-          String.contains?(out, "System-wide memory free percentage: ") ->
-            case Regex.run(~r/System-wide memory free percentage:\s+(\d+)/, out) do
-              [_, pct_s] ->
-                pct = String.to_integer(pct_s)
-
-                cond do
-                  pct > 25 ->
-                    {:ok, "Memory pressure", "#{pct}% free", nil}
-
-                  pct > 10 ->
-                    {:info, "Memory pressure", "#{pct}% free — modest", nil}
-
-                  true ->
-                    {:warn, "Memory pressure high",
-                     "only #{pct}% system-wide free; risk of swap/compression during run",
-                     "close memory-heavy apps (browser tabs, IDEs)"}
-                end
-
-              _ ->
-                {:skip, "Memory pressure", "could not parse memory_pressure output", nil}
-            end
-
-          true ->
+        case Parse.memory_pressure_pct(out) do
+          nil ->
             {:info, "Memory pressure", String.trim(out) |> String.split("\n") |> hd(), nil}
+
+          pct ->
+            Parse.judge_memory_pressure(pct)
         end
 
       _ ->
@@ -370,13 +339,13 @@ defmodule Mix.Tasks.Awfy.Preflight do
           |> String.split("\n", trim: true)
           # drop header
           |> Enum.drop(1)
-          |> Enum.map(&parse_top_line_with_pid/1)
+          |> Enum.map(&Parse.top_line/1)
           |> Enum.reject(&is_nil/1)
           |> Enum.reject(fn {pid, _, _} -> pid == self_pid end)
           |> Enum.map(fn {_, pct, name} -> {pct, name} end)
           |> Enum.take(8)
 
-        report_top(top)
+        Parse.judge_top(top)
 
       _ ->
         {:skip, "Top CPU processes", "ps unavailable", nil}
@@ -405,26 +374,10 @@ defmodule Mix.Tasks.Awfy.Preflight do
          "no cpufreq sysfs (likely a VM or a hypervisor that hides cpufreq)", nil}
 
       paths ->
-        govs =
-          paths
-          |> Enum.map(&safe_read/1)
-          |> Enum.map(&String.trim/1)
-          |> Enum.uniq()
-
-        case govs do
-          ["performance"] ->
-            {:ok, "CPU governor", "all cores at performance", nil}
-
-          [single] ->
-            {:warn, "CPU governor not 'performance'",
-             "all cores at #{single}; CPU clock will scale down between bursts",
-             "sudo cpupower frequency-set -g performance"}
-
-          mixed ->
-            {:warn, "CPU governors mixed",
-             "cores running different governors: #{Enum.join(mixed, ", ")}",
-             "sudo cpupower frequency-set -g performance"}
-        end
+        paths
+        |> Enum.map(&safe_read/1)
+        |> Enum.map(&String.trim/1)
+        |> Parse.judge_governor()
     end
   end
 
@@ -455,14 +408,7 @@ defmodule Mix.Tasks.Awfy.Preflight do
         {:skip, "Transparent Huge Pages", "no THP sysfs entry", nil}
 
       raw ->
-        active =
-          Regex.run(~r/\[(\w+)\]/, raw)
-          |> case do
-            [_, val] -> val
-            _ -> "unknown"
-          end
-
-        {:info, "Transparent Huge Pages", "active mode: #{active}", nil}
+        {:info, "Transparent Huge Pages", "active mode: #{Parse.thp_active(raw)}", nil}
     end
   end
 
@@ -474,21 +420,7 @@ defmodule Mix.Tasks.Awfy.Preflight do
       out ->
         [l1 | _] = String.split(out, " ", trim: true)
         cores = read_cpuinfo_count() || 1
-        l1f = parse_float(l1)
-        ratio = l1f / cores
-
-        cond do
-          ratio < 0.3 ->
-            {:ok, "Load average", "1m=#{l1} (#{Float.round(ratio, 2)}× cores)", nil}
-
-          ratio < 0.7 ->
-            {:info, "Load average", "1m=#{l1} (#{Float.round(ratio, 2)}× cores) — moderate", nil}
-
-          true ->
-            {:warn, "Load average high",
-             "1m=#{l1} on #{cores} cores (#{Float.round(ratio, 2)}× saturation)",
-             "wait for current workload to finish, or kill -9 the offender"}
-        end
+        Parse.judge_load_avg(Parse.parse_float(l1), cores)
     end
   end
 
@@ -498,23 +430,10 @@ defmodule Mix.Tasks.Awfy.Preflight do
         {:skip, "Swap", "/proc/meminfo unavailable", nil}
 
       out ->
-        total = parse_meminfo_kb(out, "SwapTotal")
-        free = parse_meminfo_kb(out, "SwapFree")
-
-        cond do
-          total == 0 ->
-            {:ok, "Swap", "no swap configured", nil}
-
-          total - free < 32 * 1024 ->
-            {:ok, "Swap", "swap configured but unused", nil}
-
-          true ->
-            used_mb = (total - free) / 1024
-
-            {:warn, "Swap in use",
-             "#{Float.round(used_mb, 0)} MB swapped — disk paging will spike timings",
-             "free memory or sudo swapoff -a (will require sufficient RAM)"}
-        end
+        Parse.judge_swap(
+          Parse.meminfo_kb(out, "SwapTotal"),
+          Parse.meminfo_kb(out, "SwapFree")
+        )
     end
   end
 
@@ -524,20 +443,7 @@ defmodule Mix.Tasks.Awfy.Preflight do
         {:skip, "Free memory", "/proc/meminfo unavailable", nil}
 
       out ->
-        avail = parse_meminfo_kb(out, "MemAvailable")
-
-        cond do
-          avail == 0 ->
-            {:skip, "Free memory", "MemAvailable not reported", nil}
-
-          avail < 1 * 1024 * 1024 ->
-            {:warn, "Low free memory",
-             "only #{Float.round(avail / 1024 / 1024, 2)} GB available",
-             "close memory-heavy apps before measuring"}
-
-          true ->
-            {:ok, "Free memory", "#{Float.round(avail / 1024 / 1024, 1)} GB available", nil}
-        end
+        Parse.judge_linux_free_memory(Parse.meminfo_kb(out, "MemAvailable"))
     end
   end
 
@@ -550,13 +456,13 @@ defmodule Mix.Tasks.Awfy.Preflight do
           out
           |> String.split("\n", trim: true)
           |> Enum.drop(1)
-          |> Enum.map(&parse_top_line_with_pid/1)
+          |> Enum.map(&Parse.top_line/1)
           |> Enum.reject(&is_nil/1)
           |> Enum.reject(fn {pid, _, _} -> pid == self_pid end)
           |> Enum.map(fn {_, pct, name} -> {pct, name} end)
           |> Enum.take(8)
 
-        report_top(top)
+        Parse.judge_top(top)
 
       _ ->
         {:skip, "Top CPU processes", "ps unavailable", nil}
@@ -579,22 +485,21 @@ defmodule Mix.Tasks.Awfy.Preflight do
   defp check_windows_power_plan do
     case run_cmd("powercfg", ["/getactivescheme"]) do
       {:ok, out} ->
-        cond do
-          String.contains?(out, "High performance") or
-              String.contains?(out, "Ultimate Performance") ->
+        case Parse.power_plan(out) do
+          :high ->
             {:ok, "Power plan", String.trim(out), nil}
 
-          String.contains?(out, "Balanced") ->
+          :balanced ->
             {:warn, "Power plan: Balanced",
              "Windows will scale CPU clock down between bursts",
              "powercfg /setactive SCHEME_MIN  (or run as admin: powercfg /duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61 to enable Ultimate Performance)"}
 
-          String.contains?(out, "Power saver") ->
+          :saver ->
             {:warn, "Power plan: Power saver",
              "deliberately throttles to save energy",
              "powercfg /setactive SCHEME_MIN"}
 
-          true ->
+          :other ->
             {:info, "Power plan", String.trim(out), nil}
         end
 
@@ -612,22 +517,8 @@ defmodule Mix.Tasks.Awfy.Preflight do
          ]) do
       {:ok, out} ->
         case Float.parse(String.trim(out)) do
-          {pct, _} ->
-            cond do
-              pct < 15 ->
-                {:ok, "Total CPU usage", "#{Float.round(pct, 1)}%", nil}
-
-              pct < 40 ->
-                {:info, "Total CPU usage", "#{Float.round(pct, 1)}% — moderate", nil}
-
-              true ->
-                {:warn, "High total CPU usage",
-                 "#{Float.round(pct, 1)}% in use system-wide before benchmarking",
-                 "close CPU-heavy apps; check Task Manager"}
-            end
-
-          _ ->
-            {:skip, "Total CPU usage", "could not parse Get-Counter output", nil}
+          {pct, _} -> Parse.judge_windows_cpu(pct)
+          _ -> {:skip, "Total CPU usage", "could not parse Get-Counter output", nil}
         end
 
       _ ->
@@ -643,19 +534,8 @@ defmodule Mix.Tasks.Awfy.Preflight do
          ]) do
       {:ok, out} ->
         case Integer.parse(String.trim(out)) do
-          {mb, _} when mb < 32 ->
-            {:ok, "Page file", "no significant usage", nil}
-
-          {mb, _} when mb < 256 ->
-            {:info, "Page file", "#{mb} MB in use — modest", nil}
-
-          {mb, _} ->
-            {:warn, "Page file in active use",
-             "#{mb} MB paged out — disk paging will spike timings",
-             "close memory-heavy apps before measuring"}
-
-          _ ->
-            {:skip, "Page file", "could not parse Win32_PageFileUsage", nil}
+          {mb, _} -> Parse.judge_windows_pagefile(mb)
+          _ -> {:skip, "Page file", "could not parse Win32_PageFileUsage", nil}
         end
 
       _ ->
@@ -671,24 +551,8 @@ defmodule Mix.Tasks.Awfy.Preflight do
          ]) do
       {:ok, out} ->
         case Integer.parse(String.trim(out)) do
-          {kb, _} ->
-            gb = kb / 1024 / 1024
-
-            cond do
-              gb >= 4 ->
-                {:ok, "Free memory", "#{Float.round(gb, 1)} GB available", nil}
-
-              gb >= 2 ->
-                {:info, "Free memory", "#{Float.round(gb, 1)} GB available — modest", nil}
-
-              true ->
-                {:warn, "Low free memory",
-                 "only #{Float.round(gb, 2)} GB available",
-                 "close memory-heavy apps before measuring"}
-            end
-
-          _ ->
-            {:skip, "Free memory", "could not parse FreePhysicalMemory", nil}
+          {kb, _} -> Parse.judge_windows_free_memory(kb)
+          _ -> {:skip, "Free memory", "could not parse FreePhysicalMemory", nil}
         end
 
       _ ->
@@ -706,21 +570,10 @@ defmodule Mix.Tasks.Awfy.Preflight do
         top =
           out
           |> String.split("\n", trim: true)
-          |> Enum.map(fn line ->
-            case String.split(String.trim(line), ~r/\s+/, parts: 2) do
-              [name, pct] ->
-                case Float.parse(pct) do
-                  {p, _} -> {p, name}
-                  _ -> nil
-                end
-
-              _ ->
-                nil
-            end
-          end)
+          |> Enum.map(&Parse.windows_top_line/1)
           |> Enum.reject(&is_nil/1)
 
-        report_top(top)
+        Parse.judge_top(top)
 
       _ ->
         {:skip, "Top CPU processes", "powershell unavailable", nil}
@@ -732,50 +585,6 @@ defmodule Mix.Tasks.Awfy.Preflight do
   # ===================================================================
   defp common_only_checks do
     [{:info, "Limited check coverage", "no platform-specific checks for this OS", nil}]
-  end
-
-  defp report_top([]) do
-    {:ok, "Top CPU processes", "nothing notable", nil}
-  end
-
-  defp report_top(top) do
-    total = Enum.reduce(top, 0.0, fn {pct, _}, acc -> acc + pct end)
-
-    biggest =
-      top
-      |> Enum.map(fn {pct, name} ->
-        short = name |> String.split("/") |> List.last() |> String.split() |> hd()
-        "#{Float.round(pct, 1)}% #{short}"
-      end)
-      |> Enum.take(5)
-      |> Enum.join(", ")
-
-    cond do
-      total < 5.0 ->
-        {:ok, "Top CPU processes", "background usage trivial (sum #{Float.round(total, 1)}%)", nil}
-
-      total < 25.0 ->
-        {:info, "Top CPU processes", "moderate (top: #{biggest})", nil}
-
-      true ->
-        {:warn, "High background CPU usage",
-         "top procs: #{biggest}", "close CPU-heavy apps before measuring"}
-    end
-  end
-
-  defp parse_top_line_with_pid(line) do
-    case String.split(String.trim(line), ~r/\s+/, parts: 3) do
-      [pid_s, pcpu, comm] ->
-        with {pid, _} <- Integer.parse(pid_s),
-             {pct, _} when pct > 0.0 <- Float.parse(pcpu) do
-          {pid, pct, comm}
-        else
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
   end
 
   defp current_os_pid do
@@ -830,59 +639,24 @@ defmodule Mix.Tasks.Awfy.Preflight do
     end
   end
 
-  defp parse_float(s) do
-    case Float.parse(s) do
-      {f, _} -> f
-      _ -> 0.0
-    end
-  end
-
-  defp tuple_to_dotted({a, b, c}), do: "#{a}.#{b}.#{c}"
-  defp tuple_to_dotted(other), do: inspect(other)
-
   defp read_cpuinfo_field(field) do
     case safe_read("/proc/cpuinfo") do
-      nil ->
-        nil
-
-      out ->
-        out
-        |> String.split("\n")
-        |> Enum.find_value(fn line ->
-          case String.split(line, ":", parts: 2) do
-            [k, v] ->
-              if String.starts_with?(String.trim(k), field), do: String.trim(v), else: nil
-
-            _ ->
-              nil
-          end
-        end)
+      nil -> nil
+      out -> Parse.cpuinfo_field(out, field)
     end
   end
 
   defp read_cpuinfo_count do
     case safe_read("/proc/cpuinfo") do
-      nil ->
-        nil
-
-      out ->
-        out
-        |> String.split("\n")
-        |> Enum.count(fn line -> String.starts_with?(line, "processor") end)
+      nil -> nil
+      out -> Parse.cpuinfo_count(out)
     end
   end
 
   defp read_meminfo_total_gb do
     case safe_read("/proc/meminfo") do
       nil -> nil
-      out -> Float.round(parse_meminfo_kb(out, "MemTotal") / 1024 / 1024, 1)
-    end
-  end
-
-  defp parse_meminfo_kb(content, key) do
-    case Regex.run(~r/#{key}:\s+(\d+)\s+kB/, content) do
-      [_, n] -> String.to_integer(n)
-      _ -> 0
+      out -> Float.round(Parse.meminfo_kb(out, "MemTotal") / 1024 / 1024, 1)
     end
   end
 end

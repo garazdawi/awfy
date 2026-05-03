@@ -39,6 +39,8 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   use Mix.Task
 
+  alias Awfy.Measure.Helpers
+
   @switches [
     label: :string,
     benchmarks: :string,
@@ -63,10 +65,18 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
 
     {git_sha, git_dirty?} = git_state()
-    label = opts[:label] || auto_label(git_sha, git_dirty?)
+    label = opts[:label] || Helpers.auto_label(git_sha, git_dirty?, DateTime.utc_now())
 
     out_root = opts[:out] || "results"
-    dir = run_dir(out_root, label)
+
+    dir =
+      Helpers.run_dir(
+        out_root,
+        label,
+        DateTime.utc_now(),
+        System.otp_release(),
+        System.version()
+      )
 
     if File.exists?(dir) do
       if opts[:no_clobber] do
@@ -79,13 +89,13 @@ defmodule Mix.Tasks.Awfy.Measure do
 
     File.mkdir_p!(dir)
 
-    lang = parse_lang(opts[:lang])
-    bench_filter = parse_benchmarks(opts[:benchmarks])
+    lang = Helpers.parse_lang(opts[:lang])
+    bench_filter = Helpers.parse_benchmarks(opts[:benchmarks])
 
     candidates =
       Awfy.benchmarks()
-      |> filter_lang(lang)
-      |> filter_benchmarks(bench_filter)
+      |> Helpers.filter_lang(lang)
+      |> Helpers.filter_benchmarks(bench_filter)
 
     if candidates == [] do
       Mix.raise("no benchmarks selected")
@@ -123,8 +133,8 @@ defmodule Mix.Tasks.Awfy.Measure do
 
     benchee_opts =
       [memory_time: 0, print: [fast_warning: false]]
-      |> maybe_put(:time, user_time)
-      |> maybe_put(:warmup, user_warmup)
+      |> Helpers.maybe_put(:time, user_time)
+      |> Helpers.maybe_put(:warmup, user_warmup)
 
     Awfy.BencheeRunner.run_all(
       lang: lang,
@@ -176,18 +186,6 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
   end
 
-  defp auto_label(sha, false), do: sha
-
-  defp auto_label(sha, true) do
-    ts =
-      DateTime.utc_now()
-      |> DateTime.to_iso8601(:basic)
-      |> String.replace("Z", "")
-      |> binary_part(0, 13)
-
-    "#{sha}-dirty_#{ts}"
-  end
-
   defp git_state do
     sha =
       case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
@@ -202,37 +200,6 @@ defmodule Mix.Tasks.Awfy.Measure do
       end
 
     {sha, dirty?}
-  end
-
-  defp run_dir(out_root, label) do
-    ts =
-      DateTime.utc_now()
-      |> DateTime.to_iso8601(:basic)
-      |> String.replace("Z", "")
-      |> binary_part(0, 13)
-
-    otp = System.otp_release()
-    elixir = System.version()
-    Path.join(out_root, "#{ts}_otp#{otp}_elixir#{elixir}_#{label}")
-  end
-
-  defp parse_lang(nil), do: :both
-  defp parse_lang("both"), do: :both
-  defp parse_lang("erlang"), do: :erlang
-  defp parse_lang("elixir"), do: :elixir
-  defp parse_lang(other), do: Mix.raise("unknown --lang: #{inspect(other)}")
-
-  defp parse_benchmarks(nil), do: nil
-  defp parse_benchmarks(s), do: String.split(s, ",", trim: true)
-
-  defp filter_lang(entries, :both), do: entries
-  defp filter_lang(entries, lang), do: Enum.filter(entries, fn {l, _} -> l == lang end)
-
-  defp filter_benchmarks(entries, nil), do: entries
-
-  defp filter_benchmarks(entries, names) do
-    set = MapSet.new(names)
-    Enum.filter(entries, fn entry -> MapSet.member?(set, Awfy.name(entry)) end)
   end
 
   defp verify_pass(candidates) do
@@ -277,7 +244,7 @@ defmodule Mix.Tasks.Awfy.Measure do
       "runtime" => %{
         "emu_flavor" => to_string(:erlang.system_info(:emu_flavor)),
         "schedulers_online" => :erlang.system_info(:schedulers_online),
-        "logical_processors" => safe_integer(:erlang.system_info(:logical_processors)),
+        "logical_processors" => Helpers.safe_integer(:erlang.system_info(:logical_processors)),
         "wordsize" => :erlang.system_info(:wordsize),
         "smp_support" => :erlang.system_info(:smp_support),
         "nif_version" => to_string(:erlang.system_info(:nif_version)),
@@ -403,10 +370,4 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
   end
 
-  defp safe_integer(:unknown), do: nil
-  defp safe_integer(n) when is_integer(n), do: n
-  defp safe_integer(_), do: nil
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end
