@@ -198,8 +198,19 @@ defmodule Mix.Tasks.Awfy.Measure do
   end
 
   defp verify_pass(candidates) do
-    Enum.reduce(candidates, {[], []}, fn entry, {ok, broken} ->
-      iter = Awfy.BencheeRunner.inner_iter_for(Awfy.name(entry))
+    total = length(candidates)
+
+    candidates
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], []}, fn {entry, idx}, {ok, broken} ->
+      name = Awfy.name(entry)
+      # Per-scenario progress logged before the call so a hard crash
+      # (peer-spawn failure, port termination — anything that bypasses
+      # the rescue/catch below) is identifiable from the runner log.
+      # IO.write + flush so the line lands in stderr-buffered CI logs
+      # *before* the verify step gets to crash.
+      Mix.shell().info("  [#{idx}/#{total}] verify #{name}")
+      iter = Awfy.BencheeRunner.inner_iter_for(name)
 
       try do
         case Awfy.verify(entry, iter) do
