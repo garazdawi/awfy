@@ -157,17 +157,63 @@ defmodule Awfy.BencheeRunner do
 
     IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
 
-    # Per ISOLATION_POLICY.md: every benchmark runs in a fresh peer.
-    # Set `AWFY_NO_ISOLATION=1` in env to fall back to in-process
-    # execution — useful for debugging and for the doctest paths that
-    # already run inside ExUnit's BEAM.
-    if System.get_env("AWFY_NO_ISOLATION") == "1" do
-      run_in_process(name, entries, inner_iter, benchee_opts)
-    else
-      run_isolated(name, entries, inner_iter, benchee_opts)
+    # Three execution modes, in priority order:
+    #
+    #   1. Target mode (`AWFY_TARGET_ERL` set) — measure under a
+    #      different OTP than the host orchestrator. The benchee Suite
+    #      is built by Awfy.TargetRunner from raw timings collected
+    #      via shell-out to the target erl.
+    #   2. In-process (`AWFY_NO_ISOLATION=1`) — for debugging and
+    #      doctests, where wrapping in a peer adds nothing.
+    #   3. Isolated peer (default) — every benchmark runs in a fresh
+    #      same-OTP peer per ISOLATION_POLICY.md.
+    cond do
+      Awfy.TargetRunner.enabled?() ->
+        run_target(name, entries, inner_iter, benchee_opts)
+
+      System.get_env("AWFY_NO_ISOLATION") == "1" ->
+        run_in_process(name, entries, inner_iter, benchee_opts)
+
+      true ->
+        run_isolated(name, entries, inner_iter, benchee_opts)
     end
 
     :ok
+  end
+
+  defp run_target(name, entries, inner_iter, benchee_opts) do
+    case Awfy.TargetRunner.run_benchmark(name, entries, inner_iter, benchee_opts) do
+      nil ->
+        IO.puts(:stderr, "[target] no compatible scenarios for #{name}, skipping")
+
+      %Benchee.Suite{} = suite ->
+        print_target_summary(suite)
+
+        case Keyword.get(benchee_opts, :save) do
+          nil ->
+            :ok
+
+          save_opts ->
+            path = save_opts |> Keyword.fetch!(:path) |> to_string()
+            File.mkdir_p!(Path.dirname(path))
+            File.write!(path, :erlang.term_to_binary(suite))
+        end
+    end
+  end
+
+  defp print_target_summary(%Benchee.Suite{scenarios: scenarios}) do
+    IO.puts("\nName                        median       mean        σ      n")
+
+    Enum.each(scenarios, fn s ->
+      st = s.run_time_data.statistics
+      :io.format("~-26s ~9.3f ms ~7.3f ms ~7.3f ~6B~n", [
+        s.name,
+        (st.median || 0) / 1_000_000,
+        (st.average || 0) / 1_000_000,
+        (st.std_dev || 0) / 1_000_000,
+        st.sample_size || 0
+      ])
+    end)
   end
 
   defp run_in_process(name, entries, inner_iter, benchee_opts) do

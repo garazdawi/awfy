@@ -130,6 +130,24 @@ trap 'rm -rf "$WORK"' EXIT
     # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
     # task's flavor argument is mapped per-version when we set ERL_FLAGS.
     "$PREFIX/bin/erl" -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
+
+    # Compile the benchmark suite + target harness with the *target*
+    # erlc, into an OTP-app-shaped layout under $PREFIX/lib/awfy-0.1.0/.
+    # `code:priv_dir(awfy)` finds priv via the awfy-VSN convention, so
+    # the Json benchmark's `priv/rap_benchmark.json` lookup keeps
+    # working under the peer.
+    #
+    # We only compile Erlang sources here. Elixir benchmarks under
+    # `apps/awfy/lib/awfy/benchmarks/` need the target's Elixir, which
+    # isn't always installed (and doesn't exist for OTP < 23). The
+    # workflow either installs target Elixir and adds a separate
+    # `mix compile` step, or skips Elixir benchmarks for that target.
+    TARGET_LIB="$PREFIX/lib/awfy-0.1.0"
+    mkdir -p "$TARGET_LIB/ebin" "$TARGET_LIB/priv"
+    "$PREFIX/bin/erlc" -o "$TARGET_LIB/ebin" \
+        "$AWFY_ROOT"/apps/awfy/src/*.erl \
+        "$AWFY_ROOT"/apps/awfy/src_target/*.erl
+    cp -R "$AWFY_ROOT"/apps/awfy/priv/. "$TARGET_LIB/priv/" 2>/dev/null || true
 } >&2
 
 echo "$PREFIX"

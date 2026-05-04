@@ -86,6 +86,19 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     make -j"$(nproc)" FLAVOR=emu && \
     make FLAVOR=emu install
 
+# Build target beams for the AWFY suite + the target-runner harness
+# using the *just-installed* erlc. They land in the OTP-app-shape
+# `/usr/local/lib/awfy-0.1.0/{ebin,priv}` so `code:priv_dir(awfy)`
+# resolves under the target erl. Sources are COPY'd in only at this
+# point, after the OTP build is fully cached, so editing a
+# benchmark doesn't invalidate the OTP layer.
+COPY apps/awfy/src/         /tmp/awfy_src/
+COPY apps/awfy/src_target/  /tmp/awfy_src_target/
+COPY apps/awfy/priv/        /usr/local/lib/awfy-0.1.0/priv/
+RUN mkdir -p /usr/local/lib/awfy-0.1.0/ebin && \
+    /usr/local/bin/erlc -o /usr/local/lib/awfy-0.1.0/ebin \
+        /tmp/awfy_src/*.erl /tmp/awfy_src_target/*.erl
+
 # Sanity: confirm `erl` runs. We don't try `-emu_flavor jit/emu` here —
 # the available flavor names changed across OTP versions (OTP 26/27:
 # `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The benchmark child sets
