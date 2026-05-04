@@ -135,6 +135,16 @@ About 4 feature releases per major × ~10 majors (20–28 plus master) ≈
 `otp_refs` input on `workflow_dispatch`; the backfill is just a single
 manual trigger with the resolved tag list.
 
+**Release candidates count too.** Tagged RCs of an upcoming major
+(`OTP-29.0-rc1`, `OTP-29.0-rc3`, …) belong in the backfill list so
+the trend chart can show how the next major shaped up across its RC
+window. They appear in the dataset as `29.0-rc1` etc. and bucket
+under major "29", but the dashboard's "supported releases" default
+ignores RC tags when picking the support window — major 29 stays
+opt-in (via the snapshot major checkboxes) until `OTP-29.0` is
+tagged GA. Master keeps its own dedicated bar/line labelled
+`master`.
+
 After backfill, the cron sweep stays on the latest patches of recent
 feature releases (mostly to catch master-tip drift), and **each new
 patch release** triggers a one-off measurement event to keep the

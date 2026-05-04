@@ -545,20 +545,36 @@ defmodule Mix.Tasks.Awfy.Compare do
     // OTP support window covers the current and previous two majors;
     // master is always included as the rolling tip. Anything older
     // gets opted in via the major checkboxes under the snapshot.
+    //
+    // The "current major" is derived from the latest *released*
+    // (non-RC) tag in the data. RC versions of an upcoming major
+    // (e.g. OTP-29.0-rc3) get backfilled for trend visibility but
+    // don't shift the support window: today max-released = 28, so
+    // default = {26, 27, 28, master}; 29 stays opt-in until OTP-29.0
+    // is tagged. The check excludes maint- branches and any otp_label
+    // containing "-rc" (case-insensitive).
     function defaultMajorsSet(allMajors) {
-      const numeric = allMajors
-        .filter(m => /^[0-9]+$/.test(m))
-        .map(m => parseInt(m, 10));
-      if (numeric.length === 0) return new Set(allMajors);
-      const max = Math.max(...numeric);
+      const releasedMajors = DATASET.rows
+        .map(r => r.otp)
+        .filter(o => o && o !== "master" && o !== "main"
+          && o.indexOf("maint-") !== 0 && !/-rc/i.test(o))
+        .map(o => parseInt(o, 10))
+        .filter(Number.isFinite);
+      if (releasedMajors.length === 0) {
+        // Nothing released in the dataset yet — show whatever exists
+        // so a fresh deploy still has bars on the snapshot.
+        return new Set(allMajors);
+      }
+      const max = Math.max(...releasedMajors);
       const supported = new Set();
       allMajors.forEach(m => {
         if (m === "master" || m === "main") {
           supported.add(m);
           return;
         }
-        if (/^[0-9]+$/.test(m) && parseInt(m, 10) >= max - 2) {
-          supported.add(m);
+        if (/^[0-9]+$/.test(m)) {
+          const n = parseInt(m, 10);
+          if (n >= max - 2 && n <= max) supported.add(m);
         }
       });
       return supported;
