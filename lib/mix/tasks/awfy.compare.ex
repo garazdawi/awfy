@@ -85,6 +85,45 @@ defmodule Mix.Tasks.Awfy.Compare do
   defp parse_csv(nil), do: nil
   defp parse_csv(s), do: String.split(s, ",", trim: true)
 
+  # The newest OTP major that has shipped a GA release. Read from the
+  # first line of erlang/otp's `otp_versions.table` at build time —
+  # that file is the canonical "latest tag" record on master. RC tags
+  # of an upcoming major land on `maint-N` branches, not in this
+  # table, so it cleanly distinguishes "released GA" from "in flight".
+  #
+  # Net failure (offline, GitHub unreachable) falls back to a
+  # baseline value so the build still succeeds; bump @fallback when
+  # the time-of-build value would otherwise lag a major. The cached
+  # PAGE retrieves at build time only — the generated HTML is
+  # static, no runtime fetch.
+  @max_released_fallback 28
+
+  defp max_released_major do
+    url = "https://raw.githubusercontent.com/erlang/otp/master/otp_versions.table"
+
+    with {:ok, body} <- fetch_text(url),
+         [first_line | _] <- String.split(body, "\n", parts: 2),
+         %{"major" => major} <- Regex.named_captures(~r/^OTP-(?<major>\d+)/, first_line) do
+      String.to_integer(major)
+    else
+      _ ->
+        Mix.shell().info("[compare] otp_versions.table unreachable, falling back to MAX_RELEASED_MAJOR=#{@max_released_fallback}")
+        @max_released_fallback
+    end
+  end
+
+  defp fetch_text(url) do
+    # Shell out to curl rather than wire up :inets/:httpc — those
+    # apps aren't loaded in the runner's release path and starting
+    # them eagerly drags in a lot of incidental modules. curl is
+    # already a hard dependency of bin/install-otp-source.sh and
+    # the Dockerfile, so requiring it on the publish host is fine.
+    case System.cmd("curl", ["-fsSL", "--max-time", "10", url], stderr_to_stdout: true) do
+      {body, 0} -> {:ok, body}
+      _ -> :error
+    end
+  end
+
   defp filter_names(names, nil), do: names
 
   defp filter_names(names, allow) do
@@ -484,6 +523,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       const BENCH_NAME = #{inspect(ctx.bench_name)};
       const BASELINE_LABEL = #{inspect(ctx.baseline_label)};
       const DATASET = #{ctx.dataset_json};
+      const MAX_RELEASED_MAJOR = #{max_released_major()};
       </script>
       <script>
       #{dashboard_js()}
@@ -541,14 +581,10 @@ defmodule Mix.Tasks.Awfy.Compare do
       return Number.isFinite(m) ? String(m) : null;
     }
 
-    // The newest OTP major that has shipped a GA release on
-    // erlang.org. Bumped manually per major (annual cadence) — the
-    // alternative of deriving it from data is unreliable because
-    // legacy run-dirs recorded the in-development major (e.g. "29")
-    // before AWFY_OTP_VERSION was wired, and there's no telltale
-    // signal in the otp string itself separating a bare "29" from a
-    // future released "29". One source of truth, easy to grep.
-    const MAX_RELEASED_MAJOR = 28;
+    // MAX_RELEASED_MAJOR is injected by awfy.compare from the first
+    // line of erlang/otp's otp_versions.table at build time. Falls
+    // back to a hardcoded value if the fetch fails (offline build,
+    // network blip) — see max_released_major/0 in awfy.compare.
 
     // The dashboard's default snapshot scope is "supported releases".
     // OTP support window covers the current and previous two majors;
