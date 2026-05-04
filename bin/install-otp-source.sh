@@ -120,16 +120,6 @@ trap 'rm -rf "$WORK"' EXIT
         done
     fi
 
-    # OTP source tarballs from /archive/<sha>.tar.gz only ship
-    # `configure.in` for pre-OTP 25 releases — autoconf is required
-    # to generate `configure` itself. OTP's own `./otp_build autoconf`
-    # wrapper does the right thing across versions (it knows where
-    # nested configure.in files live).
-    if [ ! -x ./configure ]; then
-        echo "configure not present, running ./otp_build autoconf …"
-        ./otp_build autoconf
-    fi
-
     # Match the Linux Docker image's configure flags so cross-platform
     # numbers compare apples-to-apples. AWFY_OTP_EXTRA_CONFIGURE lets
     # the caller bolt on additional flags — used by the target-runner

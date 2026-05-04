@@ -16,15 +16,16 @@
 #      — covers branch / SHA refs (master, maint-*). Same content
 #      as the release tarball (otp_src.tar.gz with prebuilt beams +
 #      pre-run configure) uploaded by `Build and check Erlang/OTP`
-#      for every commit. Skips when GH_TOKEN unset or API yields
-#      no run / no artifact (expired, run still in progress, etc).
-#   4. github.com/erlang/otp/archive/<sha>.tar.gz
-#      — universal fallback, raw source (no prebuilt beams, no
-#      generated configure — caller must run `./otp_build autoconf`).
+#      for every commit. Requires GH_TOKEN (a personal token or
+#      GITHUB_TOKEN both work; the artifact is public-readable).
 #
-# All four outcomes leave $WORK_DIR/otp/ as the canonical source dir.
-# Optional GH_TOKEN env var enables path 3 (a personal token or
-# GITHUB_TOKEN both work; the artifact is public-readable).
+# Each outcome leaves $WORK_DIR/otp/ as the canonical source dir
+# with a pre-generated `configure` script and a pre-built bootstrap.
+# When all three paths miss, the script exits non-zero rather than
+# silently producing a degraded build — raw /archive sources lack
+# the bootstrap beams + generated configure that AWFY's downstream
+# steps assume, and a slow-success was already proven to mask
+# upstream-CI ordering bugs nobody would otherwise notice.
 
 set -euo pipefail
 
@@ -104,9 +105,12 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
 fi
 
 if [ -z "$SRC" ]; then
-    echo "fetch-otp-source: fetching erlang/otp@$SHA via /archive (raw source)" >&2
-    curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" | tar xz
-    SRC="otp-$SHA"
+    echo "fetch-otp-source: no buildable source found for ref=$REF sha=$SHA" >&2
+    echo "  paths tried: release tarball (github), erlang.org tarball, otp_prebuilt artifact" >&2
+    echo "  if this is a master/branch ref, check that GH_TOKEN is set and that" >&2
+    echo "  erlang/otp's 'Build and check Erlang/OTP' workflow has a recent successful run" >&2
+    echo "  for this SHA (artifacts expire after 90 days)." >&2
+    exit 1
 fi
 
 # Canonicalise to $WORK/otp regardless of which path produced the source.

@@ -58,11 +58,11 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     --mount=type=secret,id=gh_token \
     test -n "$OTP_SHA" || (echo "OTP_SHA build-arg required" && false) && \
     # Source resolution lives in the shared script — see its header
-    # for the probe order. The gh_token secret enables the
-    # otp_prebuilt-artifact path (saves erlc + autoconf time on
-    # branch/SHA refs). When the secret is absent (local builds, no
-    # token) the script falls back to the unauthenticated /archive
-    # tarball and the build still works, just slower.
+    # for the probe order. Every supported path produces a source
+    # tree with a pre-generated `configure`, so we go straight to
+    # ./configure below. The gh_token secret unlocks the
+    # otp_prebuilt-artifact path for branch/SHA refs; without it
+    # those refs simply fail (raw /archive isn't supported).
     if [ -s /run/secrets/gh_token ]; then \
         export GH_TOKEN="$(cat /run/secrets/gh_token)"; \
     fi && \
@@ -83,11 +83,6 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         patch -p1 < "$p"; \
       done; \
     fi && \
-    # OTP source tarballs from /archive/<sha>.tar.gz only ship
-    # `configure.in` for pre-OTP 25 releases — autoconf must run
-    # first to generate `configure`. Modern OTP (≥ 25) ships
-    # `configure` in the archive, so the test is a no-op there.
-    if [ ! -x ./configure ]; then ./otp_build autoconf; fi && \
     ./configure \
         --prefix=/usr/local \
         --disable-debug \
