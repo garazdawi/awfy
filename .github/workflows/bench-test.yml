@@ -64,6 +64,9 @@ jobs:
           INPUT_REFS: >-
             ${{ inputs.otp_refs ||
                 (github.event_name == 'schedule' && '26,27,28,master' || 'master') }}
+          # Needed for the per-target commit-timestamp lookup; the
+          # default GHA token is fine since erlang/otp is public.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -171,7 +174,12 @@ jobs:
             major="$(otp_major_for_ref "$ref" "$sha")"
             elixir="$(elixir_version_for_major "$major")"
             elixir_bundle="$(elixir_bundle_major_for_major "$major")"
-            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\"}"
+            # The dashboard plots each run against this timestamp, so
+            # benchmarking a year-old OTP today shouldn't make every old
+            # release cluster at "now" — pull the commit's committer
+            # date and let the run-dir position itself accordingly.
+            commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" --jq '.commit.committer.date' 2>/dev/null || echo "")"
+            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\"}"
 
             # OTP < 24 has no compatible Elixir bundle, so the host
             # orchestrator can't compile against it. Route to the
@@ -278,10 +286,12 @@ jobs:
       - name: Measure (${{ matrix.flavor }})
         env:
           ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mkdir -p "$PWD/results"
           docker run --rm \
             -e ERL_FLAGS="$ERL_FLAGS_VAL" \
+            -e AWFY_OTP_COMMIT_TIMESTAMP="$AWFY_OTP_COMMIT_TIMESTAMP" \
             -v "$PWD/results:/app/results" \
             "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test" \
             awfy.measure \
@@ -368,6 +378,7 @@ jobs:
         shell: pwsh
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mix awfy.measure `
             --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
@@ -427,6 +438,7 @@ jobs:
       - name: Measure (${{ matrix.flavor }})
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mix awfy.measure \
             --label "${{ matrix.target.label }}-macos-arm64-${{ matrix.flavor }}" \
@@ -491,6 +503,12 @@ jobs:
       - name: Build target OTP
         env:
           OTP_REF: ${{ matrix.target.sha }}
+          # OTP < 23's crypto NIF doesn't compile against OpenSSL 3
+          # (Ubuntu 24.04's libssl-dev). The benchmark target never
+          # imports crypto, so drop ssl/ssh/crypto entirely and skip
+          # the patch dance. install-otp-source.sh threads this into
+          # ./configure verbatim.
+          AWFY_OTP_EXTRA_CONFIGURE: --without-ssl
         run: |
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
@@ -512,6 +530,8 @@ jobs:
         # GITHUB_ENV in the build step. Setting them here would
         # re-export the literal strings (with un-expanded `~`), so we
         # rely on the env file inheritance instead.
+        env:
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mix awfy.measure \
             --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \

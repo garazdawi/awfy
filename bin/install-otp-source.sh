@@ -130,7 +130,13 @@ trap 'rm -rf "$WORK"' EXIT
     fi
 
     # Match the Linux Docker image's configure flags so cross-platform
-    # numbers compare apples-to-apples.
+    # numbers compare apples-to-apples. AWFY_OTP_EXTRA_CONFIGURE lets
+    # the caller bolt on additional flags — used by the target-runner
+    # CI path to pass `--without-ssl` for OTP < 23, whose crypto NIF
+    # uses APIs OpenSSL 3 removed. The benchmark suite never touches
+    # crypto on the target, so dropping ssl/ssh/crypto entirely lets
+    # the build succeed without per-major patches just for an unused
+    # subsystem.
     ./configure \
         --prefix="$PREFIX" \
         --disable-debug \
@@ -141,7 +147,8 @@ trap 'rm -rf "$WORK"' EXIT
         --without-debugger \
         --without-megaco \
         --without-et \
-        --without-jinterface
+        --without-jinterface \
+        ${AWFY_OTP_EXTRA_CONFIGURE:-}
 
     # macOS reports CPU count via sysctl; Linux via nproc.
     if command -v nproc >/dev/null 2>&1; then

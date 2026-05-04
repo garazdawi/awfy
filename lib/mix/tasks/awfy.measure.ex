@@ -224,7 +224,7 @@ defmodule Mix.Tasks.Awfy.Measure do
       "label" => ctx.label,
       "otp" => to_string(System.otp_release()),
       "elixir" => System.version(),
-      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "timestamp" => trend_timestamp() |> DateTime.to_iso8601(),
       "git" => %{
         "sha" => ctx.git_sha,
         "dirty" => ctx.git_dirty
@@ -305,6 +305,34 @@ defmodule Mix.Tasks.Awfy.Measure do
 
       _ ->
         ""
+    end
+  end
+
+  # Timestamp used as the trend-axis position for a run. Defaults to
+  # measurement wall-clock, but CI overrides it to the OTP commit's
+  # committer date via AWFY_OTP_COMMIT_TIMESTAMP — that way old OTP
+  # benchmarks measured today plot at the OTP commit's actual point in
+  # time rather than clustering at "today" with every other catch-up
+  # run. If the env var is malformed we warn and fall back rather than
+  # silently writing now (silent fallback hid a months-old config bug
+  # in a previous iteration).
+  defp trend_timestamp do
+    case System.get_env("AWFY_OTP_COMMIT_TIMESTAMP") do
+      nil ->
+        DateTime.utc_now()
+
+      "" ->
+        DateTime.utc_now()
+
+      iso ->
+        case DateTime.from_iso8601(iso) do
+          {:ok, dt, _offset} ->
+            dt
+
+          _ ->
+            IO.warn("AWFY_OTP_COMMIT_TIMESTAMP=#{inspect(iso)} is not ISO 8601, using wall-clock")
+            DateTime.utc_now()
+        end
     end
   end
 
