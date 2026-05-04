@@ -148,14 +148,18 @@ trap 'rm -rf "$WORK"' EXIT
         JOBS="$(sysctl -n hw.ncpu)"
     fi
 
-    make -j"$JOBS"
-    make install
+    # V=1 enables verbose recipe printing so failure logs show the
+    # actual gcc command line, including the configure-substituted
+    # absolute -I${ERL_TOP}/erts/<host> that locates config.h. The
+    # default pretty-printer hides those.
+    make V=1 -j"$JOBS"
+    make V=1 install
 
     # Build and install the non-JIT (interpreter) emulator alongside the
     # default JIT one. After this, both `-emu_flavor jit` and
     # `-emu_flavor emu` resolve under the same prefix.
-    make -j"$JOBS" FLAVOR=emu
-    make FLAVOR=emu install
+    make V=1 -j"$JOBS" FLAVOR=emu
+    make V=1 FLAVOR=emu install
 
     # `make FLAVOR=emu install` doesn't always copy beam.emu into
     # $PREFIX/lib/erlang/erts-VSN/bin/ — on some OTP versions the
