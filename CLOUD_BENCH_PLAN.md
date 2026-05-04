@@ -5,9 +5,17 @@ OTP `master` (and tagged releases) on every relevant commit, across
 the platforms that matter for performance regression detection:
 
 - **macOS ARM64** — local M5 (self-hosted runner)
-- **Linux x86_64** — AWS `c7i.large` (or bare-metal Equinix Metal)
-- **Linux ARM64** — AWS `c7g.large` (Graviton 3)
-- **Windows x86_64** — AWS `c7i.large` + Windows
+- **Linux x86_64** — AWS `c6i.4xlarge` with vCPU pinning
+- **Linux ARM64** — AWS `c7g.4xlarge` (Graviton 3) with vCPU pinning
+- **Windows x86_64** — AWS `c6i.4xlarge` + Windows with affinity pinning
+
+Each leg uses a "right-sized big" instance (16 vCPU = 8 physical cores
+× 2 threads on Intel; 16 single-thread cores on Graviton 3) and pins
+the benchmark process to one physical core whose hyperthread sibling
+is left idle. The unused cores absorb noise from background
+housekeeping (kernel timers, monitoring agents, GC of unrelated
+processes) instead of stealing cycles from the benchmark. See "CPU
+pinning" below.
 
 Each target runs both **JIT** and **emu** (`-emu_flavor emu`) so the
 report covers the full performance matrix without a separate sweep.
@@ -83,26 +91,37 @@ commits per year, of which a handful shift the suite by >2%.
 
 ## Cost per sweep
 
-A "sweep" = one `(commit, platform, jit/emu)` matrix run = 8 measurements.
+A "sweep" = one `(commit, platform, jit/emu)` matrix run = 8 measurements
+across the cloud-driven legs (macOS lives in `mix awfy.fill`).
 
 | Combo | AWS wall (boot + measure only) | Rate | Cost |
 |-------|--------------------------------|------|------|
-| Linux x86 (Docker pull + run) | ~13 min | $0.09/h | $0.02 |
-| Linux ARM (Docker pull + run) | ~13 min | $0.07/h | $0.02 |
-| Windows x86 (installer + measure) | ~20 min | $0.18/h | $0.06 |
+| Linux x86 (Docker pull + run) | ~13 min | $0.68/h (c6i.4xlarge) | $0.15 |
+| Linux ARM (Docker pull + run) | ~13 min | $0.58/h (c7g.4xlarge) | $0.13 |
+| Windows x86 (installer + measure) | ~20 min | $1.08/h (c6i.4xlarge + Win) | $0.36 |
 | macOS ARM (M5, local fill) | n/a | $0 | $0 |
-| | | **Total** | **~$0.10** |
+| | | **Total** | **~$0.65** |
 
-**Annualised**:
+**Annualised** (cron-only, weekly Monday sweep, no push triggers):
 
-- Daily sweep: ~**$36/year**
-- Per-perf-relevant-commit sweep (~200/yr): ~**$20/year**
+| Cadence | Linux x86 | Linux ARM | Windows | Total |
+|---------|-----------|-----------|---------|-------|
+| Weekly  | $30 | $26 | $20 | **~$76** |
+| Daily   | $209 | $179 | $136 | **~$524** |
+| Per-perf-relevant-commit (~200/yr) | $115 | $99 | $73 | **~$287** |
 
-For publication-quality numbers (bare-metal everywhere — Equinix Metal
-`m3.small.x86` for Linux x86 at $0.50/h, AWS `c7g.metal` for Linux ARM at
-$2.50/h, AWS `c7i.metal-24xl + Win` for Windows at ~$5.40/h): adds ~$3
-to a sweep, so ~**$1,100/year** for daily. Still trivial against
-engineer time.
+x86 Linux benchmark hours/year (weekly cron): 51 min/sweep × 52 ≈ 44 hr;
+ARM matches x86; Windows is half (~18 hr/yr) since only one flavor.
+
+If push-triggered runs are also enabled (~5/week), figures roughly
+double — keeping pushes off the AWS clock is the cheapest knob to turn.
+
+We deliberately **don't** go to full bare-metal (Equinix `m3.small.x86`,
+`c7g.metal`, `c7i.metal-24xl + Win`); that tier costs ~$1,100/year for
+daily and the variance improvement isn't worth ~14× the bill at the
+detection thresholds we're aiming for (≥2% commit-over-commit deltas).
+Pinned-on-shared-Nitro reaches ~3-5% CV in practice — sufficient for
+the trends the dashboard is built around.
 
 ## Phase 0 — validate on GHA-hosted runners (no AWS, no M5)
 
@@ -256,11 +275,12 @@ Spotlight indexing, Time Machine, low battery, etc.
    at the bucket on a periodic basis (e.g. nightly rebuild of a public
    GitHub Pages site).
 
-4. **What level of bare-metal do we need?** Start with shared-tenant
-   (`c7i.large` / `c7g.large`) and watch the noise floor via the
-   existing stability scripts. If CV is consistently above ~3% even
-   with the preflight gate clean, switch to Equinix Metal `m3.small.x86`
-   at $0.50/h.
+4. **What level of bare-metal do we need?** Resolved to **pinned
+   c6i.4xlarge / c7g.4xlarge / c6i.4xlarge+Win** (see "CPU pinning"
+   below) — gets us to ~3-5% CV at ~$76/yr (weekly cron) without
+   needing dedicated hosts or metal instances. If detection
+   sensitivity below 2% becomes a goal, revisit Equinix Metal
+   `m3.small.x86` at $0.50/h.
 
 5. **JIT/emu time tuning.** Current per-benchmark `:time` values in
    `BencheeRunner` are calibrated for JIT. The emu (interpreter) pass
@@ -290,6 +310,31 @@ Spotlight indexing, Time Machine, low battery, etc.
    hosted runners, confirm the dashboard renders, then promote to
    `bench.yml` against AWS.
 8. Tune emu-pass `:time` once enough samples are in.
+
+## CPU pinning
+
+The 4xlarge tier gives us 16 vCPUs in a way we can shape, not just 16
+vCPUs. The benchmark runs single-threaded, so:
+
+- **Linux** — `taskset -c 0 mix awfy.measure …` runs the controller
+  (and through it the peer) on vCPU 0. On Intel (`c6i`), vCPUs 0 and 8
+  are siblings on the same physical core; pinning to 0 and never
+  scheduling on 8 keeps the core's L1/L2 free of contention. Graviton 3
+  (`c7g`) has no SMT — one vCPU is one physical core, so pinning to 0
+  is sufficient on its own.
+- **Windows** — `Start-Process … -ProcessorAffinity 1` (PowerShell)
+  pins to logical processor 0. Sibling-aware pinning matters here too:
+  use `Get-CimInstance Win32_Processor` to confirm core/thread layout
+  on the chosen instance type before locking the affinity mask.
+- **Quiescence** — bring the rest of the box to a low-noise floor:
+  disable `irqbalance` in the AWS Linux AMI's bake step, mount tmpfs
+  for `/tmp`, and skip `fstrim` / scheduled scans on the bench window.
+  Most of these are one-time AMI tweaks, documented under `SETUP.md`.
+
+The noise wins come from sibling-thread isolation, not from raw core
+count — `c6i.large` would be cheaper, but then *every* vCPU has a
+sibling owned by another tenant. The 4xlarge is paying ~5× the rate to
+own its own siblings.
 
 ## Per-benchmark VM isolation
 
