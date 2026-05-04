@@ -29,15 +29,23 @@ PREFIX_BASE="${2:-$HOME/.local/otp}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 AWFY_ROOT="${AWFY_ROOT:-$(dirname "$SCRIPT_DIR")}"
 
-# Resolve to a SHA up front so the install path is content-addressed.
-# Pre-resolved 40-hex SHAs are passed through as-is (ls-remote can't
-# look up commit SHAs, only refs); anything else is resolved via the
-# remote (tag, branch, etc.).
+# Resolve to a *commit* SHA up front so the install path is
+# content-addressed. Pre-resolved 40-hex SHAs are passed through.
+# Annotated tags (which is how OTP releases tag) need `^{}` to
+# dereference from the tag-object SHA to the commit SHA — without
+# it, the install prefix would key on the tag object and never
+# match the commit-SHA cache key the workflow uses. The fallback
+# to plain `$REF` covers branches and lightweight tags, which
+# return empty for `^{}`.
 if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
     SHA="$REF"
 else
-    SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" \
+    SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF^{}" \
            | head -1 | cut -f1)"
+    if [ -z "$SHA" ]; then
+        SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" \
+               | head -1 | cut -f1)"
+    fi
 fi
 
 if [ -z "$SHA" ]; then

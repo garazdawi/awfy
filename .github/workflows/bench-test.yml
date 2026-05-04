@@ -539,7 +539,12 @@ jobs:
           key: otp-target-linux-${{ matrix.arch.name }}-${{ matrix.target.sha }}
       - name: Build target OTP
         env:
-          OTP_REF: ${{ matrix.target.sha }}
+          # Pass the ref name (e.g. OTP-20.3), not the SHA — install-otp-source.sh's
+          # prebuilt-source URL probe matches on `OTP-*` so it can hit the
+          # github-release / erlang.org tarball with prebuilt beams.
+          # Passing only the SHA bypasses that path and falls through to
+          # /archive/<sha>.tar.gz, which lacks config.guess on older OTPs.
+          OTP_REF: ${{ matrix.target.ref }}
           # Empty for OTP ≥ 23 (crypto compiles fine against OpenSSL 3
           # so the suite can use it); `--without-ssl` for OTP < 23
           # whose crypto NIF needs OpenSSL 1.1. Computed in resolve.
