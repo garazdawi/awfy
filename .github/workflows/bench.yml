@@ -217,9 +217,20 @@ jobs:
             commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" 2>/dev/null \
               | jq -r '.commit.committer.date // ""' 2>/dev/null \
               || echo "")"
+            # OTP 24 advertised "preliminary" OpenSSL 3 support but
+            # only OTP 24.3+ actually compiles against OpenSSL 3
+            # cleanly — 24.0/24.1/24.2 still reference FIPS_mode
+            # which OpenSSL 3 removed. Drop crypto there too (none
+            # of the AWFY benchmarks exercise it).
             extra_configure=""
             if [ "$major" -lt 24 ] 2>/dev/null; then
                 extra_configure="--without-ssl"
+            elif [ "$major" -eq 24 ]; then
+                case "$ref" in
+                    OTP-24.0|OTP-24.1|OTP-24.2|OTP-24.0.*|OTP-24.1.*|OTP-24.2.*)
+                        extra_configure="--without-ssl"
+                        ;;
+                esac
             fi
             # Carry the full resolved version ("28.5.4", "29.0-rc3")
             # so the snapshot legend is unambiguous; the dashboard

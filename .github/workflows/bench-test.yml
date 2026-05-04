@@ -251,12 +251,20 @@ jobs:
             # OTP < 24's crypto NIF uses APIs OpenSSL 3 removed
             # (RSA_get0_crt_params, EVP_MD_meth_new, …). The GHA Ubuntu
             # image ships only OpenSSL 3, so for those targets drop
-            # ssl/ssh/crypto entirely. OTP 24+ added OpenSSL 3 support
-            # so leave the flag empty there to keep crypto available
-            # for benchmarks that exercise it.
+            # ssl/ssh/crypto entirely. OTP 24 advertised "preliminary"
+            # OpenSSL 3 support but only OTP 24.3+ actually compiles
+            # against OpenSSL 3 cleanly — 24.0/24.1/24.2 still
+            # reference FIPS_mode which OpenSSL 3 removed. Drop crypto
+            # there too (none of the AWFY benchmarks exercise it).
             extra_configure=""
             if [ "$major" -lt 24 ] 2>/dev/null; then
                 extra_configure="--without-ssl"
+            elif [ "$major" -eq 24 ]; then
+                case "$ref" in
+                    OTP-24.0|OTP-24.1|OTP-24.2|OTP-24.0.*|OTP-24.1.*|OTP-24.2.*)
+                        extra_configure="--without-ssl"
+                        ;;
+                esac
             fi
             # otp_label is what the dashboard plots on its x axis. We
             # carry the full resolved version ("28.5.4", "29.0-rc3")
