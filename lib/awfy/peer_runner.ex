@@ -141,9 +141,14 @@ defmodule Awfy.PeerRunner do
 
     cond do
       Code.ensure_loaded?(:peer) ->
-        code_path_args =
-          :code.get_path()
-          |> Enum.flat_map(fn path -> [~c"-pa", path] end)
+        # Pass the entire code path under one -pa flag so the peer's
+        # lookup order matches the controller's. Multiple -pa flags
+        # prepend one path at a time, which reverses the order — that
+        # buries Mix's consolidated/ dir behind elixir/ebin on the
+        # peer and makes Benchee load the unconsolidated protocol
+        # beams (Inspect, Enumerable, …), triggering its
+        # "protocols have been consolidated" warning.
+        code_path_args = [~c"-pa" | :code.get_path()]
 
         {:ok, pid, _node} =
           :peer.start_link(%{
@@ -160,10 +165,11 @@ defmodule Awfy.PeerRunner do
       ensure_distribution_started() == :ok ->
         slave_name = String.to_atom(base)
 
+        # Single -pa with all dirs (see :peer branch above for the
+        # order-preservation rationale).
         code_path_arg =
-          :code.get_path()
-          |> Enum.map(&List.to_string/1)
-          |> Enum.map_join(" ", &"-pa #{&1}")
+          "-pa " <>
+            Enum.map_join(:code.get_path(), " ", &List.to_string/1)
 
         # apply/3: see comment on :slave.stop/1 above.
         case apply(:slave, :start_link, [
