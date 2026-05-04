@@ -43,12 +43,18 @@ defmodule Awfy.PeerRunner do
 
   ### OTP < 25 fallback
 
-  `:peer` landed in OTP 25. On OTP 24 we fall back to the legacy
-  `:slave` module (driven over Erlang distribution via `:rpc.call/4`
-  and dynamically-started `:net_kernel`). The numbers are still
-  same-OTP isolated; only the transport differs. Distribution
-  requires `epmd` to be running, which OTP boots on demand for
-  short-name nodes.
+  `:peer` landed in OTP 25. On OTP 24 we fall back to:
+
+    1. `:slave` over Erlang distribution (longnames@127.0.0.1 to
+       avoid hostname-resolution issues in Docker / restricted CI
+       environments). Same-OTP isolation methodology preserved;
+       only the transport differs.
+    2. If distribution refuses to start (some CI sandboxes block
+       `epmd` or socket creation), run the function **in-process**
+       in the controller VM. Loses cross-benchmark isolation but
+       lets the run produce numbers rather than aborting outright.
+       Same effect as `AWFY_NO_ISOLATION=1`, applied automatically
+       only for the older-OTP path that can't use peer or slave.
   """
   @spec run((-> result), String.t()) :: result when result: any()
   def run(fun, name_hint) when is_function(fun, 0) and is_binary(name_hint) do
@@ -71,6 +77,9 @@ defmodule Awfy.PeerRunner do
           # warning surface — the use is intentional (OTP 24 has no peer).
           apply(:slave, :stop, [node])
         end
+
+      :in_process ->
+        fun.()
     end
   end
 
@@ -107,52 +116,85 @@ defmodule Awfy.PeerRunner do
           # warning surface — the use is intentional (OTP 24 has no peer).
           apply(:slave, :stop, [node])
         end
+
+      :in_process ->
+        apply(module, function, args)
     end
   end
 
-  # Pick `:peer` (OTP 25+) or `:slave` (OTP 24) based on what's
-  # available at runtime. The legacy `:slave` path needs Erlang
-  # distribution; we lazily start `:net_kernel` in shortname mode
-  # the first time we need it (OTP boots epmd on demand).
+  # Pick the best isolation mechanism available at runtime:
+  #
+  #   1. `:peer` (OTP 25+) over stdio — no distribution needed.
+  #   2. `:slave` + Erlang distribution pinned to longnames@127.0.0.1
+  #      — works around hostname-resolution failures in Docker /
+  #      restricted CI environments.
+  #   3. In-process — distribution refused to start; run the closure
+  #      in the controller VM (loses cross-benchmark isolation, but
+  #      lets the run produce numbers rather than aborting).
   defp start_peer(name_hint) do
     safe_hint = String.replace(name_hint, ~r/[^a-zA-Z0-9_]/, "_")
     base = "awfy_#{safe_hint}_#{:erlang.unique_integer([:positive])}"
 
-    if Code.ensure_loaded?(:peer) do
-      code_path_args =
-        :code.get_path()
-        |> Enum.flat_map(fn path -> [~c"-pa", path] end)
+    cond do
+      Code.ensure_loaded?(:peer) ->
+        code_path_args =
+          :code.get_path()
+          |> Enum.flat_map(fn path -> [~c"-pa", path] end)
 
-      {:ok, pid, _node} =
-        :peer.start_link(%{
-          name: String.to_charlist(base),
-          args: code_path_args,
-          connection: :standard_io
-        })
+        {:ok, pid, _node} =
+          :peer.start_link(%{
+            name: String.to_charlist(base),
+            args: code_path_args,
+            connection: :standard_io
+          })
 
-      {:peer, pid}
-    else
-      ensure_distribution_started()
-      {:ok, host} = :inet.gethostname()
-      slave_name = String.to_atom(base)
+        {:peer, pid}
 
-      code_path_arg =
-        :code.get_path()
-        |> Enum.map(&List.to_string/1)
-        |> Enum.map_join(" ", &"-pa #{&1}")
+      ensure_distribution_started() == :ok ->
+        slave_name = String.to_atom(base)
 
-      # apply/3: see comment on :slave.stop/1 above.
-      {:ok, node} = apply(:slave, :start_link, [host, slave_name, String.to_charlist(code_path_arg)])
-      {:slave, node}
+        code_path_arg =
+          :code.get_path()
+          |> Enum.map(&List.to_string/1)
+          |> Enum.map_join(" ", &"-pa #{&1}")
+
+        # apply/3: see comment on :slave.stop/1 above.
+        case apply(:slave, :start_link, [
+               :"127.0.0.1",
+               slave_name,
+               String.to_charlist(code_path_arg)
+             ]) do
+          {:ok, node} ->
+            {:slave, node}
+
+          # epmd registration / connect failures occasionally surface
+          # post-net_kernel-up; fall through rather than abort.
+          {:error, _reason} ->
+            :in_process
+        end
+
+      true ->
+        :in_process
     end
   end
 
+  # Lazily start Erlang distribution for the slave path, pinned to
+  # longnames@127.0.0.1 so name resolution never depends on /etc/hosts
+  # or DNS — works inside Docker, on Windows, and on macOS without
+  # further setup. Returns :ok if distribution is up after this call,
+  # :error if it refused to start.
   defp ensure_distribution_started do
     case :erlang.node() do
       :nonode@nohost ->
-        ctrl_name = String.to_atom("awfy_ctrl_#{:erlang.unique_integer([:positive])}")
-        {:ok, _} = :net_kernel.start([ctrl_name, :shortnames])
-        :ok
+        # epmd may already be running; -daemon is a no-op then.
+        _ = System.cmd("epmd", ["-daemon"], stderr_to_stdout: true)
+
+        ctrl = String.to_atom("awfy_ctrl_#{:erlang.unique_integer([:positive])}@127.0.0.1")
+
+        case :net_kernel.start([ctrl, :longnames]) do
+          {:ok, _} -> :ok
+          _ -> :error
+        end
 
       _ ->
         :ok

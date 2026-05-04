@@ -109,23 +109,29 @@ trap 'rm -rf "$WORK"' EXIT
     # auth) or when the API returns nothing (artifact expired, no run
     # found for this branch); the /archive fallback below picks up.
     if [ -z "${SRC:-}" ] && command -v gh >/dev/null 2>&1; then
+        # Each gh api / jq call is wrapped with `|| ...=""` because we're
+        # under `set -euo pipefail`: an unauthenticated `gh api` exits 4
+        # (HTTP error) and pipefail propagates that, aborting the script
+        # instead of cleanly falling through to the /archive fallback.
         for q in "head_sha=$SHA" "branch=$REF"; do
             run_id="$(gh api "repos/erlang/otp/actions/runs?$q&per_page=10" 2>/dev/null \
-                | jq -r '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0].id // empty' 2>/dev/null)"
+                | jq -r '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0].id // empty' \
+                2>/dev/null)" || run_id=""
             [ -z "$run_id" ] && continue
             artifact_id="$(gh api "repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
-                | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' 2>/dev/null)"
+                | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
+                2>/dev/null)" || artifact_id=""
             [ -z "$artifact_id" ] && continue
             echo "Fetching otp_prebuilt artifact $artifact_id (run $run_id) …"
-            if gh api "repos/erlang/otp/actions/artifacts/$artifact_id/zip" > "$WORK/prebuilt.zip" 2>/dev/null \
-                && unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" \
-                && tar xzf "$WORK/prebuilt/otp_src.tar.gz" -C "$WORK"
-            then
-                # The artifact's tarball extracts to "otp/" (no version
-                # suffix — it's untagged source).
-                SRC="$WORK/otp"
-                break
-            fi
+            gh api "repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
+                > "$WORK/prebuilt.zip" 2>/dev/null \
+                || { echo "  download failed, trying next ref"; continue; }
+            unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" || continue
+            tar xzf "$WORK/prebuilt/otp_src.tar.gz" -C "$WORK" || continue
+            # The artifact's tarball extracts to "otp/" (no version
+            # suffix — it's untagged source).
+            SRC="$WORK/otp"
+            break
         done
     fi
     if [ -z "${SRC:-}" ]; then

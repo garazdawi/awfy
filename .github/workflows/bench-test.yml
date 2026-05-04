@@ -486,6 +486,12 @@ jobs:
           # find it on its own and silently builds without crypto. mix
           # then refuses to start with "application crypto could not
           # be found". Point configure at the keg explicitly.
+          #
+          # GH_TOKEN: install-otp-source.sh may pull the `otp_prebuilt`
+          # artifact from upstream's Build workflow for branch refs
+          # (master). That download requires actions:read on erlang/otp;
+          # the default GHA token works since erlang/otp is public.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           export AWFY_OTP_EXTRA_CONFIGURE="--with-ssl=$(brew --prefix openssl@3)"
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
@@ -585,10 +591,12 @@ jobs:
           # Passing only the SHA bypasses that path and falls through to
           # /archive/<sha>.tar.gz, which lacks config.guess on older OTPs.
           OTP_REF: ${{ matrix.target.ref }}
-          # Empty for OTP ≥ 23 (crypto compiles fine against OpenSSL 3
-          # so the suite can use it); `--without-ssl` for OTP < 23
+          # Empty for OTP ≥ 24 (crypto compiles fine against OpenSSL 3
+          # so the suite can use it); `--without-ssl` for OTP < 24
           # whose crypto NIF needs OpenSSL 1.1. Computed in resolve.
           AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
+          # Same prebuilt-artifact caveat as the macOS build step.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
