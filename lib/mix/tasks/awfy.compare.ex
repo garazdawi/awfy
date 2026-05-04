@@ -189,7 +189,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       baseline_label: baseline_label || "",
       snapshot_html: """
       <h3 class="snapshot-heading">Latest snapshot — per-benchmark across versions</h3>
-      <p class="sub">Median runtime (ms) at the most recent run for each (OTP × benchmark) on the selected platform. Whiskers show ± 2σ.</p>
+      <p class="sub">Median runtime (ms) at the most recent run for each (OTP major × benchmark) on the selected platform — only the latest patch of each major contributes a bar. Whiskers show ± 2σ.</p>
       <div class="snapshot-majors" id="control-snapshot-majors"></div>
       <div class="chart-wrap snapshot"><canvas id="snapshot"></canvas></div>
       """,
@@ -1120,9 +1120,13 @@ defmodule Mix.Tasks.Awfy.Compare do
 
     /* ---- Per-benchmark snapshot bar chart -----------------------------
        Grouped vertical bars: one column per benchmark on the x axis,
-       one bar per (OTP, language). Shows the most recent (OTP, lang,
-       benchmark) row for the active machine_class + flavor; whiskers are
-       ± 2σ. Lets you see at a glance which benches actually got faster.
+       one bar per (OTP major, language) — only the latest patch of each
+       major contributes. Whiskers are ± 2σ. The trend chart below
+       shows every patch; this snapshot stays sparse so the headline
+       view doesn't drown in backfill columns.
+       Legend label uses the actual patch version of the latest run for
+       each major (e.g. "OTP 28.5 · Erlang"), so the operator never has
+       to guess which patch a bar represents.
     */
     function renderSnapshot() {
       const el = document.getElementById("snapshot");
@@ -1133,11 +1137,22 @@ defmodule Mix.Tasks.Awfy.Compare do
       const filtered = applyFilters(DATASET.rows, state)
         .filter(r => enabledMajors.has(majorOf(r.otp)));
 
-      // Most recent row per (otp, lang, benchmark).
+      // Per-major collapse: only the latest patch per OTP major shows
+      // in the snapshot — the trend chart still surfaces every patch.
+      // Index runs by (major, lang, benchmark); the "latest" tiebreak
+      // is timestamp first, then version-string ordering as a fallback
+      // for backfill batches submitted in one cron pulse.
       const latest = {};
       filtered.forEach(r => {
-        const k = r.otp + "|" + r.lang + "|" + r.benchmark;
-        if (!latest[k] || r.timestamp > latest[k].timestamp) latest[k] = r;
+        const m = majorOf(r.otp);
+        if (!m) return;
+        const k = m + "|" + r.lang + "|" + r.benchmark;
+        const cur = latest[k];
+        if (!cur ||
+            r.timestamp > cur.timestamp ||
+            (r.timestamp === cur.timestamp && compareOtpVersions(r.otp, cur.otp) > 0)) {
+          latest[k] = r;
+        }
       });
       const rows = Object.values(latest);
       if (rows.length === 0) {
@@ -1148,19 +1163,25 @@ defmodule Mix.Tasks.Awfy.Compare do
       }
       el.style.display = "";
 
-      const otps = [...new Set(rows.map(r => r.otp))].sort(compareOtpVersions);
+      // Each major picks its latest-patch row; the OTP version that
+      // ends up represented is whatever that latest row carries. Use
+      // the patch-version string (r.otp, e.g. "28.5") for the legend
+      // so the operator never has to guess which patch a bar shows.
+      const majors = [...new Set(rows.map(r => majorOf(r.otp)))].sort(compareOtpVersions);
       const langs = [...new Set(rows.map(r => r.lang))].sort();
       const benches = [...new Set(rows.map(r => r.benchmark))].sort();
+      const versionForMajor = {};
+      rows.forEach(r => { versionForMajor[majorOf(r.otp)] = r.otp; });
 
-      // One dataset per (otp, lang). Vertical bars grouped by benchmark
-      // name on the x axis — fits better with the rest of the dashboard
-      // (also vertical) and lets the y axis read in the natural "lower
-      // = faster" direction with median ms on it.
+      // One dataset per (major, lang). Vertical bars grouped by
+      // benchmark name on the x axis — fits better with the rest of
+      // the dashboard (also vertical) and lets the y axis read in the
+      // natural "lower = faster" direction with median ms on it.
       const datasets = [];
-      otps.forEach((otp, oi) => {
+      majors.forEach((m, mi) => {
         langs.forEach((lang, li) => {
           const data = benches.map(b => {
-            const r = latest[otp + "|" + lang + "|" + b];
+            const r = latest[m + "|" + lang + "|" + b];
             // Bar chart with parsing.yMinKey reads `.yMin` on every
             // datapoint, so a bare null crashes Chart.js with
             // "Cannot read properties of null (reading 'yMin')".
@@ -1170,11 +1191,13 @@ defmodule Mix.Tasks.Awfy.Compare do
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
             return { x: b, y: r.median_ms, yMin: r.median_ms - sigma, yMax: r.median_ms + sigma, raw: r };
           });
+          const v = versionForMajor[m];
+          const labelOtp = (v === "master" || v === "main") ? v : "OTP " + v;
           datasets.push({
-            label: "OTP " + otp + " · " + lang,
+            label: labelOtp + " · " + lang,
             data,
-            backgroundColor: colorFor(oi * langs.length + li),
-            borderColor: colorFor(oi * langs.length + li),
+            backgroundColor: colorFor(mi * langs.length + li),
+            borderColor: colorFor(mi * langs.length + li),
             errorBarColor: "rgba(0,0,0,0.45)",
             errorBarWhiskerColor: "rgba(0,0,0,0.45)",
             errorBarLineWidth: 1,
