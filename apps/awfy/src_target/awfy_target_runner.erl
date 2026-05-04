@@ -68,9 +68,11 @@ run_iters_io(Module, InnerIter, IterCount) ->
             lists:foreach(fun(T) -> io:format("~B~n", [T]) end, Times),
             erlang:halt(0)
     catch
-        Class:Reason:Stack ->
+        %% 2-tuple form (no Stack) so this file compiles on OTP 20.
+        %% The 3-tuple stacktrace catch syntax was introduced in OTP 21.
+        Class:Reason ->
             io:format(standard_error,
-                      "awfy_target_runner: ~p:~p~n  stack: ~p~n",
-                      [Class, Reason, Stack]),
+                      "awfy_target_runner: ~p:~p~n",
+                      [Class, Reason]),
             erlang:halt(1)
     end.
