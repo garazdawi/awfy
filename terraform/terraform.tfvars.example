@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+#
+# aws_region  = "us-east-1"
+# vpc_id      = "vpc-xxxxxxxx"
+# subnet_ids  = ["subnet-aaaa", "subnet-bbbb"]
+# github_app_id         = "123456"
+# github_app_key_base64 = "LS0tLS1CRUdJTi..."
+# github_webhook_secret = "deadbeef..."
+#
+# # Cost guardrails — see CLOUD_BENCH_PLAN.md § Cost per sweep.
+# # Defaults: $25/mo cap, 8 concurrent runners per pool. Bump
+# # monthly_budget_usd above ~$15 before a full 40-version backfill.
+# monthly_budget_usd            = 25
+# budget_alert_emails           = ["you@example.com"]
+# runners_maximum_count_per_pool = 8

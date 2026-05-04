@@ -8,3 +8,10 @@ tmp/
 # mix awfy.fill working dirs:
 _pages/
 _fill_results/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/.terraform.lock.hcl
