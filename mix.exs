@@ -32,6 +32,13 @@ defmodule AwfyRunner.MixProject do
       elixir: "~> 1.16",
       elixirc_paths: ["lib"],
       start_permanent: Mix.env() == :prod,
+      # Mix consolidates protocols in :prod by default and skips it in
+      # :dev/:test. We run benchmarks under :dev (Benchee is a dev-only
+      # dep), where unconsolidated protocols add overhead inside hot
+      # paths like Enumerable / Inspect — Benchee warns about this and
+      # it's a real source of measurement noise. Force consolidation in
+      # every env so the numbers are comparable to a release build.
+      consolidate_protocols: true,
       deps: deps()
     ]
   end
