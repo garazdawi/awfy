@@ -80,74 +80,14 @@ trap 'rm -rf "$WORK"' EXIT
     if [ "$OTP_INSTALLED" = "1" ]; then
         : "skipping fetch+build, jumping to target-beam compile"
     else
-    # Prefer the release `otp_src_<version>.tar.gz` when the ref is a
-    # tagged OTP release: it ships prebuilt .beam files (saves the
-    # erlc compilation pass — minutes of CPU on the GHA runner) and
-    # has `configure` already generated (saves the autoconf step).
-    # `/archive/<sha>.tar.gz` is the catch-all fallback (untagged
-    # refs, very old releases without an asset).
-    case "$REF" in
-        OTP-*)
-            VERSION="${REF#OTP-}"
-            # Probe order:
-            #   1. github.com/erlang/otp/releases — covers OTP 21+
-            #      tagged releases.
-            #   2. erlang.org/download — covers older majors (OTP 20.3
-            #      etc.) and the major.minor "main" releases that
-            #      predate github releases.
-            for url in \
-                "https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz" \
-                "https://erlang.org/download/otp_src_$VERSION.tar.gz"
-            do
-                if curl -fsLI -o /dev/null "$url"; then
-                    echo "Fetching $url (prebuilt beams) …"
-                    curl -fL "$url" | tar xz -C "$WORK"
-                    SRC="$WORK/otp_src_$VERSION"
-                    break
-                fi
-            done
-            ;;
-    esac
-
-    # Branch / SHA refs (master, maint-*, …) don't have a release
-    # tarball. Try the upstream CI's `otp_prebuilt` artifact instead —
-    # the same content (otp_src.tar.gz with prebuilt beams + already-run
-    # configure) is uploaded by `Build and check Erlang/OTP` for every
-    # commit. Skips when gh isn't available (e.g. local dev without
-    # auth) or when the API returns nothing (artifact expired, no run
-    # found for this branch); the /archive fallback below picks up.
-    if [ -z "${SRC:-}" ] && command -v gh >/dev/null 2>&1; then
-        # Each gh api / jq call is wrapped with `|| ...=""` because we're
-        # under `set -euo pipefail`: an unauthenticated `gh api` exits 4
-        # (HTTP error) and pipefail propagates that, aborting the script
-        # instead of cleanly falling through to the /archive fallback.
-        for q in "head_sha=$SHA" "branch=$REF"; do
-            run_id="$(gh api "repos/erlang/otp/actions/runs?$q&per_page=10" 2>/dev/null \
-                | jq -r '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0].id // empty' \
-                2>/dev/null)" || run_id=""
-            [ -z "$run_id" ] && continue
-            artifact_id="$(gh api "repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
-                | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
-                2>/dev/null)" || artifact_id=""
-            [ -z "$artifact_id" ] && continue
-            echo "Fetching otp_prebuilt artifact $artifact_id (run $run_id) …"
-            gh api "repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
-                > "$WORK/prebuilt.zip" 2>/dev/null \
-                || { echo "  download failed, trying next ref"; continue; }
-            unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" || continue
-            tar xzf "$WORK/prebuilt/otp_src.tar.gz" -C "$WORK" || continue
-            # The artifact's tarball extracts to "otp/" (no version
-            # suffix — it's untagged source).
-            SRC="$WORK/otp"
-            break
-        done
-    fi
-    if [ -z "${SRC:-}" ]; then
-        echo "Fetching erlang/otp@$SHA via /archive (raw source) …"
-        curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" \
-            | tar xz -C "$WORK"
-        SRC="$WORK/otp-$SHA"
-    fi
+    # Source resolution (release tarball → otp_prebuilt artifact →
+    # /archive fallback) is shared with Dockerfile.linux; see
+    # bin/fetch-otp-source.sh for the probe order. Set GH_TOKEN
+    # before invoking to enable the artifact path; the /archive
+    # fallback covers the unauthenticated case.
+    GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}" \
+        "$SCRIPT_DIR/fetch-otp-source.sh" "$REF" "$SHA" "$WORK"
+    SRC="$WORK/otp"
 
     cd "$SRC"
     export ERL_TOP="$SRC"

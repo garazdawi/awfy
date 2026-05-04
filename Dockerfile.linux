@@ -34,27 +34,40 @@ ARG ELIXIR_OTP_MAJOR=28
 # Debian LTS support runs through 2026-08; revisit then.
 FROM debian:bullseye-slim AS otp-build
 ARG OTP_SHA
+ARG OTP_REF=""
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf m4 \
         libssl-dev libncurses-dev zlib1g-dev \
         ca-certificates curl ccache patch \
+        jq unzip \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH=/usr/lib/ccache:$PATH \
     CCACHE_DIR=/root/.ccache \
     ERL_TOP=/otp
 
-# Patches/ is COPY'd separately from the source tarball so adding or
-# editing a patch invalidates only this layer, not the whole build.
-COPY patches/ /tmp/patches/
+# Patches/ and the source-fetch script are COPY'd separately from the
+# source tarball so editing them invalidates only their own layer, not
+# the whole build.
+COPY patches/                   /tmp/patches/
+COPY bin/fetch-otp-source.sh    /usr/local/bin/fetch-otp-source.sh
 
 WORKDIR /tmp
 RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
+    --mount=type=secret,id=gh_token \
     test -n "$OTP_SHA" || (echo "OTP_SHA build-arg required" && false) && \
-    curl -fL "https://github.com/erlang/otp/archive/${OTP_SHA}.tar.gz" \
-        | tar xz && \
-    mv "otp-${OTP_SHA}" /otp && \
+    # Source resolution lives in the shared script — see its header
+    # for the probe order. The gh_token secret enables the
+    # otp_prebuilt-artifact path (saves erlc + autoconf time on
+    # branch/SHA refs). When the secret is absent (local builds, no
+    # token) the script falls back to the unauthenticated /archive
+    # tarball and the build still works, just slower.
+    if [ -s /run/secrets/gh_token ]; then \
+        export GH_TOKEN="$(cat /run/secrets/gh_token)"; \
+    fi && \
+    /usr/local/bin/fetch-otp-source.sh "${OTP_REF:-$OTP_SHA}" "$OTP_SHA" /tmp && \
+    mv /tmp/otp /otp && \
     cd /otp && \
     # Apply patches/OTP-<major>/*.patch matching this build's major.
     # See patches/README.md for the convention.

@@ -282,8 +282,15 @@ jobs:
           push: true
           build-args: |
             OTP_SHA=${{ matrix.target.sha }}
+            OTP_REF=${{ matrix.target.ref }}
             ELIXIR_OTP_MAJOR=${{ matrix.target.elixir_bundle }}
             ELIXIR_VERSION=${{ matrix.target.elixir }}
+          # Forwarded to fetch-otp-source.sh inside the build so it
+          # can pull erlang/otp's `otp_prebuilt` CI artifact (prebuilt
+          # beams + pre-run configure — saves several minutes per
+          # cold build vs. /archive raw source).
+          secrets: |
+            gh_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test
           cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
