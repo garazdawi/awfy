@@ -28,7 +28,7 @@ SPDX-License-Identifier = "CC0-1.0"
 # Embedded test data for the Json benchmark, copied from the
 # upstream AWFY repo (Stefan Marr, MIT — see LICENSING_POLICY.md).
 [[annotations]]
-path = "priv/rap_benchmark.json"
+path = "apps/awfy/priv/rap_benchmark.json"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Stefan Marr"
 SPDX-License-Identifier = "MIT"

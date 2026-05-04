@@ -37,6 +37,29 @@ the patch is still needed:
 +...
 ```
 
+## Notes per OTP major
+
+Each pre-JIT release has its own quirks beyond just patching. Notable:
+
+* **OTP 20**: HiPE *is* the "JIT" for this version — the BEAM JIT
+  doesn't land until OTP 24. When the workflow asks for the `jit`
+  flavor on OTP 20 we should compile the benchmark sources with
+  `erlc +native …` (or call `hipe:c/1` at runtime) so HiPE actually
+  takes effect; without that, "jit" silently runs the same code as
+  "emu". The `emu_flavor` runtime flag also doesn't exist yet on
+  OTP 20-23 — use plain `erl` for emu and HiPE-compiled beams for jit.
+  See the runner's flavor-mapping logic for the per-major translation.
+
+* **OTP 21-23**: HiPE still available; native flag works the same way.
+  `+native` is still the path to "JIT-equivalent" for these versions.
+
+* **OTP 24-27**: BEAM JIT replaced HiPE and is on by default. Flavor
+  is selected with `-emu_flavor jit|emu` at runtime (jit is default).
+  HiPE is gone (removed in OTP 24).
+
+* **OTP 28+**: same as 24-27; the names `jit`/`emu` are the upstream
+  spelling.
+
 ## Common patch categories
 
 The Erlang/OTP source tree changed enough between OTP 20 and OTP 28

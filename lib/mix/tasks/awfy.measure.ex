@@ -281,9 +281,11 @@ defmodule Mix.Tasks.Awfy.Measure do
     end)
   end
 
-  defp source_sha256({:erlang, mod}), do: sha_file(Path.join("src", "#{mod}.erl"))
-
-  defp source_sha256({:elixir, mod}) do
+  # Both Erlang and Elixir modules expose `module_info(:compile)[:source]`
+  # — the absolute path the BEAM was compiled from. We don't hard-code
+  # the directory because benchmark suites live under `apps/<group>/src/`
+  # or `apps/<group>/lib/`, and that's per-suite.
+  defp source_sha256({_lang, mod}) do
     case mod.module_info(:compile)[:source] do
       nil -> ""
       raw -> raw |> List.to_string() |> Path.relative_to_cwd() |> sha_file()

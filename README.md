@@ -24,16 +24,26 @@ on the published `gh-pages` branch).
 
 ```
 awfy/
-├── src/                           # 14 Erlang benchmarks + SOM Vector helpers
-├── lib/awfy/benchmarks/           # 14 Elixir benchmarks
-├── lib/awfy/                      # framework: BencheeRunner, PeerRunner,
-│   │                              #            Compare.Data, Fill.Diff,
-│   │                              #            Measure.Helpers, Preflight.Parse
+├── apps/                          # benchmark suites — each independently
+│   │                              # compilable with its own mix.exs and a
+│   │                              # low Elixir floor, so older OTPs can
+│   │                              # still build them.
+│   └── awfy/                      # AWFY suite (Stefan Marr's port, MIT)
+│       ├── mix.exs
+│       ├── src/                   # 14 Erlang benchmarks + SOM helpers
+│       ├── lib/awfy.ex            # registry + verify
+│       ├── lib/awfy/benchmark.ex  # behaviour
+│       ├── lib/awfy/benchmarks/   # 14 Elixir benchmarks
+│       └── priv/                  # benchmark inputs (rap_benchmark.json)
+├── lib/awfy/                      # runner: orchestration only
+│   ├── benchee_runner.ex          # Benchee + isolation
+│   ├── peer_runner.ex             # peer mgmt
 │   ├── compare/                   # cross-version dashboard data + math
 │   ├── fill/                      # platform diff for `mix awfy.fill`
 │   ├── measure/                   # label/run-dir naming
 │   └── preflight/                 # OS-specific stability parsers
 ├── lib/mix/tasks/                 # awfy.{benchee,measure,compare,diff,fill,preflight}
+├── patches/                       # OTP-source patches per major
 ├── bin/                           # install-otp-source.sh / -windows.ps1 /
 │                                  # measure-versions (asdf sweep)
 ├── test/                          # 165 ExUnit tests
@@ -41,7 +51,8 @@ awfy/
 │                                  # reuse.yml (license compliance)
 ├── upstream/                      # AWFY source (submodule, reference only)
 ├── *.md                           # plan docs — see "Documentation" below
-└── mix.exs
+└── mix.exs                        # runner project (`:awfy_runner`),
+                                   # path-deps on each apps/<group>/
 ```
 
 ## Mix tasks
@@ -176,8 +187,8 @@ does once.
 | Havlak      | union-find loop recognizer; bit-exact at iter 1/15/150/1500/15000 | |
 | CD          | custom red-black tree, voxel collision detection | |
 
-Plus shared SOM `Vector` infrastructure (`src/awfy_som_vector.erl`,
-`lib/awfy/som/vector.ex`) used by the polymorphic-heavy benchmarks.
+Plus shared SOM `Vector` infrastructure (`apps/awfy/src/awfy_som_vector.erl`,
+`apps/awfy/lib/awfy/som/vector.ex`) used by the polymorphic-heavy benchmarks.
 
 Cross-language and cross-version numbers will land on the dashboard
 once the cloud sweep starts publishing — running locally on a
@@ -200,7 +211,7 @@ idiomatic improvements. Highlights:
   optimization to kick in across the recursion. It didn't — ran
   ~25× slower. Reverted; closing the gap likely needs
   `:atomics`/`:counters`, which breaks persistent semantics. See
-  `src/awfy_sieve.erl`.
+  `apps/awfy/src/awfy_sieve.erl`.
 
 Open items for the next pass — see [`PROGRESS.md`](PROGRESS.md). Notable:
 detect when in-place tuple/binary update optimisations actually fire
@@ -242,11 +253,10 @@ plus unit tests for `Awfy.PeerRunner`, `Awfy.BencheeRunner`,
 
 ## License
 
-- Original framework code (Mix tasks, modules under `lib/awfy/` other
-  than `benchmarks/`, scripts under `bin/`): **Apache-2.0**, copyright
-  Lukas Backström.
-- Ported AWFY benchmarks (`src/awfy_*.erl`, `lib/awfy/benchmarks/*.ex`,
-  `lib/awfy/som/`): **MIT**, attributed to Stefan Marr (upstream).
+- Original runner code (Mix tasks, modules under `lib/awfy/`,
+  scripts under `bin/`): **Apache-2.0**, copyright Lukas Backström.
+- Ported AWFY benchmarks under `apps/awfy/`: **MIT**, attributed to
+  Stefan Marr (upstream).
 - All files carry SPDX headers; the repo is REUSE-compliant. CI enforces
   this via `.github/workflows/reuse.yml`.
 

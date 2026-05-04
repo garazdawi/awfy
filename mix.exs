@@ -1,19 +1,35 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 
-defmodule Awfy.MixProject do
+defmodule AwfyRunner.MixProject do
+  @moduledoc """
+  Top-level mix project for the AWFY benchmark runner.
+
+  This project contains the orchestration:
+    * `Mix.Tasks.Awfy.{Measure,Compare,Diff,Fill,Preflight,Benchee}`
+    * Per-run helpers under `lib/awfy/{benchee_runner,peer_runner,…}`
+    * Plain-Erlang target harness under `src_target/` (compiled
+      separately by each target OTP, not included here).
+
+  Benchmark suites live under `apps/<name>/`, each with its own
+  minimal `mix.exs`. Add a new suite by `path:`-depending on it
+  here — the suite app declares its own benchmarks via the module
+  the runner discovers (currently `Awfy.benchmarks/0`; future
+  groups expose a similar list).
+
+  We deliberately do *not* use a Mix umbrella: each app is
+  independently compilable, including with a different
+  Erlang/Elixir than the runner is using. That's needed for the
+  cross-OTP target path where the suite is compiled by an old
+  OTP's `erlc` while the runner orchestrates from the host.
+  """
   use Mix.Project
 
   def project do
     [
-      app: :awfy,
+      app: :awfy_runner,
       version: "0.1.0",
-      # Lowered to ~> 1.14 so we can build against older OTP majors —
-      # Elixir 1.14.5 ships `elixir-otp-23.zip` and runs on OTP 23+.
-      # Bump back if we start using post-1.14 syntax (e.g. `Range.step`).
-      elixir: "~> 1.14",
-      erlc_paths: ["src"],
-      erlc_options: [:debug_info, {:i, ~c"include"}],
+      elixir: "~> 1.16",
       elixirc_paths: ["lib"],
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -26,8 +42,14 @@ defmodule Awfy.MixProject do
 
   defp deps do
     [
+      # Benchmark suites — each is a standalone app at apps/<name>/
+      # depended on via its on-disk path. Compilation happens
+      # transitively when this project compiles.
+      {:awfy, path: "apps/awfy"},
+
+      # Orchestration deps — these stay at the runner level so suites
+      # don't pick up unwanted runtime libs.
       {:benchee, "~> 1.5", only: [:dev, :test], runtime: false},
-      # OTP's `:json` module is OTP-27+; we measure against OTP 26 too.
       {:jason, "~> 1.4"}
     ]
   end

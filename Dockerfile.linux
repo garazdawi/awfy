@@ -116,7 +116,11 @@ RUN curl -fL -o /tmp/elixir.zip \
     && rm /tmp/elixir.zip
 
 WORKDIR /app
+# Mix needs each path-dep's mix.exs available before `deps.get` to
+# resolve the dependency tree. Stage them alongside the root mix files
+# so the deps layer caches independently of benchmark-source changes.
 COPY mix.exs mix.lock ./
+COPY apps/awfy/mix.exs apps/awfy/mix.exs
 RUN mix local.hex --force && \
     mix local.rebar --force && \
     mix deps.get
