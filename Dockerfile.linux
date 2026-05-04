@@ -99,7 +99,9 @@ RUN mkdir -p /opt/awfy_target/awfy-0.1.0/ebin && \
     /usr/local/bin/erlc -o /opt/awfy_target/awfy-0.1.0/ebin \
         /tmp/awfy_src/awfy_benchmark.erl \
         /tmp/awfy_src/awfy_random.erl \
-        /tmp/awfy_src/awfy_som_vector.erl \
+        /tmp/awfy_src/awfy_som_vector.erl && \
+    /usr/local/bin/erlc -pa /opt/awfy_target/awfy-0.1.0/ebin \
+        -o /opt/awfy_target/awfy-0.1.0/ebin \
         /tmp/awfy_src/*.erl /tmp/awfy_src_target/*.erl
 
 # In the app stage we'll pass /opt/awfy_target through verbatim so

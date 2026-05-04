@@ -46,7 +46,18 @@ jobs:
     permissions:
       contents: read
     outputs:
-      targets: ${{ steps.r.outputs.targets }}
+      # Two separate matrices: targets_modern (OTP ≥ 24, runs through
+      # the existing same-OTP peer flow with a per-target Docker image)
+      # and targets_target_mode (OTP < 24, runs through the cross-OTP
+      # target-runner — host orchestrator on modern Elixir/OTP, target
+      # `erl` from a source build, no Docker). The split lets each path
+      # keep the matrix shape that fits its build pipeline; the
+      # has_* flags gate the corresponding measure jobs so an empty
+      # array doesn't break matrix expansion.
+      targets_modern: ${{ steps.r.outputs.targets_modern }}
+      targets_target_mode: ${{ steps.r.outputs.targets_target_mode }}
+      has_modern: ${{ steps.r.outputs.has_modern }}
+      has_target_mode: ${{ steps.r.outputs.has_target_mode }}
     steps:
       - id: r
         env:
@@ -107,9 +118,11 @@ jobs:
           #   * 1.17.3 → otp-25, 26, 27
           #   * 1.18.4 → otp-25, 26, 27 (1.18.5 dropped 26)
           #   * 1.19.5 → otp-27, 28
-          # OTP < 23 has no matching elixir-otp-XX.zip — those targets
-          # currently fail at the Elixir-install step. See
-          # patches/README.md for the path forward.
+          # OTP < 24 has no matching elixir-otp-XX.zip; those targets
+          # take the target-runner path (measure-linux-target) where
+          # the host orchestrator runs on pinned modern Elixir/OTP and
+          # shells out to the target erl. The :elixir field is still
+          # populated for shape parity but not consumed there.
           elixir_version_for_major() {
             case "$1" in
               22|23) echo "1.14.5" ;;
@@ -121,8 +134,10 @@ jobs:
             esac
           }
 
-          targets="["
-          sep=""
+          modern="["
+          legacy="["
+          sep_m=""
+          sep_l=""
           for raw in $(echo "$INPUT_REFS" | tr ',' ' '); do
             raw="$(echo "$raw" | xargs)" # trim whitespace
             ref="$(expand_ref "$raw")"
@@ -139,23 +154,50 @@ jobs:
             label="${short}-test"
             major="$(otp_major_for_ref "$ref" "$sha")"
             elixir="$(elixir_version_for_major "$major")"
-            targets="${targets}${sep}{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\"}"
-            sep=","
-            echo "Resolved $raw → $ref → $sha (OTP $major, Elixir $elixir)"
+            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\"}"
+
+            # OTP < 24 has no compatible Elixir bundle, so the host
+            # orchestrator can't compile against it. Route to the
+            # target-runner path: build target OTP from source, run
+            # the orchestrator on a pinned modern Elixir, shell out to
+            # the target erl per benchmark.
+            if [ "$major" -lt 24 ] 2>/dev/null; then
+              legacy="${legacy}${sep_l}${entry}"
+              sep_l=","
+              echo "Resolved $raw → $ref → $sha (OTP $major, target-runner mode)"
+            else
+              modern="${modern}${sep_m}${entry}"
+              sep_m=","
+              echo "Resolved $raw → $ref → $sha (OTP $major, Elixir $elixir)"
+            fi
           done
-          targets="${targets}]"
-          echo "targets=$targets" >> "$GITHUB_OUTPUT"
-          echo "Targets: $targets"
+          modern="${modern}]"
+          legacy="${legacy}]"
+
+          # has_* drive `if:` on the dependent measure jobs so an empty
+          # array doesn't break matrix expansion downstream.
+          [ "$modern" = "[]" ] && has_modern=false || has_modern=true
+          [ "$legacy" = "[]" ] && has_target_mode=false || has_target_mode=true
+
+          {
+            echo "targets_modern=$modern"
+            echo "targets_target_mode=$legacy"
+            echo "has_modern=$has_modern"
+            echo "has_target_mode=$has_target_mode"
+          } >> "$GITHUB_OUTPUT"
+          echo "Modern targets:      $modern"
+          echo "Target-mode targets: $legacy"
 
   build-linux:
     needs: resolve
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
       packages: write   # push image to GHCR
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -187,13 +229,14 @@ jobs:
 
   measure-linux:
     needs: [resolve, build-linux]
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest }
           - { name: arm64,  runner: ubuntu-24.04-arm }
@@ -235,13 +278,14 @@ jobs:
 
   measure-windows:
     needs: resolve
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
         # The upstream Windows installer ships JIT-only (no
         # beam.emu.dll). Measuring emu on Windows would require
         # building OTP from source on the runner (slow + fiddly on
@@ -301,12 +345,13 @@ jobs:
 
   measure-macos:
     needs: resolve
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
         flavor: [jit, emu]
     runs-on: macos-latest
     steps:
@@ -357,8 +402,93 @@ jobs:
           path: results/
           retention-days: 7
 
+  # ---------------------------------------------------------------
+  # Target-runner path for OTP < 24 (no compatible Elixir bundle).
+  # The host orchestrator runs on a pinned modern OTP/Elixir; the
+  # target VM is built from source on the runner via
+  # bin/install-otp-source.sh and shelled out to per benchmark.
+  #
+  # Linux x86_64 only for v1. Adding linux-arm64 + macos-arm64 paths
+  # is mechanical (same script works on all three) but each adds a
+  # ~10-min cold OTP build, so we widen as patches land per major.
+  # OTP 20-23 only run the `emu` flavor — the JIT didn't exist yet,
+  # and HiPE-as-jit-equivalent (compiling sources with `+native`)
+  # isn't wired through the harness. See patches/README.md.
+  # ---------------------------------------------------------------
+  measure-linux-target:
+    needs: resolve
+    if: needs.resolve.outputs.has_target_mode == 'true'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
+        arch:
+          - { name: x86_64, runner: ubuntu-latest }
+        flavor: [emu]
+    runs-on: ${{ matrix.arch.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install build deps for target OTP
+        # ubuntu-latest's image has build-essential preinstalled; we
+        # only need to top up the OTP-specific dev packages. OpenSSL 3
+        # is what ships on Ubuntu 24.04 — OTP < 23's crypto NIF won't
+        # compile against it without patches. That's the expected v1
+        # state: builds fail per major until a patch lands under
+        # patches/OTP-<major>/. See patches/README.md.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf m4 \
+            libssl-dev libncurses-dev zlib1g-dev \
+            ca-certificates curl patch
+      - name: Cache target OTP build
+        id: otp-cache
+        uses: actions/cache@v4
+        with:
+          # install-otp-source.sh content-addresses by SHA, so the
+          # cache key is exact. Hits skip the 5-10 min source build.
+          path: ~/.local/otp/${{ matrix.target.sha }}
+          key: otp-target-linux-${{ matrix.arch.name }}-${{ matrix.target.sha }}
+      - name: Build target OTP
+        env:
+          OTP_REF: ${{ matrix.target.sha }}
+        run: |
+          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
+          echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
+          echo "AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
+      - uses: erlef/setup-beam@v1
+        with:
+          # Pinned modern host. The orchestrator never touches the
+          # target erl directly — only via TargetRunner shell-out.
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: Compile orchestrator
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
+        # AWFY_TARGET_ERL / AWFY_TARGET_BEAMS were exported via
+        # GITHUB_ENV in the build step. Setting them here would
+        # re-export the literal strings (with un-expanded `~`), so we
+        # rely on the env file inheritance instead.
+        run: |
+          mix awfy.measure \
+            --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
+            --ignore-preflight
+      - uses: actions/upload-artifact@v7
+        with:
+          name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
+          path: results/
+          retention-days: 7
+
   publish:
-    needs: [resolve, measure-linux, measure-windows, measure-macos]
+    needs: [resolve, measure-linux, measure-linux-target, measure-windows, measure-macos]
     permissions:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}

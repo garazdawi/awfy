@@ -22,6 +22,13 @@ set -euo pipefail
 REF="${1:?git ref required}"
 PREFIX_BASE="${2:-$HOME/.local/otp}"
 
+# Resolve the awfy repo root up front. We `cd "$SRC"` further down
+# before invoking the target-beam compile, so $0-relative paths stop
+# resolving correctly past that point — pin AWFY_ROOT here while CWD
+# is still whatever the caller invoked us from.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AWFY_ROOT="${AWFY_ROOT:-$(dirname "$SCRIPT_DIR")}"
+
 # Resolve to a SHA up front so the install path is content-addressed.
 # Pre-resolved 40-hex SHAs are passed through as-is (ls-remote can't
 # look up commit SHAs, only refs); anything else is resolved via the
@@ -68,10 +75,8 @@ trap 'rm -rf "$WORK"' EXIT
     # Apply patches from $AWFY_ROOT/patches/OTP-<major>/*.patch — see
     # patches/README.md for the convention. Patches are sorted by
     # filename so prefixed numbers (01-foo.patch, 02-bar.patch) control
-    # apply order when fixes depend on each other.
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    AWFY_ROOT="${AWFY_ROOT:-$(dirname "$SCRIPT_DIR")}"
-
+    # apply order when fixes depend on each other. (AWFY_ROOT was
+    # resolved at the top of this script — see comment there.)
     case "$REF" in
         OTP-*) MAJOR="$(echo "$REF" | sed 's|^OTP-||' | cut -d. -f1)" ;;
         master|main) MAJOR="master" ;;
@@ -157,7 +162,10 @@ trap 'rm -rf "$WORK"' EXIT
         "$AWFY_ROOT"/apps/awfy/src/awfy_benchmark.erl \
         "$AWFY_ROOT"/apps/awfy/src/awfy_random.erl \
         "$AWFY_ROOT"/apps/awfy/src/awfy_som_vector.erl
-    "$PREFIX/bin/erlc" -o "$TARGET_LIB/ebin" \
+    # -pa $TARGET_LIB/ebin: makes the just-compiled awfy_benchmark.beam
+    # visible to the second pass so behaviour-conformance checks on the
+    # benchmark modules don't print "behaviour awfy_benchmark undefined".
+    "$PREFIX/bin/erlc" -pa "$TARGET_LIB/ebin" -o "$TARGET_LIB/ebin" \
         "$AWFY_ROOT"/apps/awfy/src/*.erl \
         "$AWFY_ROOT"/apps/awfy/src_target/*.erl
     cp -R "$AWFY_ROOT"/apps/awfy/priv/. "$TARGET_LIB/priv/" 2>/dev/null || true
