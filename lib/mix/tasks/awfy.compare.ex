@@ -141,7 +141,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       title: "AWFY — Suite Dashboard",
       heading: "AWFY Suite — Cross-version Dashboard",
       subhead:
-        "Geometric mean of <code>median / baseline_median</code> across all benchmarks. Pick a machine class above; each line = one language for that platform, normalized to its earliest data-point.",
+        "Per-benchmark median runtime across OTP versions for the selected platform, with the geomean trend over time below.",
       breadcrumb: "",
       warnings_html: warnings_html(warnings),
       dataset_json: dataset_json,
@@ -149,9 +149,13 @@ defmodule Mix.Tasks.Awfy.Compare do
       bench_name: "",
       baseline_label: baseline_label || "",
       snapshot_html: """
-      <h3>Latest snapshot — per-benchmark across versions</h3>
+      <h3 class="snapshot-heading">Latest snapshot — per-benchmark across versions</h3>
       <p class="sub">Median runtime (ms) at the most recent run for each (OTP × benchmark) on the selected platform. Whiskers show ± 2σ.</p>
       <div class="chart-wrap snapshot"><canvas id="snapshot"></canvas></div>
+      """,
+      trend_heading_html: """
+      <h3>Geomean trend over versions</h3>
+      <p class="sub">Geometric mean of <code>median / baseline_median</code> across all benchmarks, aggregated per OTP major; one line per language for the selected platform, normalized to its earliest data-point.</p>
       """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
@@ -404,8 +408,9 @@ defmodule Mix.Tasks.Awfy.Compare do
            .chart-wrap that owns the size, and *don't* style the
            canvas itself — Chart.js needs the freedom to set its CSS
            and bitmap dimensions in lock-step. */
-        .chart-wrap { position: relative; width: 100%; height: 420px; margin: 1rem 0; }
-        .chart-wrap.snapshot { height: 520px; }
+        .chart-wrap { position: relative; width: 100%; height: 360px; margin: 1rem 0; }
+        .chart-wrap.snapshot { height: 600px; }
+        h3.snapshot-heading { margin-top: 1rem; }
         .bench-links { columns: 3; padding-left: 1.25rem; }
         .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
         details { margin-top: 1.5rem; }
@@ -416,8 +421,8 @@ defmodule Mix.Tasks.Awfy.Compare do
         @media (max-width: 600px) {
           body { padding: 1rem 0.75rem 2rem; }
           h1 { font-size: 1.4rem; }
-          .chart-wrap { height: 340px; }
-          .chart-wrap.snapshot { height: 600px; }
+          .chart-wrap { height: 300px; }
+          .chart-wrap.snapshot { height: 520px; }
           .bench-links { columns: 2; }
           .tab { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
         }
@@ -446,8 +451,8 @@ defmodule Mix.Tasks.Awfy.Compare do
           <b>X axis</b>
           <label>
             <select id="x-axis">
-              <option value="timestamp" selected>timestamp</option>
-              <option value="otp">OTP version</option>
+              <option value="otp" selected>OTP version</option>
+              <option value="timestamp">timestamp</option>
             </select>
           </label>
         </div>
@@ -455,9 +460,11 @@ defmodule Mix.Tasks.Awfy.Compare do
 
       <div id="headline" class="headline"></div>
 
-      <div class="chart-wrap"><canvas id="chart"></canvas></div>
-
       #{Map.get(ctx, :snapshot_html, "")}
+
+      #{Map.get(ctx, :trend_heading_html, "")}
+
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
 
       #{Map.get(ctx, :benchmarks_list_html, "")}
 
@@ -491,6 +498,15 @@ defmodule Mix.Tasks.Awfy.Compare do
       // rather than ephemeral hostnames, so multi-CI runs collapse
       // into a single trend line per (lang × class × flavor).
       return [row.lang, row.machine_class, row.emu_flavor].join(" / ");
+    }
+
+    // Strip the patch/minor from an OTP version string so 28.4 and
+    // 28.5 both bucket as 28. Returns null if the version doesn't
+    // start with a parseable integer (defensive — every row should
+    // have one in practice).
+    function otpMajor(otp) {
+      const n = parseInt(otp, 10);
+      return Number.isFinite(n) ? n : null;
     }
 
     function uniqueValues(rows, field) {
@@ -623,8 +639,10 @@ defmodule Mix.Tasks.Awfy.Compare do
           data: sorted.map(r => {
             // Chart.js with `parsing: false` + time scale requires
             // numeric x (epoch ms) — strings get silently skipped on
-            // mobile Safari, leaving an empty chart.
-            const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
+            // mobile Safari, leaving an empty chart. The otp axis is a
+            // numeric (linear) scale on integer majors, so use the
+            // major rather than the full version string.
+            const x = xAxis === "otp" ? otpMajor(r.otp) : Date.parse(r.timestamp);
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
             return {
               x,
@@ -681,14 +699,25 @@ defmodule Mix.Tasks.Awfy.Compare do
         Object.keys(baseIdx).forEach(k => { baseIdx[k] = baseIdx[k].ms; });
       }
 
-      // Group all rows by (label, series-key)
+      // Bucket key:
+      //   - timestamp axis: per (run, series) — one geomean point per
+      //     run, plotted on the timeline.
+      //   - otp axis: per (OTP major, series) — collapse multiple
+      //     runs of the same major into one geomean point so the
+      //     line reads cleanly as 20 → 29 rather than fanning out
+      //     across patch-level versions.
       const groups = {};
       rows.forEach(r => {
         const sk = seriesKey(r);
-        const gk = r.label + "|" + sk;
-        if (!groups[gk]) groups[gk] = { label: r.label, sk, rows: [], runMeta: null };
+        const bucketId = xAxis === "otp" ? otpMajor(r.otp) : r.label;
+        if (bucketId === null) return;
+        const gk = bucketId + "|" + sk;
+        if (!groups[gk]) {
+          groups[gk] = { bucketId, sk, rows: [], runMetas: [] };
+        }
         groups[gk].rows.push(r);
-        groups[gk].runMeta = DATASET.runs.find(x => x.label === r.label);
+        const meta = DATASET.runs.find(x => x.label === r.label);
+        if (meta) groups[gk].runMetas.push(meta);
       });
 
       const seriesByKey = {};
@@ -714,8 +743,17 @@ defmodule Mix.Tasks.Awfy.Compare do
         }
         // Convert timestamp string → epoch ms; Chart.js' time scale with
         // `parsing: false` ignores string x values on mobile Safari.
-        const xVal = xAxis === "otp" ? g.runMeta.otp : Date.parse(g.runMeta.timestamp);
-        seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: g.label, n_benchmarks: ratios.length });
+        let xVal, runLabel;
+        if (xAxis === "otp") {
+          xVal = g.bucketId;
+          runLabel = g.runMetas.length === 1
+            ? g.runMetas[0].label
+            : g.runMetas.length + " runs";
+        } else {
+          xVal = Date.parse(g.runMetas[0].timestamp);
+          runLabel = g.runMetas[0].label;
+        }
+        seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: runLabel, n_benchmarks: ratios.length });
       });
 
       Object.values(seriesByKey).forEach(s => {
@@ -794,9 +832,13 @@ defmodule Mix.Tasks.Awfy.Compare do
                   grid: { color: "#eee" }
                 }
               : {
-                  type: "category",
+                  // Linear (not category) so a missing version leaves a
+                  // gap proportional to its absence — 20, 22, 24 reads
+                  // as a real two-step jump rather than three adjacent
+                  // tick marks. Integer step keeps labels at majors.
+                  type: "linear",
                   title: { display: true, text: "OTP version", font: titleFont },
-                  ticks: { font: tickFont },
+                  ticks: { font: tickFont, stepSize: 1, precision: 0 },
                   grid: { color: "#eee" }
                 },
             y: {
@@ -906,8 +948,8 @@ defmodule Mix.Tasks.Awfy.Compare do
     }
 
     /* ---- Per-benchmark snapshot bar chart -----------------------------
-       Grouped horizontal bars: one row per benchmark, one bar per OTP
-       version, stacked by language. Shows the most recent (OTP, lang,
+       Grouped vertical bars: one column per benchmark on the x axis,
+       one bar per (OTP, language). Shows the most recent (OTP, lang,
        benchmark) row for the active machine_class + flavor; whiskers are
        ± 2σ. Lets you see at a glance which benches actually got faster.
     */
@@ -937,8 +979,10 @@ defmodule Mix.Tasks.Awfy.Compare do
       const langs = [...new Set(rows.map(r => r.lang))].sort();
       const benches = [...new Set(rows.map(r => r.benchmark))].sort();
 
-      // One dataset per (otp, lang). Bars are grouped by benchmark name
-      // on the y axis (horizontal layout reads better with 14 names).
+      // One dataset per (otp, lang). Vertical bars grouped by benchmark
+      // name on the x axis — fits better with the rest of the dashboard
+      // (also vertical) and lets the y axis read in the natural "lower
+      // = faster" direction with median ms on it.
       const datasets = [];
       otps.forEach((otp, oi) => {
         langs.forEach((lang, li) => {
@@ -946,7 +990,7 @@ defmodule Mix.Tasks.Awfy.Compare do
             const r = latest[otp + "|" + lang + "|" + b];
             if (!r) return null;
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
-            return { x: r.median_ms, xMin: r.median_ms - sigma, xMax: r.median_ms + sigma, y: b, raw: r };
+            return { x: b, y: r.median_ms, yMin: r.median_ms - sigma, yMax: r.median_ms + sigma, raw: r };
           });
           datasets.push({
             label: "OTP " + otp + " · " + lang,
@@ -971,23 +1015,19 @@ defmodule Mix.Tasks.Awfy.Compare do
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          indexAxis: "y",
-          parsing: { xAxisKey: "x", yAxisKey: "y", xMinKey: "xMin", xMaxKey: "xMax" },
+          parsing: { xAxisKey: "x", yAxisKey: "y", yMinKey: "yMin", yMaxKey: "yMax" },
           interaction: { intersect: false, mode: "nearest" },
-          // Give benchmark names enough room on the left without
-          // truncating; Chart.js' default is to auto-fit, but the names
-          // (Mandelbrot, DeltaBlue, …) need ~110 px to render without "…".
-          layout: { padding: { left: 4, right: 12 } },
           scales: {
             x: {
+              type: "category",
+              ticks: { font: tickFont, autoSkip: false, maxRotation: 0 },
+              grid: { display: false }
+            },
+            y: {
               title: { display: true, text: "median ms (lower = faster)", font: titleFont },
               ticks: { font: tickFont },
               beginAtZero: true,
               grid: { color: "#eee" }
-            },
-            y: {
-              ticks: { font: tickFont, autoSkip: false },
-              grid: { display: false }
             }
           },
           plugins: {
@@ -1005,7 +1045,7 @@ defmodule Mix.Tasks.Awfy.Compare do
               padding: 10,
               boxPadding: 4,
               callbacks: {
-                title: (items) => items[0] && items[0].raw ? items[0].raw.y : "",
+                title: (items) => items[0] && items[0].raw ? items[0].raw.x : "",
                 label: (ctx) => {
                   const r = ctx.raw && ctx.raw.raw;
                   if (!r) return ctx.dataset.label;
