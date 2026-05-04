@@ -65,6 +65,36 @@ trap 'rm -rf "$WORK"' EXIT
     cd "$SRC"
     export ERL_TOP="$SRC"
 
+    # Apply patches from $AWFY_ROOT/patches/OTP-<major>/*.patch — see
+    # patches/README.md for the convention. Patches are sorted by
+    # filename so prefixed numbers (01-foo.patch, 02-bar.patch) control
+    # apply order when fixes depend on each other.
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    AWFY_ROOT="${AWFY_ROOT:-$(dirname "$SCRIPT_DIR")}"
+
+    case "$REF" in
+        OTP-*) MAJOR="$(echo "$REF" | sed 's|^OTP-||' | cut -d. -f1)" ;;
+        master|main) MAJOR="master" ;;
+        maint-*) MAJOR="$(echo "$REF" | sed 's|^maint-||')" ;;
+        *)
+            # Resolve major from the source's OTP_VERSION file.
+            if [ -f "$SRC/OTP_VERSION" ]; then
+                MAJOR="$(head -1 "$SRC/OTP_VERSION" | cut -d. -f1)"
+            else
+                MAJOR=""
+            fi
+            ;;
+    esac
+
+    PATCH_DIR="$AWFY_ROOT/patches/OTP-$MAJOR"
+    if [ -n "$MAJOR" ] && [ -d "$PATCH_DIR" ]; then
+        for p in "$PATCH_DIR"/*.patch; do
+            [ -f "$p" ] || continue
+            echo "Applying $p"
+            patch -p1 < "$p"
+        done
+    fi
+
     # Match the Linux Docker image's configure flags so cross-platform
     # numbers compare apples-to-apples.
     ./configure \

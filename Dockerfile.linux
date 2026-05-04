@@ -26,18 +26,28 @@
 ARG ELIXIR_VERSION=1.19.5
 ARG ELIXIR_OTP_MAJOR=28
 
-FROM debian:bookworm-slim AS otp-build
+# Bullseye over Bookworm so we get OpenSSL 1.1.1 by default. OTP 27+
+# builds fine against OpenSSL 3, but OTP < 23's crypto NIF uses APIs
+# OpenSSL 3 deprecated/removed (RSA_get_key, EVP_MD_size, …), and the
+# AWFY harness imports crypto for `:crypto.hash/2`. Staying on 1.1
+# means OTP 20 → master all build with the same toolchain. Bullseye's
+# Debian LTS support runs through 2026-08; revisit then.
+FROM debian:bullseye-slim AS otp-build
 ARG OTP_SHA
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf m4 \
         libssl-dev libncurses-dev zlib1g-dev \
-        ca-certificates curl ccache \
+        ca-certificates curl ccache patch \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH=/usr/lib/ccache:$PATH \
     CCACHE_DIR=/root/.ccache \
     ERL_TOP=/otp
+
+# Patches/ is COPY'd separately from the source tarball so adding or
+# editing a patch invalidates only this layer, not the whole build.
+COPY patches/ /tmp/patches/
 
 WORKDIR /tmp
 RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
@@ -46,6 +56,20 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         | tar xz && \
     mv "otp-${OTP_SHA}" /otp && \
     cd /otp && \
+    # Apply patches/OTP-<major>/*.patch matching this build's major.
+    # See patches/README.md for the convention.
+    if [ -f OTP_VERSION ]; then \
+      OTP_MAJOR="$(head -1 OTP_VERSION | cut -d. -f1)"; \
+    else \
+      OTP_MAJOR="$ELIXIR_OTP_MAJOR"; \
+    fi && \
+    if [ -d "/tmp/patches/OTP-$OTP_MAJOR" ]; then \
+      for p in /tmp/patches/OTP-$OTP_MAJOR/*.patch; do \
+        [ -f "$p" ] || continue; \
+        echo "Applying $p"; \
+        patch -p1 < "$p"; \
+      done; \
+    fi && \
     ./configure \
         --prefix=/usr/local \
         --disable-debug \
@@ -68,13 +92,14 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
 # ERL_FLAGS per-version when emu is requested.
 RUN /usr/local/bin/erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
 
-FROM debian:bookworm-slim AS app
+FROM debian:bullseye-slim AS app
 ARG ELIXIR_VERSION
 ARG ELIXIR_OTP_MAJOR
 
-# Runtime deps only — no build chain in the final image.
+# Runtime deps only — no build chain in the final image. libssl1.1
+# matches the build stage's Bullseye OpenSSL version.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libssl3 libncurses6 zlib1g \
+        libssl1.1 libncurses6 zlib1g \
         ca-certificates curl unzip git \
     && rm -rf /var/lib/apt/lists/*
 
