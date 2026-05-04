@@ -414,6 +414,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install OTP
+        id: install_otp
         shell: pwsh
         env:
           OTP_WIN_INSTALLER_URL: ${{ vars.OTP_WIN_INSTALLER_URL }}
@@ -421,8 +422,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
+          if ([string]::IsNullOrWhiteSpace($prefix)) {
+            # Script emitted skipped=true (no Windows installer for
+            # this tag — see install-otp-windows.ps1 Fetch-FromTag).
+            # Bail before adding bogus PATH entries; downstream steps
+            # are gated on steps.install_otp.outputs.skipped != 'true'.
+            exit 0
+          }
           "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Install Elixir
+        if: steps.install_otp.outputs.skipped != 'true'
         shell: pwsh
         env:
           # Elixir 1.19 dropped OTP 26 — keep 1.18 for OTP 26 only.
@@ -436,6 +445,7 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           "$dest\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Install wmic shim
+        if: steps.install_otp.outputs.skipped != 'true'
         shell: pwsh
         # Benchee.System.{available_memory,cpu_speed}/1 shell out to
         # WMIC for system fingerprinting. Recent GHA windows-latest
@@ -489,6 +499,7 @@ jobs:
           $shimDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           Write-Host "wmic.exe shim at $shimDir\wmic.exe"
       - name: Compile awfy
+        if: steps.install_otp.outputs.skipped != 'true'
         shell: pwsh
         run: |
           mix local.hex --force
@@ -496,9 +507,11 @@ jobs:
           mix deps.get
           mix compile
       - name: Preflight (advisory only — GHA runners always WARN)
+        if: steps.install_otp.outputs.skipped != 'true'
         shell: pwsh
         run: mix awfy.preflight || $true
       - name: Measure (${{ matrix.flavor }})
+        if: steps.install_otp.outputs.skipped != 'true'
         shell: pwsh
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
@@ -508,7 +521,8 @@ jobs:
           mix awfy.measure `
             --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
             --ignore-preflight
-      - uses: actions/upload-artifact@v7
+      - if: steps.install_otp.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
           path: results/
