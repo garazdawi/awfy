@@ -36,17 +36,21 @@ verify_result(Result) ->
     end.
 
 %% Test data is a fixed ~25KB JSON document. Loaded lazily and cached
-%% in the persistent_term store so we don't repeatedly read the file.
+%% in the process dictionary so we don't repeatedly read the file.
+%% Process dict (rather than persistent_term) keeps this module
+%% loadable on OTP 20, where persistent_term doesn't exist yet — the
+%% benchmark loop runs entirely in one process, so a per-process cache
+%% suffices.
 benchmark() ->
     Bin = test_input(),
     parse(Bin).
 
 test_input() ->
-    case persistent_term:get({?MODULE, test_input}, undefined) of
+    case erlang:get({?MODULE, test_input}) of
         undefined ->
             Path = filename:join(code:priv_dir(awfy), "rap_benchmark.json"),
             {ok, Bin} = file:read_file(Path),
-            persistent_term:put({?MODULE, test_input}, Bin),
+            erlang:put({?MODULE, test_input}, Bin),
             Bin;
         Bin ->
             Bin
