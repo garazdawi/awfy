@@ -72,40 +72,59 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Expand shorthand "20"…"29"/"30"… to the latest matching
-          # OTP-X.Y.Z tag. OTP < 22 is unlikely to build out-of-the-box
-          # with current toolchains; see patches/README.md.
-          #
-          # OTP 20 is special-cased: the latest 20.3.X patch (20.3.8.26)
-          # has no source archive on either github releases or
-          # erlang.org/download (the GitHub release for that tag wasn't
-          # cut), so install-otp-source.sh would have nothing to fetch
-          # but the raw /archive/<sha>.tar.gz — which lacks
-          # config.guess/config.sub. OTP-20.3 itself ships a prebuilt
-          # source archive on erlang.org, so pin shorthand "20" to it.
+          # Cached upstream version index. otp_versions.table lists
+          # every released OTP version, newest-first, one per line:
+          #   `OTP-X.Y[.Z[.P]] : <component versions> : ...`
+          # Used for both shorthand expansion and the "all" backfill
+          # token. One curl per workflow run; all lookups grep the
+          # cached file.
+          TABLE="$(mktemp)"
+          curl -fsSL --max-time 15 \
+            https://raw.githubusercontent.com/erlang/otp/master/otp_versions.table \
+            > "$TABLE"
+
+          # Token "all" → full backfill list: latest patch of every
+          # OTP-21+ minor (skip RCs), plus OTP-20.3 (the only OTP-20
+          # minor with a buildable source archive — the .0/.1/.2
+          # tarballs are missing on erlang.org and miss
+          # config.guess/sub), plus master. Table is newest-first so
+          # the first hit per (major.minor) is the latest patch; tac
+          # reverses to oldest-first so the trend chart's category
+          # axis populates left-to-right.
+          if [ "$INPUT_REFS" = "all" ]; then
+            PER_MINOR="$(awk '
+              /^OTP-[0-9]/ {
+                tag = $1
+                if (tag ~ /-rc[0-9]/) next
+                rest = tag; sub(/^OTP-/, "", rest)
+                n = split(rest, p, ".")
+                if (p[1] < 21) next
+                key = p[1] "." p[2]
+                if (!(key in seen)) { seen[key] = 1; print tag }
+              }
+            ' "$TABLE" | tac | tr "\n" "," )"
+            INPUT_REFS="OTP-20.3,${PER_MINOR}master"
+            echo "[resolve] expanded \"all\" → $INPUT_REFS"
+          fi
+
+          # Expand shorthand:
+          #   - "20"            → OTP-20.3 (only buildable OTP-20).
+          #   - "21".."29"/"30" → latest patch of that major.
+          #   - "X.Y"           → latest patch of that minor.
+          # Anything else (full tag, "master", "maint-*", SHA) passes
+          # through verbatim.
           expand_ref() {
             local r="$1"
             case "$r" in
               20) echo "OTP-20.3" ;;
               2[0-9]|3[0-9])
-                git ls-remote --tags --refs https://github.com/erlang/otp.git "OTP-$r.*" \
-                  | awk '{print $2}' \
-                  | sed 's|refs/tags/||' \
-                  | grep -E "^OTP-$r\.[0-9.]+$" \
-                  | sort -V | tail -1
+                grep -E "^OTP-$r\\.[0-9.]+ " "$TABLE" \
+                  | head -1 | awk '{print $1}'
                 ;;
-              # Minor-version shorthand "X.Y" → latest patch tag for
-              # that minor (OTP-X.Y, OTP-X.Y.Z, OTP-X.Y.Z.P, …). Used
-              # by the backfill list so the operator can write
-              # "20.0,20.1,20.2,…,28.5,master" without spelling out
-              # every full upstream tag.
               [0-9][0-9].[0-9]|[0-9][0-9].[0-9][0-9])
                 local re="OTP-${r//./\\.}"
-                git ls-remote --tags --refs https://github.com/erlang/otp.git "OTP-$r*" \
-                  | awk '{print $2}' \
-                  | sed 's|refs/tags/||' \
-                  | grep -E "^${re}(\\.|$)" \
-                  | sort -V | tail -1
+                grep -E "^${re}(\\.|[ ])" "$TABLE" \
+                  | head -1 | awk '{print $1}'
                 ;;
               *) echo "$r" ;;
             esac
