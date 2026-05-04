@@ -33,54 +33,167 @@ physical core (and its hyperthread sibling on Intel) — see
 
 ### One-time AWS setup
 
-1. **Connect AWS to GitHub.** AWS Developer Tools console →
-   *Connections* → *Create connection* → GitHub → authorize the AWS
-   GitHub App on this repo. Note the connection ARN.
+Pick an AWS region with `c6i.4xlarge` and `c7g.4xlarge` capacity —
+`us-east-1`, `us-west-2`, and `eu-west-1` all qualify. Run every
+step below in the same region; the region is sticky in the AWS
+console URL (`?region=us-east-1`) and a mismatched one is the
+single most common reason "I can't see my project" happens.
 
-2. **Create three CodeBuild projects** with these exact names:
+#### 2.1. Connect AWS to GitHub (CodeConnections)
 
-   | Project name | Compute (EC2-class) | OS / arch |
-   |--------------|---------------------|-----------|
-   | `awfy-bench-linux-x86_64` | `c6i.4xlarge` (16 vCPU, 32 GB) | Linux x86_64 |
-   | `awfy-bench-linux-arm64`  | `c7g.4xlarge` (16 vCPU, 32 GB, Graviton 3) | Linux ARM64  |
-   | `awfy-bench-windows`      | `c6i.4xlarge` (16 vCPU, 32 GB) + Windows | Windows x86_64 |
+This is **CodePipeline → Settings → Connections** in the AWS
+console — the "Connections" page lives under CodePipeline, not
+CodeBuild, even though CodeBuild is the eventual consumer. AWS
+recently renamed the service from "AWS CodeStar Connections" to
+"AWS CodeConnections", so older docs may use either name. The
+direct URL is:
 
-   For each:
-   - Source: GitHub via the connection from step 1, this repo.
-   - Webhook events: leave **disabled** — GHA pulls the runner.
-   - Environment: select **"Custom Image"** or AWS-managed standard
-     image with EC2 launch type so you can pin instance type
-     (CodeBuild's pre-baked compute classes top out at general1.large
-     and don't expose c6i directly; use EC2 reserved capacity to get
-     the exact instance type).
-   - For Linux projects, enable **privileged mode** (Docker-in-Docker
-     is required for the `docker pull` + `docker run` flow).
-   - Service role: needs `codeconnections:UseConnection`,
-     `logs:*`, plus `ec2:*` for the EC2-launch path.
+```
+https://console.aws.amazon.com/codesuite/settings/connections
+```
 
-3. **AMI quiescence (Linux).** Bake a minimal AMI for each Linux
-   project that:
-   - Disables `irqbalance` and `cpufreq` ondemand governors (set to
-     `performance`).
-   - Mounts `/tmp` as `tmpfs`.
-   - Doesn't run `fstrim`/`updatedb`/cron-noisy services during
-     benchmarks.
-   - On Intel, leaves SMT enabled — the workflow uses
-     `--cpuset-cpus=0` to avoid scheduling on vCPU 0's sibling
-     (vCPU 8 on c6i.4xlarge); this gets us sibling-isolation
-     without disabling SMT box-wide.
+Steps:
 
-   ARM64 (`c7g.4xlarge`, Graviton 3) has no SMT — vCPU 0 is one
-   physical core directly.
+1. Click **Create connection**.
+2. Provider: **GitHub**. Connection name: anything memorable
+   (e.g. `awfy-bench-github`). Click **Connect to GitHub**.
+3. AWS opens a GitHub OAuth popup. Sign in to the GitHub account
+   that owns the awfy fork.
+4. **Install a new app** (or pick an existing one). On the
+   GitHub-side install screen, scope it to **Only select
+   repositories** and pick `<owner>/awfy`. Don't grant org-wide
+   access — this connection only needs to read from one repo.
+5. Back in the AWS popup, click **Connect**. The connection's
+   status flips from *Pending* to *Available*.
+6. Note the connection ARN (top of the connection's page,
+   `arn:aws:codeconnections:<region>:<acct>:connection/<uuid>`).
+   You'll paste it into each CodeBuild project's source config.
 
-4. **Workflow `runs-on` resolution.** The matching syntax in the
-   workflow is:
-   ```yaml
-   runs-on:
-     - codebuild-<project-name>-${{ github.run_id }}-${{ github.run_attempt }}
-   ```
-   No additional config needed in this repo — CodeBuild intercepts the
-   job at AWS's end via the GitHub App connection.
+#### 2.2. Create three CodeBuild projects
+
+| Project name | Compute (EC2-class) | OS / arch |
+|--------------|---------------------|-----------|
+| `awfy-bench-linux-x86_64` | `c6i.4xlarge` (16 vCPU, 32 GB) | Linux x86_64 |
+| `awfy-bench-linux-arm64`  | `c7g.4xlarge` (16 vCPU, 32 GB, Graviton 3) | Linux ARM64 |
+| `awfy-bench-windows`      | `c6i.4xlarge` (16 vCPU, 32 GB) + Windows | Windows x86_64 |
+
+Direct URL: `https://console.aws.amazon.com/codesuite/codebuild/projects`.
+
+For each project:
+
+1. Click **Create build project**.
+2. **Project configuration**:
+   - **Project name** (exact): from the table above.
+   - Description: optional.
+3. **Source**:
+   - Source provider: **GitHub**.
+   - **Repository**: pick *Repository in my GitHub account*.
+   - **Connection**: pick the one you created in 2.1.
+   - **Repository**: `<owner>/awfy`.
+   - Source version: leave blank (the workflow tells CodeBuild
+     which commit to check out at runtime).
+4. **Primary source webhook events**: **leave unchecked**. GHA
+   pulls the runner from CodeBuild — the project doesn't react to
+   GitHub push events directly. (If this is checked, every push
+   to the awfy repo triggers a CodeBuild run, which is not what
+   we want.)
+5. **Environment**:
+   - Provisioning model: **On-demand** (reserved capacity is
+     overkill at our cadence).
+   - Environment image: **Managed image**, OS = Linux (or
+     Windows for the Windows project).
+   - Compute: pick the **EC2** compute fleet — *not* Lambda. EC2
+     is the only fleet that lets you specify the instance type
+     directly.
+   - Image / runtime versions: latest Ubuntu / Amazon Linux 2023
+     for Linux, Windows Server 2022 for the Windows project.
+   - **Instance type**: paste exact (`c6i.4xlarge` for x86 Linux
+     and Windows, `c7g.4xlarge` for ARM Linux). If the field is
+     not present, you've selected the Lambda or "general1.*"
+     compute class — go back and switch to EC2 fleet.
+   - **Privileged**: **enabled** for both Linux projects (Docker
+     pull + run requires it). Leave disabled on Windows.
+   - **Service role**: let CodeBuild create a new one named
+     `codebuild-<project>-service-role`. Edit it after creation
+     (see 2.3).
+6. **Buildspec**: choose **Insert build commands** and put a
+   single-line placeholder like `echo noop`. The actual build
+   commands come from GHA via the runner protocol; CodeBuild's
+   own buildspec runs the runner agent first, which then takes
+   over. (The placeholder buildspec just satisfies the form.)
+7. Skip **Batch configuration**, **Artifacts**, and **Logs**
+   defaults.
+8. **Create build project**.
+
+#### 2.3. Service-role permissions
+
+For each project's auto-created service role
+(`codebuild-<project>-service-role`), open IAM → Roles → that role
+and attach an inline policy granting:
+
+- `codeconnections:UseConnection` on the connection ARN from 2.1.
+- `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents`
+  on the project's log group ARN.
+- `ec2:RunInstances`, `ec2:DescribeInstances`, `ec2:TerminateInstances`,
+  `ec2:CreateNetworkInterface`, `ec2:DeleteNetworkInterface`,
+  `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`
+  (the EC2 fleet's lifecycle calls).
+
+The CodeBuild console offers a **Permissions** quick-link on the
+project page that takes you straight to the inline-policy editor
+for the right role.
+
+#### 2.4. AMI quiescence (Linux only)
+
+Bake a minimal custom AMI for each Linux project — the AWS-managed
+images are noisy. From a freshly-launched `c6i.4xlarge` (and a
+separate `c7g.4xlarge` for ARM) running the matching managed image:
+
+```bash
+# Disable irqbalance — it migrates IRQs across cores and shows up
+# as periodic stalls in the benchmark loop.
+sudo systemctl disable --now irqbalance
+
+# Pin all CPUs to the performance governor.
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
+# tmpfs /tmp so benchee artifacts don't hit the EBS volume mid-run.
+echo 'tmpfs /tmp tmpfs nosuid,nodev,size=4G 0 0' | sudo tee -a /etc/fstab
+
+# Disable cron noise during the benchmark window.
+sudo systemctl disable --now fstrim.timer  || true
+sudo systemctl disable --now updatedb.timer || true
+```
+
+Then snapshot via EC2 → *Create image*, name it
+`awfy-bench-<arch>-pinned`, and select it in each Linux project's
+Environment → Custom image setting (or leave the AMI as the
+managed one and apply the same commands via the placeholder
+buildspec — slower per run but simpler to maintain).
+
+On Intel, leave SMT **enabled** at the OS level; the workflow uses
+`docker run --cpuset-cpus=0` to confine the container to vCPU 0,
+and vCPU 0's sibling (vCPU 8 on c6i.4xlarge) stays idle by virtue
+of nothing else being scheduled there. ARM64 (Graviton 3) has no
+SMT — vCPU 0 is one physical core directly.
+
+#### 2.5. Workflow `runs-on` resolution
+
+Once the projects exist, the workflow resolves to them via:
+
+```yaml
+runs-on:
+  - codebuild-<project-name>-${{ github.run_id }}-${{ github.run_attempt }}
+```
+
+No extra config in this repo — CodeBuild's GitHub App
+intercepts any GHA job whose `runs-on` label starts with
+`codebuild-` (per AWS's docs at
+*aws.amazon.com/blogs/devops/aws-codebuild-managed-self-hosted-github-actions-runners*).
+
+To verify the wiring: trigger `bench` via `workflow_dispatch`
+with `otp_refs=master`, then watch *CodeBuild → Build history* —
+each measure-linux/windows job should produce one CodeBuild run.
 
 ### Per-sweep cost (rough — pinned 4xlarge tier)
 
