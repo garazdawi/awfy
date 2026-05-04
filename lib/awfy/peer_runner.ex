@@ -127,10 +127,14 @@ defmodule Awfy.PeerRunner do
   #   1. `:peer` (OTP 25+) over stdio — no distribution needed.
   #   2. `:slave` + Erlang distribution pinned to longnames@127.0.0.1
   #      — works around hostname-resolution failures in Docker /
-  #      restricted CI environments.
-  #   3. In-process — distribution refused to start; run the closure
-  #      in the controller VM (loses cross-benchmark isolation, but
-  #      lets the run produce numbers rather than aborting).
+  #      restricted CI environments. **Unix only**: on Windows
+  #      `:slave.start_link/3` blocks indefinitely waiting for the
+  #      child to register over the parent/child stdio pipes, which
+  #      doesn't complete cleanly under PowerShell. We skip straight
+  #      to in-process there.
+  #   3. In-process — no isolation available; run the closure in the
+  #      controller VM (loses cross-benchmark isolation, but lets the
+  #      run produce numbers rather than aborting).
   defp start_peer(name_hint) do
     safe_hint = String.replace(name_hint, ~r/[^a-zA-Z0-9_]/, "_")
     base = "awfy_#{safe_hint}_#{:erlang.unique_integer([:positive])}"
@@ -149,6 +153,9 @@ defmodule Awfy.PeerRunner do
           })
 
         {:peer, pid}
+
+      :os.type() |> elem(0) == :win32 ->
+        :in_process
 
       ensure_distribution_started() == :ok ->
         slave_name = String.to_atom(base)
