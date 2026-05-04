@@ -62,16 +62,24 @@ PREFIX="$PREFIX_BASE/$SHA"
 # line exceeds MAXPATHLEN — leaking that into stdout corrupts GITHUB_PATH
 # and triggers ENAMETOOLONG in the GHA runner).
 
+# Skip the slow OTP build if the install prefix already has a working
+# `erl`. We still re-do the target-beam compile below — the awfy
+# sources can change without the OTP SHA changing, and the GHA cache
+# keys only on the OTP SHA. Always rebuilding the target beams is
+# cheap (<10s) compared to baking the source hash into the cache key.
+OTP_INSTALLED=0
 if [ -x "$PREFIX/bin/erl" ] && "$PREFIX/bin/erl" -noshell -eval 'halt()' >/dev/null 2>&1; then
-    echo "OTP $SHA already installed at $PREFIX" >&2
-    echo "$PREFIX"
-    exit 0
+    echo "OTP $SHA already installed at $PREFIX, recompiling target beams only" >&2
+    OTP_INSTALLED=1
 fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 {
+    if [ "$OTP_INSTALLED" = "1" ]; then
+        : "skipping fetch+build, jumping to target-beam compile"
+    else
     # Prefer the release `otp_src_<version>.tar.gz` when the ref is a
     # tagged OTP release: it ships prebuilt .beam files (saves the
     # erlc compilation pass — minutes of CPU on the GHA runner) and
@@ -224,6 +232,7 @@ trap 'rm -rf "$WORK"' EXIT
     # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
     # task's flavor argument is mapped per-version when we set ERL_FLAGS.
     "$PREFIX/bin/erl" -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
+    fi  # OTP_INSTALLED guard
 
     # Compile the benchmark suite + target harness with the *target*
     # erlc, into an OTP-app-shaped layout under $PREFIX/lib/awfy-0.1.0/.
