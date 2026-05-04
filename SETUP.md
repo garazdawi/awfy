@@ -57,15 +57,28 @@ Steps:
 1. Click **Create connection**.
 2. Provider: **GitHub**. Connection name: anything memorable
    (e.g. `awfy-bench-github`). Click **Connect to GitHub**.
-3. AWS opens a GitHub OAuth popup. Sign in to the GitHub account
-   that owns the awfy fork.
-4. **Install a new app** (or pick an existing one). On the
-   GitHub-side install screen, scope it to **Only select
-   repositories** and pick `<owner>/awfy`. Don't grant org-wide
-   access — this connection only needs to read from one repo.
+3. AWS opens a GitHub popup. Sign in to the GitHub account that
+   owns the awfy fork.
+4. **Choose the GitHub-App path, not the OAuth-app path.** The
+   popup defaults to OAuth if you just click *Authorize*; OAuth
+   grants full `repo` scope across every repo your account can
+   reach, which is far more access than the connection actually
+   needs. Instead, click the **Install a new app** link below
+   the *Connect* button. GitHub sends you to the *AWS Connector
+   for GitHub* install page. Pick **Only select repositories**
+   and pick `<owner>/awfy`. Install.
 5. Back in the AWS popup, click **Connect**. The connection's
    status flips from *Pending* to *Available*.
-6. Note the connection ARN (top of the connection's page,
+6. Verify you're on the App path, not OAuth:
+   - GitHub: `https://github.com/settings/installations` should
+     list **AWS Connector for GitHub** under *Installed GitHub
+     Apps*.
+   - The same connection should **not** appear under
+     `https://github.com/settings/applications` *Authorized
+     OAuth Apps*. If it does, revoke it there, delete the AWS
+     connection, and redo step 4 making sure to click *Install
+     a new app*.
+7. Note the connection ARN (top of the connection's page,
    `arn:aws:codeconnections:<region>:<acct>:connection/<uuid>`).
    You'll paste it into each CodeBuild project's source config.
 
