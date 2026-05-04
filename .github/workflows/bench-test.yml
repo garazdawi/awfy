@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 
-# Phase-0 validation workflow — see CLOUD_BENCH_PLAN.md.
+# Phase-0 validation workflow — see PLAN/CLOUD_BENCH_PLAN.md.
 #
 # Runs the full benchmark pipeline on GitHub-hosted runners across
 # Linux x86/ARM, macOS ARM, Windows x86. Free on public repos.
@@ -10,12 +10,16 @@
 # run, gh-pages publish succeeds.
 #
 # Three triggers, three default scopes for `otp_refs`:
-#   * push            → "master"            (single ref, fast wiring check)
-#   * schedule        → "26,27,28,master"   (cross-version data accumulation)
-#   * workflow_dispatch → user-provided, default "26,27,28,master"
+#   * push            → "22.3,24.0,24.1,24.2,master"  (versions whose
+#     measure-linux-target / measure-macos legs are currently failing
+#     — push gives us a fast V=1 build log to diagnose against)
+#   * schedule        → "20,21,23,24,28,master"  (weekly cross-version
+#     data accumulation across the legacy + modern paths)
+#   * workflow_dispatch → user-provided, same default as schedule
 #
-# `26` / `27` / `28` are shorthand — resolved to the latest patch tag
-# (e.g. `OTP-26.2.5.20`) by the resolve job at run time.
+# `22.3` / `24.0` / `28` etc. are shorthand — resolved to the latest
+# patch tag (e.g. `OTP-22.3.4` / `OTP-24.0.6`) by the resolve job at
+# run time.
 
 name: bench-test
 
@@ -65,7 +69,8 @@ jobs:
         env:
           INPUT_REFS: >-
             ${{ inputs.otp_refs ||
-                (github.event_name == 'schedule' && '20,21,23,24,28,master' || 'master') }}
+                (github.event_name == 'schedule' && '20,21,23,24,28,master' ||
+                 '22.3,24.0,24.1,24.2,master') }}
           # Needed for the per-target commit-timestamp lookup; the
           # default GHA token is fine since erlang/otp is public.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
