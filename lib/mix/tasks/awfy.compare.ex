@@ -151,6 +151,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       snapshot_html: """
       <h3 class="snapshot-heading">Latest snapshot — per-benchmark across versions</h3>
       <p class="sub">Median runtime (ms) at the most recent run for each (OTP × benchmark) on the selected platform. Whiskers show ± 2σ.</p>
+      <div class="snapshot-majors" id="control-snapshot-majors"></div>
       <div class="chart-wrap snapshot"><canvas id="snapshot"></canvas></div>
       """,
       trend_heading_html: """
@@ -411,6 +412,12 @@ defmodule Mix.Tasks.Awfy.Compare do
         .chart-wrap { position: relative; width: 100%; height: 360px; margin: 1rem 0; }
         .chart-wrap.snapshot { height: 600px; }
         h3.snapshot-heading { margin-top: 1rem; }
+        .snapshot-majors {
+          display: flex; flex-wrap: wrap; align-items: center;
+          gap: 0.85rem; font-size: 0.9rem; margin: 0.6rem 0;
+        }
+        .snapshot-majors b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        .snapshot-majors label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
         .bench-links { columns: 3; padding-left: 1.25rem; }
         .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
         details { margin-top: 1.5rem; }
@@ -446,15 +453,6 @@ defmodule Mix.Tasks.Awfy.Compare do
         </div>
         <div class="group" id="control-lang">
           <b>Language</b>
-        </div>
-        <div class="group">
-          <b>X axis</b>
-          <label>
-            <select id="x-axis">
-              <option value="otp" selected>OTP version</option>
-              <option value="timestamp">timestamp</option>
-            </select>
-          </label>
         </div>
       </div>
 
@@ -522,6 +520,62 @@ defmodule Mix.Tasks.Awfy.Compare do
       const set = new Set();
       rows.forEach(r => { if (r[field]) set.add(r[field]); });
       return [...set].sort();
+    }
+
+    // Bucket every OTP label down to its "major" for grouped controls.
+    // - "26.5" / "27.0" / "28" → "26" / "27" / "28"
+    // - "master" / "main" / "maint-N" pass through verbatim — these
+    //   are floating refs the operator opts in/out of explicitly.
+    function majorOf(otp) {
+      if (otp === "master" || otp === "main") return otp;
+      if (typeof otp === "string" && otp.indexOf("maint-") === 0) return otp;
+      const m = parseInt(otp, 10);
+      return Number.isFinite(m) ? String(m) : null;
+    }
+
+    // The dashboard's default snapshot scope is "supported releases".
+    // OTP support window covers the current and previous two majors;
+    // master is always included as the rolling tip. Anything older
+    // gets opted in via the major checkboxes under the snapshot.
+    function defaultMajorsSet(allMajors) {
+      const numeric = allMajors
+        .filter(m => /^[0-9]+$/.test(m))
+        .map(m => parseInt(m, 10));
+      if (numeric.length === 0) return new Set(allMajors);
+      const max = Math.max(...numeric);
+      const supported = new Set();
+      allMajors.forEach(m => {
+        if (m === "master" || m === "main") {
+          supported.add(m);
+          return;
+        }
+        if (/^[0-9]+$/.test(m) && parseInt(m, 10) >= max - 2) {
+          supported.add(m);
+        }
+      });
+      return supported;
+    }
+
+    // All majors currently present in the dataset, sorted.
+    function allMajorsInData() {
+      const set = new Set();
+      DATASET.rows.forEach(r => {
+        const m = majorOf(r.otp);
+        if (m) set.add(m);
+      });
+      return [...set].sort(compareOtpVersions);
+    }
+
+    // The active set of enabled snapshot majors — driven by the
+    // checkbox row. Persists in filter state so a manual toggle
+    // survives reloads.
+    function enabledSnapshotMajorsSet() {
+      const all = allMajorsInData();
+      const state = loadFilterState();
+      if (state.snapshot_majors && Array.isArray(state.snapshot_majors)) {
+        return new Set(state.snapshot_majors.filter(m => all.includes(m)));
+      }
+      return defaultMajorsSet(all);
     }
 
     function loadFilterState() {
@@ -604,6 +658,42 @@ defmodule Mix.Tasks.Awfy.Compare do
       const state = readUIState();
       saveFilterState(state);
       renderAll();
+    }
+
+    // The major-checkbox row under the snapshot. Each box toggles
+    // one OTP major (or "master") on the snapshot chart. Default
+    // checked: the supported window per defaultMajorsSet/0 — older
+    // majors are opt-in. Persists in localStorage like the other
+    // filter controls.
+    function buildSnapshotMajorCheckboxes() {
+      const container = document.getElementById("control-snapshot-majors");
+      if (!container) return;
+      const all = allMajorsInData();
+      const enabled = enabledSnapshotMajorsSet();
+      container.innerHTML = "";
+      const heading = document.createElement("b");
+      heading.textContent = "Show majors:";
+      container.appendChild(heading);
+      all.forEach(m => {
+        const lab = document.createElement("label");
+        const inp = document.createElement("input");
+        inp.type = "checkbox";
+        inp.name = "snapshot_major";
+        inp.value = m;
+        inp.checked = enabled.has(m);
+        inp.addEventListener("change", () => {
+          const checked = [...container.querySelectorAll('input[name="snapshot_major"]:checked')]
+            .map(el => el.value);
+          const state = loadFilterState();
+          state.snapshot_majors = checked;
+          saveFilterState(state);
+          renderHeadline();
+          renderSnapshot();
+        });
+        lab.appendChild(inp);
+        lab.appendChild(document.createTextNode(" " + m));
+        container.appendChild(lab);
+      });
     }
 
     function readUIState() {
@@ -772,7 +862,10 @@ defmodule Mix.Tasks.Awfy.Compare do
     function colorFor(i) { return PALETTE[i % PALETTE.length]; }
 
     function renderChart() {
-      const xAxis = document.getElementById("x-axis").value;
+      // X axis is always OTP version since we removed the toggle —
+      // buildSeries / buildSuiteSeries still take it as a parameter
+      // so they can be repurposed for other axes if needed later.
+      const xAxis = "otp";
       const state = readUIState();
       const filtered = applyFilters(DATASET.rows, state);
 
@@ -905,14 +998,23 @@ defmodule Mix.Tasks.Awfy.Compare do
       const el = document.getElementById("headline");
       if (!el) return;
       const state = readUIState();
-      const filtered = applyFilters(DATASET.rows, state);
+      // The headline reads as a delta against the *earliest version
+      // currently shown in the snapshot* — so toggling a major's
+      // checkbox changes both panels in lockstep. On per-bench pages
+      // the snapshot doesn't exist; fall through to "all available"
+      // by treating every major as enabled.
+      const enabledMajors = PAGE_KIND === "suite"
+        ? enabledSnapshotMajorsSet()
+        : new Set(allMajorsInData());
+      const filtered = applyFilters(DATASET.rows, state)
+        .filter(r => enabledMajors.has(majorOf(r.otp)));
       if (filtered.length === 0) {
         el.innerHTML = '<span class="empty">No data for this combination yet.</span>';
         return;
       }
 
       const otps = [...new Set(filtered.map(r => r.otp).filter(Boolean))]
-        .sort((a, b) => parseFloat(a) - parseFloat(b));
+        .sort(compareOtpVersions);
       if (otps.length < 2) {
         el.innerHTML = '<span class="empty">Need at least two OTP versions for a comparison.</span>';
         return;
@@ -935,7 +1037,7 @@ defmodule Mix.Tasks.Awfy.Compare do
         if (benches.length === 0) return null;
         const sumLog = benches.reduce((s, b) => s + Math.log(oldRuns[b].median_ms / newRuns[b].median_ms), 0);
         const speedup = Math.exp(sumLog / benches.length);
-        return { lang, speedup, n: benches.length };
+        return { lang, speedup, benches };
       }).filter(Boolean);
 
       if (lines.length === 0) {
@@ -943,15 +1045,21 @@ defmodule Mix.Tasks.Awfy.Compare do
         return;
       }
 
-      el.innerHTML = lines.map(({ lang, speedup, n }) => {
+      // Per-bench pages roll up exactly one benchmark, so name it
+      // directly ("geomean of Bounce") — "1 benchmarks" is awkward.
+      // Suite pages stay as a count.
+      el.innerHTML = lines.map(({ lang, speedup, benches }) => {
         const pct = (speedup - 1) * 100;
         const word = pct >= 0 ? "faster" : "slower";
         const cls = pct >= 0 ? "speedup" : "slowdown";
+        const scope = PAGE_KIND === "bench"
+          ? BENCH_NAME
+          : (benches.length === 1 ? benches[0] : benches.length + " benchmarks");
         return '<div><strong>' + lang + '</strong>: OTP ' + newest +
                ' is <span class="num ' + cls + '">' + speedup.toFixed(2) + '×</span> ' +
                '<span class="' + cls + '">' + word + '</span> than OTP ' + oldest +
                ' <span class="num">(' + (pct >= 0 ? "+" : "") + pct.toFixed(1) + '%)</span>' +
-               ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean of ' + n + ' benchmarks</span></div>';
+               ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean of ' + scope + '</span></div>';
       }).join("");
     }
 
@@ -966,7 +1074,9 @@ defmodule Mix.Tasks.Awfy.Compare do
       if (!el) return;
 
       const state = readUIState();
-      const filtered = applyFilters(DATASET.rows, state);
+      const enabledMajors = enabledSnapshotMajorsSet();
+      const filtered = applyFilters(DATASET.rows, state)
+        .filter(r => enabledMajors.has(majorOf(r.otp)));
 
       // Most recent row per (otp, lang, benchmark).
       const latest = {};
@@ -983,7 +1093,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       }
       el.style.display = "";
 
-      const otps = [...new Set(rows.map(r => r.otp))].sort((a, b) => parseFloat(a) - parseFloat(b));
+      const otps = [...new Set(rows.map(r => r.otp))].sort(compareOtpVersions);
       const langs = [...new Set(rows.map(r => r.lang))].sort();
       const benches = [...new Set(rows.map(r => r.benchmark))].sort();
 
@@ -1101,8 +1211,12 @@ defmodule Mix.Tasks.Awfy.Compare do
       buildTabs(machineClasses, state.machine_class, "linux-x86_64");
       buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor, "jit");
       buildCheckboxGroup("control-lang", "lang", langs, state.lang);
+      // The major-checkboxes container is only on the suite page;
+      // skip on per-bench pages where the snapshot doesn't render.
+      if (PAGE_KIND === "suite") {
+        buildSnapshotMajorCheckboxes();
+      }
 
-      document.getElementById("x-axis").addEventListener("change", renderAll);
       renderRunsMeta();
       renderAll();
     })();
