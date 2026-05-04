@@ -155,7 +155,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       """,
       trend_heading_html: """
       <h3>Geomean trend over versions</h3>
-      <p class="sub">Geometric mean of <code>median / baseline_median</code> across all benchmarks, aggregated per OTP major; one line per language for the selected platform, normalized to its earliest data-point.</p>
+      <p class="sub">Geometric mean of <code>median / baseline_median</code> across all benchmarks, one point per tagged OTP version (plus the latest master tip); one line per language for the selected platform, normalized to its earliest data-point.</p>
       """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
@@ -500,13 +500,22 @@ defmodule Mix.Tasks.Awfy.Compare do
       return [row.lang, row.machine_class, row.emu_flavor].join(" / ");
     }
 
-    // Strip the patch/minor from an OTP version string so 28.4 and
-    // 28.5 both bucket as 28. Returns null if the version doesn't
-    // start with a parseable integer (defensive — every row should
-    // have one in practice).
-    function otpMajor(otp) {
-      const n = parseInt(otp, 10);
-      return Number.isFinite(n) ? n : null;
+    // Order OTP version strings: "20.0" < "20.1" < ... < "21.0" <
+    // ... < "28.5" < "master". Compares dotted-numeric components
+    // pairwise; "master" sorts after everything so the in-progress
+    // tip lands at the right edge of the chart.
+    function compareOtpVersions(a, b) {
+      if (a === b) return 0;
+      if (a === "master") return 1;
+      if (b === "master") return -1;
+      const pa = String(a).split(".").map(s => parseInt(s, 10) || 0);
+      const pb = String(b).split(".").map(s => parseInt(s, 10) || 0);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const av = pa[i] || 0;
+        const bv = pb[i] || 0;
+        if (av !== bv) return av - bv;
+      }
+      return 0;
     }
 
     function uniqueValues(rows, field) {
@@ -639,10 +648,9 @@ defmodule Mix.Tasks.Awfy.Compare do
           data: sorted.map(r => {
             // Chart.js with `parsing: false` + time scale requires
             // numeric x (epoch ms) — strings get silently skipped on
-            // mobile Safari, leaving an empty chart. The otp axis is a
-            // numeric (linear) scale on integer majors, so use the
-            // major rather than the full version string.
-            const x = xAxis === "otp" ? otpMajor(r.otp) : Date.parse(r.timestamp);
+            // mobile Safari, leaving an empty chart. For the otp
+            // (category) axis a string is fine.
+            const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
             return {
               x,
@@ -699,25 +707,18 @@ defmodule Mix.Tasks.Awfy.Compare do
         Object.keys(baseIdx).forEach(k => { baseIdx[k] = baseIdx[k].ms; });
       }
 
-      // Bucket key:
-      //   - timestamp axis: per (run, series) — one geomean point per
-      //     run, plotted on the timeline.
-      //   - otp axis: per (OTP major, series) — collapse multiple
-      //     runs of the same major into one geomean point so the
-      //     line reads cleanly as 20 → 29 rather than fanning out
-      //     across patch-level versions.
+      // Group all rows by (label, series-key) — one geomean point
+      // per run per series, no aggregation across runs. The plan is
+      // to seed history with one run per OTP feature release (20.0,
+      // 20.1, …) plus one ongoing point for master, so each tagged
+      // version stays its own datapoint.
       const groups = {};
       rows.forEach(r => {
         const sk = seriesKey(r);
-        const bucketId = xAxis === "otp" ? otpMajor(r.otp) : r.label;
-        if (bucketId === null) return;
-        const gk = bucketId + "|" + sk;
-        if (!groups[gk]) {
-          groups[gk] = { bucketId, sk, rows: [], runMetas: [] };
-        }
+        const gk = r.label + "|" + sk;
+        if (!groups[gk]) groups[gk] = { label: r.label, sk, rows: [], runMeta: null };
         groups[gk].rows.push(r);
-        const meta = DATASET.runs.find(x => x.label === r.label);
-        if (meta) groups[gk].runMetas.push(meta);
+        groups[gk].runMeta = DATASET.runs.find(x => x.label === r.label);
       });
 
       const seriesByKey = {};
@@ -741,19 +742,13 @@ defmodule Mix.Tasks.Awfy.Compare do
           const langOnly = g.sk.split(" / ")[0];
           seriesByKey[g.sk] = { label: langOnly, data: [] };
         }
-        // Convert timestamp string → epoch ms; Chart.js' time scale with
-        // `parsing: false` ignores string x values on mobile Safari.
-        let xVal, runLabel;
-        if (xAxis === "otp") {
-          xVal = g.bucketId;
-          runLabel = g.runMetas.length === 1
-            ? g.runMetas[0].label
-            : g.runMetas.length + " runs";
-        } else {
-          xVal = Date.parse(g.runMetas[0].timestamp);
-          runLabel = g.runMetas[0].label;
-        }
-        seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: runLabel, n_benchmarks: ratios.length });
+        // For the otp axis, x is the full version string (e.g. "20.1"
+        // or "master") and the chart uses a category scale sorted by
+        // compareOtpVersions. For the timestamp axis, x is epoch ms;
+        // Chart.js' time scale with `parsing: false` silently drops
+        // string x values on mobile Safari otherwise.
+        const xVal = xAxis === "otp" ? g.runMeta.otp : Date.parse(g.runMeta.timestamp);
+        seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: g.label, n_benchmarks: ratios.length });
       });
 
       Object.values(seriesByKey).forEach(s => {
@@ -813,10 +808,18 @@ defmodule Mix.Tasks.Awfy.Compare do
       const tickFont = { family: "Montserrat, sans-serif", size: 13 };
       const titleFont = { family: "Montserrat, sans-serif", size: 13, weight: "600" };
 
+      // Pre-compute the sorted set of OTP versions present in the
+      // visible series; passing them as data.labels pins the
+      // category-axis order so 20.0 < 20.1 < ... < master no matter
+      // what order rows happen to arrive in.
+      const otpLabels = xAxis === "otp"
+        ? [...new Set(series.flatMap(s => s.data.map(d => d.x)))].sort(compareOtpVersions)
+        : null;
+
       if (chart) chart.destroy();
       chart = new Chart(document.getElementById("chart"), {
         type: chartType,
-        data: { datasets },
+        data: otpLabels ? { labels: otpLabels, datasets } : { datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -832,13 +835,13 @@ defmodule Mix.Tasks.Awfy.Compare do
                   grid: { color: "#eee" }
                 }
               : {
-                  // Linear (not category) so a missing version leaves a
-                  // gap proportional to its absence — 20, 22, 24 reads
-                  // as a real two-step jump rather than three adjacent
-                  // tick marks. Integer step keeps labels at majors.
-                  type: "linear",
+                  // Category, with labels pre-sorted by version (master
+                  // last). Each tagged feature release (20.0, 20.1, …)
+                  // becomes its own tick — no aggregation across
+                  // patch-level versions.
+                  type: "category",
                   title: { display: true, text: "OTP version", font: titleFont },
-                  ticks: { font: tickFont, stepSize: 1, precision: 0 },
+                  ticks: { font: tickFont, autoSkip: false, maxRotation: 0 },
                   grid: { color: "#eee" }
                 },
             y: {

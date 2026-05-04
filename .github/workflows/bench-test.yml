@@ -216,7 +216,19 @@ jobs:
             if [ "$major" -lt 24 ] 2>/dev/null; then
                 extra_configure="--without-ssl"
             fi
-            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
+            # otp_label is what the dashboard plots on its x axis. We
+            # take the feature-release form ("20.1") for tagged refs so
+            # patch-level runs of the same feature release stack on
+            # one tick, and pass through "master" / "maint-*" verbatim
+            # so they land at the right edge of the trend chart.
+            case "$ref" in
+              master|main|maint-*) otp_label="$ref" ;;
+              OTP-*)
+                otp_label="$(echo "${ref#OTP-}" | cut -d. -f1-2)"
+                ;;
+              *) otp_label="$major" ;;
+            esac
+            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
 
             # OTP < 24 has no compatible Elixir bundle, so the host
             # orchestrator can't compile against it. Route to the
@@ -331,11 +343,13 @@ jobs:
         env:
           ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
         run: |
           mkdir -p "$PWD/results"
           docker run --rm \
             -e ERL_FLAGS="$ERL_FLAGS_VAL" \
             -e AWFY_OTP_COMMIT_TIMESTAMP="$AWFY_OTP_COMMIT_TIMESTAMP" \
+            -e AWFY_OTP_VERSION="$AWFY_OTP_VERSION" \
             -v "$PWD/results:/app/results" \
             "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test" \
             awfy.measure \
@@ -458,6 +472,7 @@ jobs:
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
         run: |
           mix awfy.measure `
             --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
@@ -529,6 +544,7 @@ jobs:
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
         run: |
           mix awfy.measure \
             --label "${{ matrix.target.label }}-macos-arm64-${{ matrix.flavor }}" \
@@ -637,6 +653,7 @@ jobs:
         # rely on the env file inheritance instead.
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
         run: |
           mix awfy.measure \
             --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \

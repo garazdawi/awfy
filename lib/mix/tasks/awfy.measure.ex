@@ -222,7 +222,7 @@ defmodule Mix.Tasks.Awfy.Measure do
     meta = %{
       "format_version" => @format_version,
       "label" => ctx.label,
-      "otp" => to_string(System.otp_release()),
+      "otp" => otp_version_label(),
       "elixir" => System.version(),
       "timestamp" => trend_timestamp() |> DateTime.to_iso8601(),
       "git" => %{
@@ -333,6 +333,36 @@ defmodule Mix.Tasks.Awfy.Measure do
             IO.warn("AWFY_OTP_COMMIT_TIMESTAMP=#{inspect(iso)} is not ISO 8601, using wall-clock")
             DateTime.utc_now()
         end
+    end
+  end
+
+  # The recorded OTP version drives the trend chart's x axis. Prefer
+  # an explicit AWFY_OTP_VERSION (set by CI from the resolved feature
+  # release — "20.1", "21.3", "master") so plots can distinguish
+  # patch-level runs once we benchmark them. Otherwise read the
+  # OTP_VERSION file under the install root, which has the full
+  # "X.Y.Z[.P]" string for every modern OTP source build. Last resort:
+  # System.otp_release/0, which only carries the major.
+  defp otp_version_label do
+    case System.get_env("AWFY_OTP_VERSION") do
+      v when is_binary(v) and v != "" ->
+        v
+
+      _ ->
+        otp_version_label_from_file() || to_string(System.otp_release())
+    end
+  end
+
+  defp otp_version_label_from_file do
+    release = to_string(System.otp_release())
+    path = Path.join([:code.root_dir() |> to_string(), "releases", release, "OTP_VERSION"])
+
+    case File.read(path) do
+      {:ok, contents} -> contents |> String.trim() |> case do
+                           "" -> nil
+                           v -> v
+                         end
+      _ -> nil
     end
   end
 
