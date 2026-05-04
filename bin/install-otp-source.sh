@@ -148,17 +148,6 @@ trap 'rm -rf "$WORK"' EXIT
         JOBS="$(sysctl -n hw.ncpu)"
     fi
 
-    # Pre-OTP-26 trees race recursive subdir configure invocations
-    # against compile in `make -j` — depending on scheduler timing you
-    # see "config.h: No such file or directory" in erts/lib_src
-    # (ethr_aux.c) or erts/emulator/hipe/hipe_mkliterals.c, even though
-    # configure for that subdir succeeded. The bug is fixed in OTP 26
-    # (build dep ordering cleanup); for older trees we cap to -j2 so
-    # configure has time to finish before the racy compiles fire.
-    if [ -n "${MAJOR:-}" ] && [ "$MAJOR" != "master" ] && [ "$MAJOR" -lt 26 ] 2>/dev/null; then
-        JOBS=2
-    fi
-
     make -j"$JOBS"
     make install
 
