@@ -134,6 +134,22 @@ jobs:
             esac
           }
 
+          # Map an OTP major to the OTP suffix on the elixir-otp-XX.zip
+          # bundle to download. This is identity for OTPs Elixir has
+          # already released a bundle for, but caps at 28 for OTPs newer
+          # than that (right now: master = OTP 29). The elixir-otp-29
+          # bundle ships only on Elixir's `main-latest` rolling release;
+          # the tagged `v1.19.5` doesn't include it. Bundles are
+          # forward-compatible across one major so an elixir-otp-28
+          # binary runs fine on an OTP 29 host. Bump the cap when
+          # Elixir releases a tagged v1.20-or-later that ships otp-29.
+          elixir_bundle_major_for_major() {
+            case "$1" in
+              22|23|24|25|26|27|28) echo "$1" ;;
+              *) echo "28" ;;
+            esac
+          }
+
           modern="["
           legacy="["
           sep_m=""
@@ -154,7 +170,8 @@ jobs:
             label="${short}-test"
             major="$(otp_major_for_ref "$ref" "$sha")"
             elixir="$(elixir_version_for_major "$major")"
-            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\"}"
+            elixir_bundle="$(elixir_bundle_major_for_major "$major")"
+            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\"}"
 
             # OTP < 24 has no compatible Elixir bundle, so the host
             # orchestrator can't compile against it. Route to the
@@ -220,7 +237,7 @@ jobs:
           push: true
           build-args: |
             OTP_SHA=${{ matrix.target.sha }}
-            ELIXIR_OTP_MAJOR=${{ matrix.target.major }}
+            ELIXIR_OTP_MAJOR=${{ matrix.target.elixir_bundle }}
             ELIXIR_VERSION=${{ matrix.target.elixir }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test
@@ -311,7 +328,7 @@ jobs:
         env:
           # Elixir 1.19 dropped OTP 26 — keep 1.18 for OTP 26 only.
           ELIXIR_VERSION: ${{ matrix.target.elixir }}
-          ELIXIR_OTP_MAJOR: ${{ matrix.target.major }}
+          ELIXIR_OTP_MAJOR: ${{ matrix.target.elixir_bundle }}
         run: |
           $url = "https://github.com/elixir-lang/elixir/releases/download/v$env:ELIXIR_VERSION/elixir-otp-$env:ELIXIR_OTP_MAJOR.zip"
           $zip = "$env:TEMP\elixir.zip"
@@ -373,7 +390,7 @@ jobs:
         # release per target.
         env:
           ELIXIR_VERSION: ${{ matrix.target.elixir }}
-          ELIXIR_OTP_MAJOR: ${{ matrix.target.major }}
+          ELIXIR_OTP_MAJOR: ${{ matrix.target.elixir_bundle }}
         run: |
           dest="$HOME/.local/elixir/$ELIXIR_VERSION"
           mkdir -p "$dest"

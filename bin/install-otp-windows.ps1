@@ -65,24 +65,54 @@ function Fetch-FromTag {
 function Fetch-FromCiArtifact {
     param([string]$Ref)
 
-    # Find the most recent run of the build workflow for this ref.
+    # Find the most recent run of the build workflow on this ref that
+    # actually produced an `otp_win32_installer` artifact. Two cases
+    # leave a run on the list without the artifact:
+    #
+    #   * Run failed before the installer build step.
+    #   * Upstream skips the installer build when a master push contains
+    #     no C-level changes (the Windows installer takes a long time to
+    #     build and isn't worth recutting for a pure-Erlang change).
+    #
+    # We can't tell which from the run's status alone, so we just check
+    # the artifacts list of each candidate and walk back until one has
+    # the file. Using a slightly older Windows binary is fine for
+    # benchmarking purposes — the C runtime hasn't changed.
+    #
+    # Paginate because `?branch=master` interleaves runs from all
+    # workflows on master; the "Build and check Erlang/OTP" runs can
+    # be sparse and a quiet stretch pushes the artifact past page 1.
+    #
+    # TODO: drop most of this once the upstream PR enabling installer
+    # builds on every push lands — the simple latest-run lookup will
+    # then suffice.
     Write-Host "Locating erlang/otp build run for ref '$Ref' …"
-    $runJson = gh api `
-        "repos/erlang/otp/actions/runs?branch=$Ref&per_page=20" `
-        --jq '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0]'
+    $runFilter = '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][] | {id, head_sha, status, conclusion}'
 
-    if (-not $runJson -or $runJson -eq "null") {
+    function Find-RunWithInstaller {
+        param([string]$QueryParam, [string]$Value)
+        for ($page = 1; $page -le 5; $page++) {
+            $candidates = gh api "repos/erlang/otp/actions/runs?$QueryParam=$Value&per_page=100&page=$page" --jq $runFilter
+            if (-not $candidates) { continue }
+            foreach ($line in ($candidates -split "`n")) {
+                if (-not $line) { continue }
+                $r = $line | ConvertFrom-Json
+                $hasArtifact = gh api "repos/erlang/otp/actions/runs/$($r.id)/artifacts" --jq '[.artifacts[] | select(.name == "otp_win32_installer")] | length'
+                if ([int]$hasArtifact -gt 0) { return $r }
+            }
+        }
+        return $null
+    }
+
+    $run = Find-RunWithInstaller "branch" $Ref
+    if (-not $run) {
         # Fall back to head_sha lookup in case Ref is a SHA, not a branch.
-        $runJson = gh api `
-            "repos/erlang/otp/actions/runs?head_sha=$Ref&per_page=20" `
-            --jq '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0]'
+        $run = Find-RunWithInstaller "head_sha" $Ref
     }
 
-    if (-not $runJson -or $runJson -eq "null") {
-        throw "No 'Build and check Erlang/OTP' run found for ref '$Ref'"
+    if (-not $run) {
+        throw "No 'Build and check Erlang/OTP' run with otp_win32_installer artifact found for ref '$Ref' in the last 500 runs"
     }
-
-    $run = $runJson | ConvertFrom-Json
     Write-Host "Found run id=$($run.id) sha=$($run.head_sha) status=$($run.status) conclusion=$($run.conclusion)"
 
     # Pull the otp_win32_installer artifact (which is the 64-bit
