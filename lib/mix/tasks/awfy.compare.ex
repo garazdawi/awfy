@@ -398,14 +398,14 @@ defmodule Mix.Tasks.Awfy.Compare do
         .controls .group b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
         .controls label { cursor: pointer; user-select: none; }
         .controls select { font: inherit; padding: 0.15rem 0.35rem; border: 1px solid var(--er-border); border-radius: 3px; background: white; }
-        /* Chart.js responsive sizing requires a parent with explicit
-           dimensions when maintainAspectRatio is false. Without one,
-           the canvas's bitmap and display sizes drift apart and the
-           plot renders squashed. Wrap each canvas in a .chart-wrap
-           that owns the height; the canvas fills it absolutely. */
+        /* Chart.js responsive sizing (with maintainAspectRatio:false)
+           reads the canvas's parent for dimensions and writes inline
+           width/height back onto the canvas. Wrap each canvas in a
+           .chart-wrap that owns the size, and *don't* style the
+           canvas itself — Chart.js needs the freedom to set its CSS
+           and bitmap dimensions in lock-step. */
         .chart-wrap { position: relative; width: 100%; height: 420px; margin: 1rem 0; }
         .chart-wrap.snapshot { height: 520px; }
-        .chart-wrap > canvas { position: absolute; inset: 0; }
         .bench-links { columns: 3; padding-left: 1.25rem; }
         .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
         details { margin-top: 1.5rem; }
