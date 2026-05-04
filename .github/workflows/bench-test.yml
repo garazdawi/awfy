@@ -261,21 +261,14 @@ jobs:
             # OTP < 24's crypto NIF uses APIs OpenSSL 3 removed
             # (RSA_get0_crt_params, EVP_MD_meth_new, …). The GHA Ubuntu
             # image ships only OpenSSL 3, so for those targets drop
-            # ssl/ssh/crypto entirely. OTP 24.0 and 24.1 still reference
-            # FIPS_mode which OpenSSL 3 removed; 24.2+ dropped that and
-            # builds cleanly. (Previous attempt also lumped 24.2 into
-            # --without-ssl, but a recheck confirmed 24.2.2 builds fine
-            # against OpenSSL 3 — the macOS build only failed there
-            # because --without-ssl + parallel make races on old trees.)
+            # ssl/ssh/crypto entirely. OTP 24.0/.1 referenced FIPS_mode
+            # (also removed in OpenSSL 3) but the awfy patch
+            # `patches/OTP-24/01-pkey-fips-mode-openssl3.patch` stubs
+            # it out so 24.0/.1 build cleanly against OpenSSL 3 too —
+            # which matters because mix needs crypto to talk to hex.
             extra_configure=""
             if [ "$major" -lt 24 ] 2>/dev/null; then
                 extra_configure="--without-ssl"
-            elif [ "$major" -eq 24 ]; then
-                case "$ref" in
-                    OTP-24.0|OTP-24.1|OTP-24.0.*|OTP-24.1.*)
-                        extra_configure="--without-ssl"
-                        ;;
-                esac
             fi
             # otp_label is what the dashboard plots on its x axis. We
             # carry the full resolved version ("28.5.4", "29.0-rc3")

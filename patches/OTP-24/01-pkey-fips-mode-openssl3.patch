@@ -1,0 +1,32 @@
+# Fixes: OTP-24.0 / OTP-24.1 crypto build against OpenSSL 3 fails with
+#        "call to undeclared function 'FIPS_mode'" in lib/crypto/c_src/pkey.c.
+#        OpenSSL 3 removed FIPS_mode(); the OTP-24.0/.1 crypto NIF still
+#        calls it from five sites in pkey.c.
+# Upstream: rewrite landed in OTP-24.2 (commit f6ed9faebc, "crypto: Change
+#           (and simplify) the FIPS mode related macros"). Backporting that
+#           full change is invasive (touches algorithms.c, atoms.c,
+#           openssl_config.h); we just stub FIPS_mode() to 0 since we never
+#           run in FIPS mode. The five call sites in pkey.c are all of the
+#           form `if (!FIPS_mode())` gating the non-FIPS path, so a constant
+#           0 keeps existing behaviour.
+# Drop this once we no longer build any OTP < 24.2.
+
+diff --git a/lib/crypto/c_src/pkey.c b/lib/crypto/c_src/pkey.c
+index 2125aed..f2b4a67 100644
+--- a/lib/crypto/c_src/pkey.c
++++ b/lib/crypto/c_src/pkey.c
+@@ -27,6 +27,14 @@
+ #include "engine.h"
+ #include "rsa.h"
+
++#if OPENSSL_VERSION_NUMBER >= PACKED_OPENSSL_VERSION_PLAIN(3,0,0)
++/* OpenSSL 3 removed FIPS_mode(); we don't run FIPS-conformance, so
++ * stub it out as "not in FIPS mode". The pkey.c references all use
++ * `if (!FIPS_mode())` to gate the non-FIPS fast path — making this
++ * always true keeps the existing behaviour. */
++#  define FIPS_mode() 0
++#endif
++
+ #define PKEY_BADARG -1
+ #define PKEY_NOTSUP 0
+ #define PKEY_OK 1
