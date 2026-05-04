@@ -991,7 +991,12 @@ defmodule Mix.Tasks.Awfy.Compare do
         langs.forEach((lang, li) => {
           const data = benches.map(b => {
             const r = latest[otp + "|" + lang + "|" + b];
-            if (!r) return null;
+            // Bar chart with parsing.yMinKey reads `.yMin` on every
+            // datapoint, so a bare null crashes Chart.js with
+            // "Cannot read properties of null (reading 'yMin')".
+            // Hand back an object with null fields instead — the bar
+            // is then skipped without breaking the parser.
+            if (!r) return { x: b, y: null, yMin: null, yMax: null, raw: null };
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
             return { x: b, y: r.median_ms, yMin: r.median_ms - sigma, yMax: r.median_ms + sigma, raw: r };
           });
