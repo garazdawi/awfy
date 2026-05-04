@@ -3,13 +3,14 @@
 
 # Cloud benchmark workflow — see CLOUD_BENCH_PLAN.md.
 #
-# Runs the AWFY suite against erlang/otp on a weekly cron, on AWS
-# CodeBuild self-hosted runners that use pinned 4xlarge instances
-# (c6i.4xlarge / c7g.4xlarge / c6i.4xlarge+Win) so each benchmark
-# process owns one physical core (and its hyperthread sibling on
-# Intel, by virtue of the affinity mask). Pinning gets us to ~3-5%
-# CV without paying ~$1,100/yr for full bare-metal — see
-# CLOUD_BENCH_PLAN.md § Cost per sweep.
+# Runs the AWFY suite against erlang/otp on a weekly cron via
+# Terraform-managed ephemeral self-hosted runners on AWS EC2,
+# pinned to c6i.4xlarge (Linux x86 and Windows) and c7g.4xlarge
+# (Linux ARM Graviton 3). Each benchmark process owns one physical
+# core (and its hyperthread sibling on Intel, by virtue of the
+# affinity mask) — gets us to ~3-5% CV without paying ~$1,100/yr
+# for full bare-metal. See CLOUD_BENCH_PLAN.md § Cost per sweep
+# and terraform/README.md for the runner setup.
 #
 # Triggers:
 #   * schedule         → weekly Monday 06:00 UTC, latest patch of
@@ -244,9 +245,12 @@ jobs:
           cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
 
   # ---------------------------------------------------------------
-  # Linux measurements on AWS CodeBuild self-hosted runners.
-  # Project names: awfy-bench-linux-x86_64 (c6i.4xlarge) and
-  # awfy-bench-linux-arm64 (c7g.4xlarge). See SETUP.md.
+  # Linux measurements on Terraform-managed ephemeral self-hosted
+  # runners. Runner pools `awfy-bench-linux-x86_64` (c6i.4xlarge)
+  # and `awfy-bench-linux-arm64` (c7g.4xlarge); each instance is
+  # spun up by the philips-labs Lambda on a workflow_job webhook,
+  # registers as one-shot, runs this job, and terminates. See
+  # terraform/README.md and SETUP.md § 2.
   #
   # CPU pinning: docker --cpuset-cpus=0 confines the entire container
   # (mix orchestrator + peer + benchmark erl) to vCPU 0. On the Intel
@@ -268,7 +272,8 @@ jobs:
         arch: [x86_64, arm64]
         flavor: [jit, emu]
     runs-on:
-      - codebuild-awfy-bench-linux-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - self-hosted
+      - awfy-bench-linux-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -280,7 +285,7 @@ jobs:
       - name: Pull benchmark image
         run: |
           docker pull "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch }}"
-      - name: Preflight (advisory only — CodeBuild runners always WARN)
+      - name: Preflight (advisory only — cloud runners always WARN)
         run: |
           docker run --rm \
             "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch }}" \
@@ -309,9 +314,9 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------
-  # Windows measurements on AWS CodeBuild (project
-  # `awfy-bench-windows`, c6i.4xlarge + Windows). No Docker —
-  # Windows containers are slow and licensing-heavy.
+  # Windows measurements on the Terraform-managed `awfy-bench-windows`
+  # pool (c6i.4xlarge + Windows AMI). No Docker — Windows containers
+  # are slow and licensing-heavy.
   #
   # CPU pinning: set the PowerShell process's ProcessorAffinity to
   # CPU 0 before invoking mix; child processes (mix, erl, peer)
@@ -332,7 +337,8 @@ jobs:
         # bundles emu, or if we side-load a local FLAVOR=emu build.
         flavor: [jit]
     runs-on:
-      - codebuild-awfy-bench-windows-${{ github.run_id }}-${{ github.run_attempt }}
+      - self-hosted
+      - awfy-bench-windows
     steps:
       - uses: actions/checkout@v6
         with:
@@ -365,7 +371,7 @@ jobs:
           mix local.rebar --force
           mix deps.get
           mix compile
-      - name: Preflight (advisory only — CodeBuild runners always WARN)
+      - name: Preflight (advisory only — cloud runners always WARN)
         shell: pwsh
         run: mix awfy.preflight || $true
       - name: Measure (${{ matrix.flavor }})
@@ -393,7 +399,7 @@ jobs:
   # Cross-OTP target-runner path for OTP < 24. Host orchestrator
   # runs on a pinned modern Elixir/OTP, target erl is built from
   # source; the orchestrator shells out to the target erl per
-  # benchmark. Same CodeBuild Linux project as the modern flow —
+  # benchmark. Same Linux runner pools as the modern flow —
   # different setup steps because there's no Docker image for
   # target-runner mode.
   #
@@ -413,7 +419,8 @@ jobs:
         arch: [x86_64, arm64]
         flavor: [jit, emu]
     runs-on:
-      - codebuild-awfy-bench-linux-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - self-hosted
+      - awfy-bench-linux-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v6
         with:
