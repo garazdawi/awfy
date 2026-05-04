@@ -98,6 +98,19 @@ jobs:
                   | grep -E "^OTP-$r\.[0-9.]+$" \
                   | sort -V | tail -1
                 ;;
+              # Minor-version shorthand "X.Y" → latest patch tag
+              # (OTP-X.Y, OTP-X.Y.Z, OTP-X.Y.Z.P, …). Used by the
+              # backfill list so the operator can write
+              # "20.0,20.1,20.2,…,28.5,master" without spelling out
+              # every full upstream tag.
+              [0-9][0-9].[0-9]|[0-9][0-9].[0-9][0-9])
+                local re="OTP-${r//./\\.}"
+                git ls-remote --tags --refs https://github.com/erlang/otp.git "OTP-$r*" \
+                  | awk '{print $2}' \
+                  | sed 's|refs/tags/||' \
+                  | grep -E "^${re}(\\.|$)" \
+                  | sort -V | tail -1
+                ;;
               *) echo "$r" ;;
             esac
           }
