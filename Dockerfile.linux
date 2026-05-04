@@ -89,7 +89,20 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     make -j"$(nproc)" && \
     make install && \
     make -j"$(nproc)" FLAVOR=emu && \
-    make FLAVOR=emu install
+    make FLAVOR=emu install && \
+    # `make FLAVOR=emu install` doesn't always copy beam.emu into
+    # /usr/local/lib/erlang/erts-VSN/bin/ on older OTPs — it lands in
+    # the source tree's bin/<TARGET>/ but the install phase ships only
+    # beam.smp. Without this copy `-emu_flavor emu` fails with
+    # "Invalid flavor". Mirror what install-otp-source.sh does.
+    erts_bin="$(ls -d /usr/local/lib/erlang/erts-*/bin 2>/dev/null | head -1)" && \
+    if [ -n "$erts_bin" ]; then \
+      for src in /otp/bin/*/beam.emu; do \
+        [ -f "$src" ] || continue; \
+        cp "$src" "$erts_bin/beam.emu"; \
+        break; \
+      done; \
+    fi
 
 # Build target beams for the AWFY suite + the target-runner harness
 # using the *just-installed* erlc. They land at
