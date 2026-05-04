@@ -57,27 +57,46 @@ esac
 # Each curl|jq pipeline is wrapped with `|| var=""` because we're under
 # `set -euo pipefail`: a 4xx response causes curl to exit non-zero and
 # pipefail propagates it, aborting the script instead of cleanly falling
-# through to the /archive fallback.
+# through to the /archive fallback. We log each fall-through reason to
+# stderr so a later "why didn't this use the prebuilt?" investigation
+# has something to grep for.
+#
+# Query against the workflow file (.github/workflows/main.yaml in
+# erlang/otp) rather than the global /actions/runs endpoint — the
+# global one orders by created_at across every workflow, and on a busy
+# repo the "Build and check Erlang/OTP" run gets pushed past per_page
+# by Scorecard / Update PR details / Sync runs that fire on the same
+# SHA. The workflow-scoped endpoint returns only that workflow's runs.
 if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
     auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+    base="https://api.github.com/repos/erlang/otp/actions/workflows/main.yaml/runs"
     for q in "head_sha=$SHA" "branch=$REF"; do
-        run_id="$(curl -fsSL "${auth[@]}" \
-            "https://api.github.com/repos/erlang/otp/actions/runs?$q&per_page=10" 2>/dev/null \
-            | jq -r '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0].id // empty' \
+        run_json="$(curl -fsSL "${auth[@]}" "$base?$q&per_page=5" 2>/dev/null)" \
+            || { echo "fetch-otp-source: $q query failed (curl)" >&2; continue; }
+        run_id="$(echo "$run_json" \
+            | jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].id // empty' \
             2>/dev/null)" || run_id=""
-        [ -z "$run_id" ] && continue
+        if [ -z "$run_id" ]; then
+            echo "fetch-otp-source: $q matched no successful Build and check run" >&2
+            continue
+        fi
         artifact_id="$(curl -fsSL "${auth[@]}" \
             "https://api.github.com/repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
             | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
             2>/dev/null)" || artifact_id=""
-        [ -z "$artifact_id" ] && continue
+        if [ -z "$artifact_id" ]; then
+            echo "fetch-otp-source: run $run_id has no unexpired otp_prebuilt artifact" >&2
+            continue
+        fi
         echo "fetch-otp-source: fetching otp_prebuilt artifact $artifact_id (run $run_id)" >&2
         curl -fsSL -L "${auth[@]}" \
             "https://api.github.com/repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
             -o "$WORK/prebuilt.zip" 2>/dev/null \
-            || { echo "  download failed, trying next ref" >&2; continue; }
-        unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" || continue
-        tar xzf "$WORK/prebuilt/otp_src.tar.gz" || continue
+            || { echo "fetch-otp-source: artifact $artifact_id download failed" >&2; continue; }
+        unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" \
+            || { echo "fetch-otp-source: artifact $artifact_id unzip failed" >&2; continue; }
+        tar xzf "$WORK/prebuilt/otp_src.tar.gz" \
+            || { echo "fetch-otp-source: artifact $artifact_id tarball extract failed" >&2; continue; }
         # The artifact's tarball extracts to "otp/" already.
         SRC="otp"
         break
