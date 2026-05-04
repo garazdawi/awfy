@@ -141,14 +141,15 @@ defmodule Awfy.PeerRunner do
 
     cond do
       Code.ensure_loaded?(:peer) ->
-        # Pass the entire code path under one -pa flag so the peer's
-        # lookup order matches the controller's. Multiple -pa flags
-        # prepend one path at a time, which reverses the order — that
-        # buries Mix's consolidated/ dir behind elixir/ebin on the
-        # peer and makes Benchee load the unconsolidated protocol
-        # beams (Inspect, Enumerable, …), triggering its
-        # "protocols have been consolidated" warning.
-        code_path_args = [~c"-pa" | :code.get_path()]
+        # erl's `-pa Dir1 Dir2 … DirN` prepends each Dir to the code
+        # path in argument order, which reverses the input — pass
+        # [A, B, C] and the peer ends up with [C, B, A | rest]. To
+        # mirror the controller's lookup order on the peer, reverse
+        # before handing to -pa so the first controller path lands
+        # first on the peer too. Without this Mix's consolidated/
+        # dir gets buried behind elixir/ebin and Benchee fires its
+        # "protocols have been consolidated" warning every run.
+        code_path_args = [~c"-pa" | Enum.reverse(:code.get_path())]
 
         {:ok, pid, _node} =
           :peer.start_link(%{
@@ -165,11 +166,10 @@ defmodule Awfy.PeerRunner do
       ensure_distribution_started() == :ok ->
         slave_name = String.to_atom(base)
 
-        # Single -pa with all dirs (see :peer branch above for the
-        # order-preservation rationale).
+        # Same reverse trick as the :peer branch above — see comment.
         code_path_arg =
           "-pa " <>
-            Enum.map_join(:code.get_path(), " ", &List.to_string/1)
+            Enum.map_join(Enum.reverse(:code.get_path()), " ", &List.to_string/1)
 
         # apply/3: see comment on :slave.stop/1 above.
         case apply(:slave, :start_link, [
