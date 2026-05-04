@@ -73,12 +73,23 @@ trap 'rm -rf "$WORK"' EXIT
     case "$REF" in
         OTP-*)
             VERSION="${REF#OTP-}"
-            REL_URL="https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz"
-            if curl -fsLI -o /dev/null "$REL_URL"; then
-                echo "Fetching $REL_URL (prebuilt beams) …"
-                curl -fL "$REL_URL" | tar xz -C "$WORK"
-                SRC="$WORK/otp_src_$VERSION"
-            fi
+            # Probe order:
+            #   1. github.com/erlang/otp/releases — covers OTP 21+
+            #      tagged releases.
+            #   2. erlang.org/download — covers older majors (OTP 20.3
+            #      etc.) and the major.minor "main" releases that
+            #      predate github releases.
+            for url in \
+                "https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz" \
+                "https://erlang.org/download/otp_src_$VERSION.tar.gz"
+            do
+                if curl -fsLI -o /dev/null "$url"; then
+                    echo "Fetching $url (prebuilt beams) …"
+                    curl -fL "$url" | tar xz -C "$WORK"
+                    SRC="$WORK/otp_src_$VERSION"
+                    break
+                fi
+            done
             ;;
     esac
     if [ -z "${SRC:-}" ]; then
@@ -132,11 +143,11 @@ trap 'rm -rf "$WORK"' EXIT
     # Match the Linux Docker image's configure flags so cross-platform
     # numbers compare apples-to-apples. AWFY_OTP_EXTRA_CONFIGURE lets
     # the caller bolt on additional flags — used by the target-runner
-    # CI path to pass `--without-ssl` for OTP < 23, whose crypto NIF
-    # uses APIs OpenSSL 3 removed. The benchmark suite never touches
-    # crypto on the target, so dropping ssl/ssh/crypto entirely lets
-    # the build succeed without per-major patches just for an unused
-    # subsystem.
+    # CI path to pass `--without-ssl` for OTP < 23 (whose crypto NIF
+    # needs APIs OpenSSL 3 removed) without affecting newer OTPs that
+    # build crypto fine against either OpenSSL version. Future
+    # benchmarks that exercise crypto will run on those newer targets
+    # unaffected.
     ./configure \
         --prefix="$PREFIX" \
         --disable-debug \

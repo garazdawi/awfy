@@ -73,9 +73,18 @@ jobs:
           # Expand shorthand "20"…"29"/"30"… to the latest matching
           # OTP-X.Y.Z tag. OTP < 22 is unlikely to build out-of-the-box
           # with current toolchains; see patches/README.md.
+          #
+          # OTP 20 is special-cased: the latest 20.3.X patch (20.3.8.26)
+          # has no source archive on either github releases or
+          # erlang.org/download (the GitHub release for that tag wasn't
+          # cut), so install-otp-source.sh would have nothing to fetch
+          # but the raw /archive/<sha>.tar.gz — which lacks
+          # config.guess/config.sub. OTP-20.3 itself ships a prebuilt
+          # source archive on erlang.org, so pin shorthand "20" to it.
           expand_ref() {
             local r="$1"
             case "$r" in
+              20) echo "OTP-20.3" ;;
               2[0-9]|3[0-9])
                 git ls-remote --tags --refs https://github.com/erlang/otp.git "OTP-$r.*" \
                   | awk '{print $2}' \
@@ -179,7 +188,17 @@ jobs:
             # release cluster at "now" — pull the commit's committer
             # date and let the run-dir position itself accordingly.
             commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" --jq '.commit.committer.date' 2>/dev/null || echo "")"
-            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\"}"
+            # OTP < 23's crypto NIF uses APIs OpenSSL 3 removed
+            # (RSA_get_key, EVP_MD_size). The GHA Ubuntu image ships
+            # only OpenSSL 3, so for those targets drop ssl/ssh/crypto
+            # entirely. OTP ≥ 23 builds crypto fine against either
+            # OpenSSL version, so leave the flag empty there to keep
+            # crypto available for benchmarks that may use it.
+            extra_configure=""
+            if [ "$major" -lt 23 ] 2>/dev/null; then
+                extra_configure="--without-ssl"
+            fi
+            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
 
             # OTP < 24 has no compatible Elixir bundle, so the host
             # orchestrator can't compile against it. Route to the
@@ -503,12 +522,10 @@ jobs:
       - name: Build target OTP
         env:
           OTP_REF: ${{ matrix.target.sha }}
-          # OTP < 23's crypto NIF doesn't compile against OpenSSL 3
-          # (Ubuntu 24.04's libssl-dev). The benchmark target never
-          # imports crypto, so drop ssl/ssh/crypto entirely and skip
-          # the patch dance. install-otp-source.sh threads this into
-          # ./configure verbatim.
-          AWFY_OTP_EXTRA_CONFIGURE: --without-ssl
+          # Empty for OTP ≥ 23 (crypto compiles fine against OpenSSL 3
+          # so the suite can use it); `--without-ssl` for OTP < 23
+          # whose crypto NIF needs OpenSSL 1.1. Computed in resolve.
+          AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
         run: |
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
