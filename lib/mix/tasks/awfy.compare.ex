@@ -403,6 +403,13 @@ defmodule Mix.Tasks.Awfy.Compare do
         .controls .group b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
         .controls label { cursor: pointer; user-select: none; }
         .controls select { font: inherit; padding: 0.15rem 0.35rem; border: 1px solid var(--er-border); border-radius: 3px; background: white; }
+        .reset-btn {
+          margin-left: auto; font: inherit; font-size: 0.85rem;
+          padding: 0.3rem 0.7rem; cursor: pointer;
+          background: white; color: var(--er-muted);
+          border: 1px solid var(--er-border); border-radius: 3px;
+        }
+        .reset-btn:hover { color: var(--er-red); border-color: var(--er-red); }
         /* Chart.js responsive sizing (with maintainAspectRatio:false)
            reads the canvas's parent for dimensions and writes inline
            width/height back onto the canvas. Wrap each canvas in a
@@ -454,6 +461,7 @@ defmodule Mix.Tasks.Awfy.Compare do
         <div class="group" id="control-lang">
           <b>Language</b>
         </div>
+        <button id="reset-filters" type="button" class="reset-btn" title="Restore default tabs, language, and snapshot-major selections">Reset to defaults</button>
       </div>
 
       <div id="headline" class="headline"></div>
@@ -1216,6 +1224,14 @@ defmodule Mix.Tasks.Awfy.Compare do
       if (PAGE_KIND === "suite") {
         buildSnapshotMajorCheckboxes();
       }
+
+      // Reset wipes this page's filter state and reloads. Per-page
+      // STORAGE_KEY scoping means the index reset doesn't disturb
+      // any per-bench page's selections, and vice versa.
+      document.getElementById("reset-filters").addEventListener("click", () => {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        location.reload();
+      });
 
       renderRunsMeta();
       renderAll();
