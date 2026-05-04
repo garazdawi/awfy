@@ -41,11 +41,17 @@ defmodule Awfy.Benchmarks.Json do
   end
 
   defp test_input do
-    case :persistent_term.get({__MODULE__, :test_input}, nil) do
+    # Process dict, matching the Erlang port. Storing the ~25KB binary
+    # in :persistent_term tickled an OTP regression that crashes the
+    # BEAM hard on Windows OTP-27.0/.1/.2 (fixed by e060f289c8 in 27.3
+    # — "fix-persistent-term-literal-tag/OTP-19458"). Process dict
+    # avoids the path entirely and doesn't change what we measure: the
+    # parse work happens *after* this lookup.
+    case Process.get({__MODULE__, :test_input}) do
       nil ->
         path = Path.join(:code.priv_dir(:awfy), "rap_benchmark.json")
         {:ok, bin} = File.read(path)
-        :persistent_term.put({__MODULE__, :test_input}, bin)
+        Process.put({__MODULE__, :test_input}, bin)
         bin
 
       bin ->
