@@ -227,6 +227,25 @@ trap 'rm -rf "$WORK"' EXIT
     make -j"$JOBS" FLAVOR=emu
     make FLAVOR=emu install
 
+    # `make FLAVOR=emu install` doesn't always copy beam.emu into
+    # $PREFIX/lib/erlang/erts-VSN/bin/ — on some OTP versions the
+    # binary lands in the source tree's bin/<TARGET>/ but the install
+    # phase leaves the prefix with only beam.smp. erlexec then
+    # answers `-emu_flavor emu` with "Invalid flavor". Do the copy
+    # ourselves so the flag resolves on every Unix target. (Windows
+    # uses install-otp-windows.ps1, not this script.)
+    if [ -d "$ERL_TOP/bin" ]; then
+        erts_bin="$(ls -d "$PREFIX"/lib/erlang/erts-*/bin 2>/dev/null | head -1)"
+        if [ -n "$erts_bin" ]; then
+            for src in "$ERL_TOP"/bin/*/beam.emu; do
+                [ -f "$src" ] || continue
+                cp "$src" "$erts_bin/beam.emu"
+                echo "Copied $(basename "$(dirname "$src")")/beam.emu → $erts_bin/" >&2
+                break
+            done
+        fi
+    fi
+
     # Verify the install runs at all. We don't try `-emu_flavor jit/emu`
     # here — the available flavor names changed across OTP versions
     # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
