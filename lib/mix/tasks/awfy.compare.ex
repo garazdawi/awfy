@@ -957,7 +957,7 @@ defmodule Mix.Tasks.Awfy.Compare do
         }));
 
       const allSeries = pinnedOtp ? {
-        label: "all platforms (pinned to OTP " + pinnedOtp + ")",
+        label: "all platforms",
         data: Object.entries(allByOtp)
           .map(([otp, ratios]) => ({ x: otp, y: geomean(ratios), n_benchmarks: ratios.length, pinnedOtp }))
           .sort((a, b) => compareOtpVersions(a.x, b.x)),
