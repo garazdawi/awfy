@@ -142,8 +142,21 @@ trap 'rm -rf "$WORK"' EXIT
     # isn't always installed (and doesn't exist for OTP < 23). The
     # workflow either installs target Elixir and adds a separate
     # `mix compile` step, or skips Elixir benchmarks for that target.
-    TARGET_LIB="$PREFIX/lib/awfy-0.1.0"
+    # Target beams go under $PREFIX/awfy_target/awfy-0.1.0/ rather than
+    # $PREFIX/lib/ so they don't show up to the host's `mix` as a
+    # competing OTP-app named `awfy` when ERL_LIBS happens to include
+    # the prefix. Caller sets:
+    #   AWFY_TARGET_ERL=$PREFIX/bin/erl
+    #   AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin
+    #
+    # Compile awfy_benchmark first so the behaviour file is available
+    # when the modules that `-behaviour(awfy_benchmark)` get compiled.
+    TARGET_LIB="$PREFIX/awfy_target/awfy-0.1.0"
     mkdir -p "$TARGET_LIB/ebin" "$TARGET_LIB/priv"
+    "$PREFIX/bin/erlc" -o "$TARGET_LIB/ebin" \
+        "$AWFY_ROOT"/apps/awfy/src/awfy_benchmark.erl \
+        "$AWFY_ROOT"/apps/awfy/src/awfy_random.erl \
+        "$AWFY_ROOT"/apps/awfy/src/awfy_som_vector.erl
     "$PREFIX/bin/erlc" -o "$TARGET_LIB/ebin" \
         "$AWFY_ROOT"/apps/awfy/src/*.erl \
         "$AWFY_ROOT"/apps/awfy/src_target/*.erl
