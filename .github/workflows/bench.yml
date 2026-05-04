@@ -168,9 +168,13 @@ jobs:
             if [ "$major" -lt 24 ] 2>/dev/null; then
                 extra_configure="--without-ssl"
             fi
+            # Carry the full resolved version ("28.5.4", "29.0-rc3")
+            # so the snapshot legend is unambiguous; the dashboard
+            # buckets to major-only for grouping logic. "master" /
+            # "maint-*" pass through verbatim.
             case "$ref" in
               master|main|maint-*) otp_label="$ref" ;;
-              OTP-*) otp_label="$(echo "${ref#OTP-}" | cut -d. -f1-2)" ;;
+              OTP-*) otp_label="${ref#OTP-}" ;;
               *) otp_label="$major" ;;
             esac
             entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"

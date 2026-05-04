@@ -217,15 +217,14 @@ jobs:
                 extra_configure="--without-ssl"
             fi
             # otp_label is what the dashboard plots on its x axis. We
-            # take the feature-release form ("20.1") for tagged refs so
-            # patch-level runs of the same feature release stack on
-            # one tick, and pass through "master" / "maint-*" verbatim
-            # so they land at the right edge of the trend chart.
+            # carry the full resolved version ("28.5.4", "29.0-rc3")
+            # for tagged refs so the snapshot legend is unambiguous —
+            # the dashboard buckets by major for grouping. "master" /
+            # "maint-*" pass through verbatim so they land at the
+            # right edge of the trend chart.
             case "$ref" in
               master|main|maint-*) otp_label="$ref" ;;
-              OTP-*)
-                otp_label="$(echo "${ref#OTP-}" | cut -d. -f1-2)"
-                ;;
+              OTP-*) otp_label="${ref#OTP-}" ;;
               *) otp_label="$major" ;;
             esac
             entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
