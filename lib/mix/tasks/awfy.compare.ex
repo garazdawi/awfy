@@ -823,7 +823,12 @@ defmodule Mix.Tasks.Awfy.Compare do
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          parsing: false,
+          // Explicit parsing keys (not `parsing: false`) so the
+          // lineWithErrorBars controller picks up yMin/yMax on a
+          // category x scale too. parsing: false works with numeric
+          // x only — under the otp/category axis the per-bench
+          // chart was rendering for one frame and then bailing.
+          parsing: { xAxisKey: "x", yAxisKey: "y", yMinKey: "yMin", yMaxKey: "yMax" },
           interaction: { intersect: false, mode: "nearest" },
           scales: {
             x: xAxis === "timestamp"
