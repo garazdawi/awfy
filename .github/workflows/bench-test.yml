@@ -500,6 +500,16 @@ jobs:
           persist-credentials: false
       - name: Install build deps
         run: brew install autoconf openssl@3 ncurses
+      - name: Cache OTP build
+        uses: actions/cache@v4
+        with:
+          # install-otp-source.sh content-addresses by SHA, so the
+          # cache key is exact. Hits skip the 5-10 min source build
+          # entirely; the script's own OTP_INSTALLED guard then just
+          # recompiles the small target-beam tree. Same scheme as the
+          # measure-linux-target leg below.
+          path: ~/.local/otp/${{ matrix.target.sha }}
+          key: otp-macos-arm64-${{ matrix.target.sha }}
       - name: Build OTP from source
         id: otp
         env:
