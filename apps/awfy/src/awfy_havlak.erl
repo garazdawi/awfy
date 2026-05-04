@@ -342,7 +342,12 @@ find_loops(HF0) ->
 init_size_arrays(I, Size, HF) when I >= Size -> HF;
 init_size_arrays(I, Size, HF) ->
     %% Initialize per-w state.
-    NBP1 = maps:put(I, sets:new([{version, 2}]), HF#hf.non_back_preds),
+    %% Plain `sets:new()` (no `[{version, 2}]`): version 2 was added in
+    %% OTP 24, and using it here would crash on older targets in the
+    %% measure-linux-target path. The benchmark cares about cross-OTP
+    %% comparison, so picking v1 unconditionally keeps the data
+    %% structure identical across the whole sweep.
+    NBP1 = maps:put(I, sets:new(), HF#hf.non_back_preds),
     BP1 = maps:put(I, [], HF#hf.back_preds),
     %% Allocate a UnionFindNode for index I.
     UfId = I,

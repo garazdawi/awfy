@@ -595,6 +595,13 @@ jobs:
           # so the suite can use it); `--without-ssl` for OTP < 24
           # whose crypto NIF needs OpenSSL 1.1. Computed in resolve.
           AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
+          # GCC 10+ defaults to `-fno-common`, which breaks the OTP 20
+          # link step (`multiple definition of erts_allctr_wrappers` in
+          # erts/emulator/beam/erl_alloc.h). `-fcommon` restores the
+          # older behaviour and is harmless on newer OTPs that don't
+          # trigger the conflict. Configure honors CFLAGS env on top of
+          # its own auto-detected flags.
+          CFLAGS: -fcommon
           # Same prebuilt-artifact caveat as the macOS build step.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
