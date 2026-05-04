@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 # Copy to terraform.tfvars (gitignored) and fill in.
 #
 # aws_region  = "us-east-1"
