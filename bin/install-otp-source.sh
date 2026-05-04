@@ -64,10 +64,29 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 {
-    echo "Fetching erlang/otp@$SHA …"
-    curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" \
-        | tar xz -C "$WORK"
-    SRC="$WORK/otp-$SHA"
+    # Prefer the release `otp_src_<version>.tar.gz` when the ref is a
+    # tagged OTP release: it ships prebuilt .beam files (saves the
+    # erlc compilation pass — minutes of CPU on the GHA runner) and
+    # has `configure` already generated (saves the autoconf step).
+    # `/archive/<sha>.tar.gz` is the catch-all fallback (untagged
+    # refs, very old releases without an asset).
+    case "$REF" in
+        OTP-*)
+            VERSION="${REF#OTP-}"
+            REL_URL="https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz"
+            if curl -fsLI -o /dev/null "$REL_URL"; then
+                echo "Fetching $REL_URL (prebuilt beams) …"
+                curl -fL "$REL_URL" | tar xz -C "$WORK"
+                SRC="$WORK/otp_src_$VERSION"
+            fi
+            ;;
+    esac
+    if [ -z "${SRC:-}" ]; then
+        echo "Fetching erlang/otp@$SHA via /archive (raw source) …"
+        curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" \
+            | tar xz -C "$WORK"
+        SRC="$WORK/otp-$SHA"
+    fi
 
     cd "$SRC"
     export ERL_TOP="$SRC"
