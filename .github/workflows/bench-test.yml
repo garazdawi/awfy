@@ -590,18 +590,26 @@ jobs:
         id: otp
         env:
           OTP_REF: ${{ matrix.target.ref }}
-          # Homebrew's openssl@3 is keg-only — OTP's configure won't
-          # find it on its own and silently builds without crypto. mix
-          # then refuses to start with "application crypto could not
-          # be found". Point configure at the keg explicitly.
+          # Per-ref extra configure flags computed in the resolve step —
+          # currently `--without-ssl` for OTP versions whose crypto NIF
+          # references APIs OpenSSL 3 removed (FIPS_mode etc.). Empty
+          # for everything else; we then default to wiring up Homebrew's
+          # keg-only openssl@3 so configure doesn't silently build
+          # without crypto (which makes mix refuse to start with
+          # "application crypto could not be found").
           #
           # GH_TOKEN: install-otp-source.sh may pull the `otp_prebuilt`
           # artifact from upstream's Build workflow for branch refs
           # (master). That download requires actions:read on erlang/otp;
           # the default GHA token works since erlang/otp is public.
+          EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          export AWFY_OTP_EXTRA_CONFIGURE="--with-ssl=$(brew --prefix openssl@3)"
+          if [ -n "$EXTRA_CONFIGURE" ]; then
+              export AWFY_OTP_EXTRA_CONFIGURE="$EXTRA_CONFIGURE"
+          else
+              export AWFY_OTP_EXTRA_CONFIGURE="--with-ssl=$(brew --prefix openssl@3)"
+          fi
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
       - name: Install Elixir
