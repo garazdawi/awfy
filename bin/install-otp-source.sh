@@ -100,6 +100,34 @@ trap 'rm -rf "$WORK"' EXIT
             done
             ;;
     esac
+
+    # Branch / SHA refs (master, maint-*, …) don't have a release
+    # tarball. Try the upstream CI's `otp_prebuilt` artifact instead —
+    # the same content (otp_src.tar.gz with prebuilt beams + already-run
+    # configure) is uploaded by `Build and check Erlang/OTP` for every
+    # commit. Skips when gh isn't available (e.g. local dev without
+    # auth) or when the API returns nothing (artifact expired, no run
+    # found for this branch); the /archive fallback below picks up.
+    if [ -z "${SRC:-}" ] && command -v gh >/dev/null 2>&1; then
+        for q in "head_sha=$SHA" "branch=$REF"; do
+            run_id="$(gh api "repos/erlang/otp/actions/runs?$q&per_page=10" 2>/dev/null \
+                | jq -r '[.workflow_runs[] | select(.name == "Build and check Erlang/OTP")][0].id // empty' 2>/dev/null)"
+            [ -z "$run_id" ] && continue
+            artifact_id="$(gh api "repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
+                | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' 2>/dev/null)"
+            [ -z "$artifact_id" ] && continue
+            echo "Fetching otp_prebuilt artifact $artifact_id (run $run_id) …"
+            if gh api "repos/erlang/otp/actions/artifacts/$artifact_id/zip" > "$WORK/prebuilt.zip" 2>/dev/null \
+                && unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" \
+                && tar xzf "$WORK/prebuilt/otp_src.tar.gz" -C "$WORK"
+            then
+                # The artifact's tarball extracts to "otp/" (no version
+                # suffix — it's untagged source).
+                SRC="$WORK/otp"
+                break
+            fi
+        done
+    fi
     if [ -z "${SRC:-}" ]; then
         echo "Fetching erlang/otp@$SHA via /archive (raw source) …"
         curl -fL "https://github.com/erlang/otp/archive/$SHA.tar.gz" \

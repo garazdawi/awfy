@@ -206,14 +206,14 @@ jobs:
             commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" 2>/dev/null \
               | jq -r '.commit.committer.date // ""' 2>/dev/null \
               || echo "")"
-            # OTP < 23's crypto NIF uses APIs OpenSSL 3 removed
-            # (RSA_get_key, EVP_MD_size). The GHA Ubuntu image ships
-            # only OpenSSL 3, so for those targets drop ssl/ssh/crypto
-            # entirely. OTP ≥ 23 builds crypto fine against either
-            # OpenSSL version, so leave the flag empty there to keep
-            # crypto available for benchmarks that may use it.
+            # OTP < 24's crypto NIF uses APIs OpenSSL 3 removed
+            # (RSA_get0_crt_params, EVP_MD_meth_new, …). The GHA Ubuntu
+            # image ships only OpenSSL 3, so for those targets drop
+            # ssl/ssh/crypto entirely. OTP 24+ added OpenSSL 3 support
+            # so leave the flag empty there to keep crypto available
+            # for benchmarks that exercise it.
             extra_configure=""
-            if [ "$major" -lt 23 ] 2>/dev/null; then
+            if [ "$major" -lt 24 ] 2>/dev/null; then
                 extra_configure="--without-ssl"
             fi
             entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
@@ -387,34 +387,55 @@ jobs:
         shell: pwsh
         # Benchee.System.{available_memory,cpu_speed}/1 shell out to
         # WMIC for system fingerprinting. Recent GHA windows-latest
-        # images drop WMIC; running Benchee then prints stack traces
-        # (Benchee catches the :enoent and just IO.puts the trace).
+        # images drop WMIC; Benchee then prints stack traces because
+        # the Erlang port `spawn_executable` raises :enoent (or
+        # :eacces if the target is a .cmd/.bat — Windows CreateProcess
+        # can only run real .exe/.com binaries directly).
+        #
         # Add-WindowsCapability fetches WMIC from Windows Update on
-        # demand, which can take 5+ minutes — instead drop a tiny
-        # wmic.cmd shim that dispatches to PowerShell's CIM. Erlang's
-        # find_executable honors PATHEXT, so .cmd is found.
+        # demand, which routinely runs 5+ minutes. Compile a tiny C#
+        # stub into a real wmic.exe instead — covers the two queries
+        # Benchee makes by dispatching to PowerShell's CIM.
         run: |
           $shimDir = "$env:USERPROFILE\.local\bin"
           New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
-          @'
-          @echo off
-          REM Stand-in for the deprecated WMIC binary covering only the
-          REM two queries Benchee makes during system fingerprinting.
-          REM Anything else exits non-zero, mimicking a missing tool.
-          if /i "%1 %2 %3" == "COMPUTERSYSTEM GET TOTALPHYSICALMEMORY" (
-            echo TotalPhysicalMemory
-            powershell -NoProfile -Command "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"
-            exit /b 0
-          )
-          if /i "%1 %2 %3" == "CPU GET NAME" (
-            echo Name
-            powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name"
-            exit /b 0
-          )
-          exit /b 1
-          '@ | Set-Content -Encoding ASCII -Path "$shimDir\wmic.cmd"
+
+          $cs = @'
+          using System;
+          using System.Diagnostics;
+          class Wmic {
+              static int Main(string[] args) {
+                  string ps = null;
+                  if (args.Length >= 3
+                      && string.Equals(args[0], "COMPUTERSYSTEM", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[1], "GET", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[2], "TOTALPHYSICALMEMORY", StringComparison.OrdinalIgnoreCase)) {
+                      ps = "Write-Output TotalPhysicalMemory; (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory";
+                  } else if (args.Length >= 3
+                      && string.Equals(args[0], "CPU", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[1], "GET", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[2], "NAME", StringComparison.OrdinalIgnoreCase)) {
+                      ps = "Write-Output Name; (Get-CimInstance Win32_Processor).Name";
+                  } else {
+                      return 1;
+                  }
+                  var psi = new ProcessStartInfo("powershell",
+                      "-NoProfile -Command \"" + ps + "\"");
+                  psi.UseShellExecute = false;
+                  var p = Process.Start(psi);
+                  p.WaitForExit();
+                  return p.ExitCode;
+              }
+          }
+          '@
+          $csPath = Join-Path $env:TEMP "wmic.cs"
+          $cs | Set-Content -Path $csPath -Encoding UTF8
+          # .NET Framework 4 csc.exe lives at this fixed path on every
+          # modern Windows install; doesn't need vcvars or VS env setup.
+          $csc = "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /out:"$shimDir\wmic.exe" $csPath
           $shimDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          Write-Host "wmic.cmd shim at $shimDir\wmic.cmd"
+          Write-Host "wmic.exe shim at $shimDir\wmic.exe"
       - name: Compile awfy
         shell: pwsh
         run: |
