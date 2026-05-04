@@ -383,24 +383,38 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           "$dest\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-      - name: Ensure WMIC is available
+      - name: Install wmic shim
         shell: pwsh
-        # Benchee.System.available_memory/1 calls
-        #   System.cmd("WMIC", ["COMPUTERSYSTEM", "GET", "TOTALPHYSICALMEMORY"])
-        # to fingerprint the host. Recent GHA windows-latest images
-        # (Server 2025) drop WMIC by default — the call raises :enoent
-        # inside `Benchee.run/2` and floods stderr with stack traces.
-        # Install the optional WMIC capability so the call succeeds.
+        # Benchee.System.{available_memory,cpu_speed}/1 shell out to
+        # WMIC for system fingerprinting. Recent GHA windows-latest
+        # images drop WMIC; running Benchee then prints stack traces
+        # (Benchee catches the :enoent and just IO.puts the trace).
+        # Add-WindowsCapability fetches WMIC from Windows Update on
+        # demand, which can take 5+ minutes — instead drop a tiny
+        # wmic.cmd shim that dispatches to PowerShell's CIM. Erlang's
+        # find_executable honors PATHEXT, so .cmd is found.
         run: |
-          $cap = Get-WindowsCapability -Online -Name "WMIC*" |
-            Where-Object State -ne "Installed" |
-            Select-Object -First 1
-          if ($cap) {
-            Write-Host "Installing $($cap.Name) …"
-            Add-WindowsCapability -Online -Name $cap.Name | Out-Null
-          } else {
-            Write-Host "WMIC already installed or no capability needed"
-          }
+          $shimDir = "$env:USERPROFILE\.local\bin"
+          New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
+          @'
+          @echo off
+          REM Stand-in for the deprecated WMIC binary covering only the
+          REM two queries Benchee makes during system fingerprinting.
+          REM Anything else exits non-zero, mimicking a missing tool.
+          if /i "%1 %2 %3" == "COMPUTERSYSTEM GET TOTALPHYSICALMEMORY" (
+            echo TotalPhysicalMemory
+            powershell -NoProfile -Command "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory"
+            exit /b 0
+          )
+          if /i "%1 %2 %3" == "CPU GET NAME" (
+            echo Name
+            powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name"
+            exit /b 0
+          )
+          exit /b 1
+          '@ | Set-Content -Encoding ASCII -Path "$shimDir\wmic.cmd"
+          $shimDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          Write-Host "wmic.cmd shim at $shimDir\wmic.cmd"
       - name: Compile awfy
         shell: pwsh
         run: |
@@ -447,7 +461,12 @@ jobs:
         id: otp
         env:
           OTP_REF: ${{ matrix.target.ref }}
+          # Homebrew's openssl@3 is keg-only — OTP's configure won't
+          # find it on its own and silently builds without crypto. mix
+          # then refuses to start with "application crypto could not
+          # be found". Point configure at the keg explicitly.
         run: |
+          export AWFY_OTP_EXTRA_CONFIGURE="--with-ssl=$(brew --prefix openssl@3)"
           PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
       - name: Install Elixir
