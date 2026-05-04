@@ -84,11 +84,29 @@ Steps:
 
 #### 2.2. Create three CodeBuild projects
 
-| Project name | Compute (EC2-class) | OS / arch |
-|--------------|---------------------|-----------|
-| `awfy-bench-linux-x86_64` | `c6i.4xlarge` (16 vCPU, 32 GB) | Linux x86_64 |
-| `awfy-bench-linux-arm64`  | `c7g.4xlarge` (16 vCPU, 32 GB, Graviton 3) | Linux ARM64 |
-| `awfy-bench-windows`      | `c6i.4xlarge` (16 vCPU, 32 GB) + Windows | Windows x86_64 |
+| Project name | CodeBuild compute class | Approx. specs | OS / arch |
+|--------------|-------------------------|---------------|-----------|
+| `awfy-bench-linux-x86_64` | `BUILD_GENERAL1_LARGE` | 8 vCPU, 15 GB | Linux x86_64 |
+| `awfy-bench-linux-arm64`  | `BUILD_GENERAL1_LARGE` (ARM image) | 8 vCPU, 15 GB | Linux ARM64 |
+| `awfy-bench-windows`      | `BUILD_GENERAL1_LARGE` (Windows) | 8 vCPU, 15 GB | Windows x86_64 |
+
+> **Why `BUILD_GENERAL1_LARGE` and not `c6i.4xlarge`?** CodeBuild's
+> on-demand fleet — what you get when you create a vanilla project
+> — only exposes AWS's canned compute classes (`SMALL` / `MEDIUM`
+> / `LARGE` / `XLARGE` / `2XLARGE`). Specific EC2 instance types
+> like `c6i.4xlarge` are only available via a **Reserved Capacity
+> Fleet** (CodeBuild → Compute fleets → Create fleet), which is
+> always-on and overkill at our weekly cadence. `BUILD_GENERAL1_LARGE`
+> at $0.020/min is the practical sweet spot: 8 dedicated vCPUs
+> per build, no shared-tenant noise, no fleet pre-allocation.
+>
+> If you later want true `c6i.4xlarge` pinning, the upgrade path
+> is documented in `CLOUD_BENCH_PLAN.md` — either a reserved-
+> capacity fleet, or migrate to ephemeral EC2 runners managed by
+> Terraform. Both are bigger lifts than a per-project `LARGE`
+> pick. For now, accept that pinning is at the CodeBuild-class
+> level rather than the physical-core level; it's still a
+> substantial improvement over GHA-hosted shared runners.
 
 Direct URL: `https://console.aws.amazon.com/codesuite/codebuild/projects`.
 
@@ -111,19 +129,16 @@ For each project:
    to the awfy repo triggers a CodeBuild run, which is not what
    we want.)
 5. **Environment**:
-   - Provisioning model: **On-demand** (reserved capacity is
-     overkill at our cadence).
-   - Environment image: **Managed image**, OS = Linux (or
-     Windows for the Windows project).
-   - Compute: pick the **EC2** compute fleet — *not* Lambda. EC2
-     is the only fleet that lets you specify the instance type
-     directly.
-   - Image / runtime versions: latest Ubuntu / Amazon Linux 2023
-     for Linux, Windows Server 2022 for the Windows project.
-   - **Instance type**: paste exact (`c6i.4xlarge` for x86 Linux
-     and Windows, `c7g.4xlarge` for ARM Linux). If the field is
-     not present, you've selected the Lambda or "general1.*"
-     compute class — go back and switch to EC2 fleet.
+   - Environment image: **Managed image**.
+   - Operating system: **Amazon Linux** (x86_64 and ARM
+     projects) or **Windows Server** for the Windows project.
+   - Image: latest available (the workflow installs everything
+     it actually needs on top).
+   - **Compute** radio buttons: pick **BUILD_GENERAL1_LARGE** —
+     the bottom of that group, the one labelled "8 vCPU, 15 GB".
+     The on-demand fleet doesn't expose a separate "Instance
+     type" field; the compute-class selection IS how you pick
+     hardware here.
    - **Privileged**: **enabled** for both Linux projects (Docker
      pull + run requires it). Leave disabled on Windows.
    - **Service role**: let CodeBuild create a new one named
@@ -156,39 +171,32 @@ The CodeBuild console offers a **Permissions** quick-link on the
 project page that takes you straight to the inline-policy editor
 for the right role.
 
-#### 2.4. AMI quiescence (Linux only)
+#### 2.4. CPU pinning under managed CodeBuild
 
-Bake a minimal custom AMI for each Linux project — the AWS-managed
-images are noisy. From a freshly-launched `c6i.4xlarge` (and a
-separate `c7g.4xlarge` for ARM) running the matching managed image:
+Skip if you went with a Reserved Capacity Fleet (where you control
+the AMI) — the AMI-bake instructions live in
+`CLOUD_BENCH_PLAN.md`. With a vanilla `BUILD_GENERAL1_LARGE`
+on-demand project (the path documented above) you don't get to
+tune the host kernel: CodeBuild owns the AMI and the build runs
+inside a container. What you can do is still useful, though:
 
-```bash
-# Disable irqbalance — it migrates IRQs across cores and shows up
-# as periodic stalls in the benchmark loop.
-sudo systemctl disable --now irqbalance
+- The `bench.yml` workflow already passes `docker run --cpuset-cpus=0`
+  on the Linux measure jobs, which confines the awfy benchmark
+  container to a single vCPU inside the CodeBuild build environment.
+  Other vCPUs on the same build host stay free of awfy load —
+  shorter cache lines fight, less scheduler thrash.
+- Windows projects can't use cpuset (no Docker), but the workflow
+  sets the PowerShell process's `ProcessorAffinity` to CPU 0 for
+  the same effect.
+- The 8-vCPU class is enough for the cpuset trick to be meaningful
+  (one core in use, seven idle from awfy's perspective).
 
-# Pin all CPUs to the performance governor.
-echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
-
-# tmpfs /tmp so benchee artifacts don't hit the EBS volume mid-run.
-echo 'tmpfs /tmp tmpfs nosuid,nodev,size=4G 0 0' | sudo tee -a /etc/fstab
-
-# Disable cron noise during the benchmark window.
-sudo systemctl disable --now fstrim.timer  || true
-sudo systemctl disable --now updatedb.timer || true
-```
-
-Then snapshot via EC2 → *Create image*, name it
-`awfy-bench-<arch>-pinned`, and select it in each Linux project's
-Environment → Custom image setting (or leave the AMI as the
-managed one and apply the same commands via the placeholder
-buildspec — slower per run but simpler to maintain).
-
-On Intel, leave SMT **enabled** at the OS level; the workflow uses
-`docker run --cpuset-cpus=0` to confine the container to vCPU 0,
-and vCPU 0's sibling (vCPU 8 on c6i.4xlarge) stays idle by virtue
-of nothing else being scheduled there. ARM64 (Graviton 3) has no
-SMT — vCPU 0 is one physical core directly.
+If you later need true sibling-thread isolation or a quiescent
+host (no `irqbalance`, no `cpufreq` ondemand), upgrade to a
+Reserved Capacity Fleet with `c6i.4xlarge`/`c7g.4xlarge` and use
+the AMI bake-script in `CLOUD_BENCH_PLAN.md`. That's what the
+workflow assumes when it `--cpuset-cpus=0`'s — the underlying
+mapping just isn't visible at CodeBuild-managed level.
 
 #### 2.5. Workflow `runs-on` resolution
 
@@ -208,25 +216,29 @@ To verify the wiring: trigger `bench` via `workflow_dispatch`
 with `otp_refs=master`, then watch *CodeBuild → Build history* —
 each measure-linux/windows job should produce one CodeBuild run.
 
-### Per-sweep cost (rough — pinned 4xlarge tier)
+### Per-sweep cost (rough — `BUILD_GENERAL1_LARGE` on-demand)
 
-| Job | Instance | Wall | Rate | Cost |
-|-----|----------|------|------|------|
-| `measure-linux x86_64 jit/emu` | c6i.4xlarge | ~5 min × 2 | $0.68/h | ~$0.11 |
-| `measure-linux arm64 jit/emu`  | c7g.4xlarge | ~5 min × 2 | $0.58/h | ~$0.10 |
-| `measure-windows jit`          | c6i.4xlarge + Win | ~7 min | $1.08/h | ~$0.13 |
-| `measure-linux-target` (legacy OTP, both archs/flavors) | as above | ~7 min × 4 | mix of c6i/c7g | ~$0.30 |
+| Job | Compute class | Wall | Rate | Cost |
+|-----|---------------|------|------|------|
+| `measure-linux x86_64 jit/emu` | LARGE Linux | ~5 min × 2 | $0.020/min | ~$0.20 |
+| `measure-linux arm64 jit/emu`  | LARGE ARM   | ~5 min × 2 | $0.020/min | ~$0.20 |
+| `measure-windows jit`          | LARGE Windows | ~7 min | $0.025/min | ~$0.18 |
+| `measure-linux-target` (legacy OTP, both archs/flavors) | LARGE Linux | ~7 min × 4 | $0.020/min | ~$0.56 |
 
-Total per full cloud sweep including legacy OTPs: **~$0.65**.
+Total per full cloud sweep including legacy OTPs: **~$1.15**.
 Annualised numbers:
 
 | Cadence | Cost |
 |---------|------|
-| Weekly cron only | ~$76/yr |
-| Per-perf-relevant-commit (~200/yr) | ~$287/yr |
-| Daily | ~$524/yr |
+| Weekly cron only | ~$60/yr |
+| Per-perf-relevant-commit (~200/yr) | ~$230/yr |
+| Daily | ~$420/yr |
 
-See `CLOUD_BENCH_PLAN.md` § Cost per sweep for the breakdown.
+These are CodeBuild-managed numbers — slightly higher per build
+minute than raw EC2 because you're paying for AWS's runner
+management, but you get strictly per-minute billing (no idle
+charges). See `CLOUD_BENCH_PLAN.md` § Cost per sweep for the
+raw-EC2 numbers if you migrate to a fleet later.
 
 macOS isn't part of the cloud cost — runs locally via
 `mix awfy.fill` on your M5; see section 3.
