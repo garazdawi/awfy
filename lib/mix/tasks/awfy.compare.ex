@@ -512,9 +512,12 @@ defmodule Mix.Tasks.Awfy.Compare do
        checkboxes since seeing erlang and elixir together is the point.
     */
 
-    function buildTabs(values, persisted) {
+    function buildTabs(values, persisted, fallback) {
       const container = document.getElementById("machine-tabs");
-      const initial = (persisted && values.includes(persisted)) ? persisted : values[0];
+      const initial =
+        (persisted && values.includes(persisted)) ? persisted :
+        (fallback && values.includes(fallback)) ? fallback :
+        values[0];
       values.forEach(v => {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -530,9 +533,12 @@ defmodule Mix.Tasks.Awfy.Compare do
       });
     }
 
-    function buildRadioGroup(controlId, name, values, persisted) {
+    function buildRadioGroup(controlId, name, values, persisted, fallback) {
       const container = document.getElementById(controlId);
-      const initial = (persisted && values.includes(persisted)) ? persisted : values[0];
+      const initial =
+        (persisted && values.includes(persisted)) ? persisted :
+        (fallback && values.includes(fallback)) ? fallback :
+        values[0];
       values.forEach(v => {
         const lab = document.createElement("label");
         const inp = document.createElement("input");
@@ -604,7 +610,10 @@ defmodule Mix.Tasks.Awfy.Compare do
           return a.timestamp < b.timestamp ? -1 : 1;
         });
         return {
-          label: key,
+          // Display label is just the language; machine class + flavor
+          // are already encoded in the active tab + radio so repeating
+          // them on every legend entry is noise.
+          label: items[0].lang,
           data: sorted.map(r => {
             // Chart.js with `parsing: false` + time scale requires
             // numeric x (epoch ms) — strings get silently skipped on
@@ -690,7 +699,13 @@ defmodule Mix.Tasks.Awfy.Compare do
         const sumLog = ratios.reduce((a, b) => a + Math.log(b), 0);
         const gm = Math.exp(sumLog / ratios.length);
 
-        if (!seriesByKey[g.sk]) seriesByKey[g.sk] = { label: g.sk, data: [] };
+        if (!seriesByKey[g.sk]) {
+          // sk = "lang / machine_class / flavor" — for display strip
+          // everything but the lang since the rest is already pinned by
+          // the active tab + flavor radio.
+          const langOnly = g.sk.split(" / ")[0];
+          seriesByKey[g.sk] = { label: langOnly, data: [] };
+        }
         // Convert timestamp string → epoch ms; Chart.js' time scale with
         // `parsing: false` ignores string x values on mobile Safari.
         const xVal = xAxis === "otp" ? g.runMeta.otp : Date.parse(g.runMeta.timestamp);
@@ -744,12 +759,15 @@ defmodule Mix.Tasks.Awfy.Compare do
       }));
 
       const yLabel = PAGE_KIND === "suite"
-        ? (BASELINE_LABEL && (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null)
-            ? "geomean ratio vs " + BASELINE_LABEL + " (lower = faster)"
-            : "geomean ratio vs each series's earliest data-point (lower = faster)")
+        ? "geomean ratio (lower = faster)"
         : "median ms (lower = faster)";
 
       const chartType = PAGE_KIND === "bench" ? "lineWithErrorBars" : "line";
+
+      // Shared font config — defaults are 12px which gets cramped on
+      // mobile and even desktop dense charts. 13/14 reads cleanly.
+      const tickFont = { family: "Montserrat, sans-serif", size: 13 };
+      const titleFont = { family: "Montserrat, sans-serif", size: 13, weight: "600" };
 
       if (chart) chart.destroy();
       chart = new Chart(document.getElementById("chart"), {
@@ -762,22 +780,57 @@ defmodule Mix.Tasks.Awfy.Compare do
           interaction: { intersect: false, mode: "nearest" },
           scales: {
             x: xAxis === "timestamp"
-              ? { type: "time", time: { tooltipFormat: "yyyy-MM-dd HH:mm", displayFormats: { hour: "MM/dd HH:mm" } }, title: { display: true, text: "timestamp" }, grid: { color: "#eee" } }
-              : { type: "category", title: { display: true, text: "OTP version" }, grid: { color: "#eee" } },
-            y: { title: { display: true, text: yLabel }, beginAtZero: PAGE_KIND === "suite" ? false : true, grid: { color: "#eee" } }
+              ? {
+                  type: "time",
+                  time: { tooltipFormat: "yyyy-MM-dd HH:mm", displayFormats: { hour: "MM/dd HH:mm", day: "MMM dd" } },
+                  title: { display: true, text: "timestamp", font: titleFont },
+                  ticks: { font: tickFont, maxRotation: 0, autoSkipPadding: 16 },
+                  grid: { color: "#eee" }
+                }
+              : {
+                  type: "category",
+                  title: { display: true, text: "OTP version", font: titleFont },
+                  ticks: { font: tickFont },
+                  grid: { color: "#eee" }
+                },
+            y: {
+              title: { display: true, text: yLabel, font: titleFont },
+              ticks: { font: tickFont },
+              beginAtZero: PAGE_KIND === "suite" ? false : true,
+              grid: { color: "#eee" }
+            }
           },
           plugins: {
-            legend: { labels: { font: { family: "Montserrat, sans-serif" } } },
+            legend: {
+              position: "top",
+              labels: { font: { family: "Montserrat, sans-serif", size: 13 }, boxWidth: 14, boxHeight: 14, padding: 12 }
+            },
             tooltip: {
+              backgroundColor: "rgba(32,32,32,0.92)",
+              titleFont: { family: "Montserrat, sans-serif", size: 13, weight: "600" },
+              bodyFont:  { family: "Montserrat, sans-serif", size: 13 },
+              padding: 10,
+              boxPadding: 4,
               callbacks: {
+                title: (items) => {
+                  if (!items.length) return "";
+                  const r = items[0].raw;
+                  if (xAxis === "otp") return "OTP " + r.x;
+                  return new Date(r.x).toLocaleString();
+                },
                 label: (ctx) => {
                   const r = ctx.raw;
-                  const parts = [ctx.dataset.label + ": " + (r.y).toFixed(3)];
-                  if (r.run_label) parts.push("run=" + r.run_label);
-                  if (r.stddev !== undefined && r.stddev !== null) parts.push("σ=" + r.stddev.toFixed(2));
-                  if (r.inner_iter) parts.push("iter=" + r.inner_iter);
-                  if (r.n_benchmarks) parts.push("n=" + r.n_benchmarks);
-                  return parts.join("  ");
+                  const v = (typeof r.y === "number") ? r.y.toFixed(3) : r.y;
+                  const unit = PAGE_KIND === "suite" ? "×" : " ms";
+                  let line = ctx.dataset.label + ": " + v + unit;
+                  if (r.stddev !== undefined && r.stddev !== null) line += "  σ=" + r.stddev.toFixed(2);
+                  if (r.n_benchmarks) line += "  (" + r.n_benchmarks + " benches)";
+                  return line;
+                },
+                afterBody: (items) => {
+                  if (!items.length) return "";
+                  const r = items[0].raw;
+                  return r.run_label ? "run: " + r.run_label : "";
                 }
               }
             }
@@ -902,6 +955,9 @@ defmodule Mix.Tasks.Awfy.Compare do
         });
       });
 
+      const tickFont = { family: "Montserrat, sans-serif", size: 13 };
+      const titleFont = { family: "Montserrat, sans-serif", size: 13, weight: "600" };
+
       if (snapshotChart) snapshotChart.destroy();
       snapshotChart = new Chart(el, {
         type: "barWithErrorBars",
@@ -912,21 +968,44 @@ defmodule Mix.Tasks.Awfy.Compare do
           indexAxis: "y",
           parsing: { xAxisKey: "x", yAxisKey: "y", xMinKey: "xMin", xMaxKey: "xMax" },
           interaction: { intersect: false, mode: "nearest" },
+          // Give benchmark names enough room on the left without
+          // truncating; Chart.js' default is to auto-fit, but the names
+          // (Mandelbrot, DeltaBlue, …) need ~110 px to render without "…".
+          layout: { padding: { left: 4, right: 12 } },
           scales: {
-            x: { title: { display: true, text: "median ms (lower = faster)" }, beginAtZero: true, grid: { color: "#eee" } },
-            y: { title: { display: false }, grid: { display: false } }
+            x: {
+              title: { display: true, text: "median ms (lower = faster)", font: titleFont },
+              ticks: { font: tickFont },
+              beginAtZero: true,
+              grid: { color: "#eee" }
+            },
+            y: {
+              ticks: { font: tickFont, autoSkip: false },
+              grid: { display: false }
+            }
           },
           plugins: {
-            legend: { position: "bottom", labels: { font: { family: "Montserrat, sans-serif" }, boxWidth: 12 } },
+            legend: {
+              position: "top",
+              labels: {
+                font: { family: "Montserrat, sans-serif", size: 13 },
+                boxWidth: 14, boxHeight: 14, padding: 12
+              }
+            },
             tooltip: {
+              backgroundColor: "rgba(32,32,32,0.92)",
+              titleFont: { family: "Montserrat, sans-serif", size: 13, weight: "600" },
+              bodyFont:  { family: "Montserrat, sans-serif", size: 13 },
+              padding: 10,
+              boxPadding: 4,
               callbacks: {
+                title: (items) => items[0] && items[0].raw ? items[0].raw.y : "",
                 label: (ctx) => {
                   const r = ctx.raw && ctx.raw.raw;
                   if (!r) return ctx.dataset.label;
-                  const parts = [ctx.dataset.label + ": " + r.median_ms.toFixed(2) + " ms"];
-                  if (r.stddev_ms !== undefined && r.stddev_ms !== null) parts.push("σ=" + r.stddev_ms.toFixed(2));
-                  if (r.inner_iter) parts.push("iter=" + r.inner_iter);
-                  return parts.join("  ");
+                  let line = ctx.dataset.label + ": " + r.median_ms.toFixed(2) + " ms";
+                  if (r.stddev_ms !== undefined && r.stddev_ms !== null) line += "  σ=" + r.stddev_ms.toFixed(2);
+                  return line;
                 }
               }
             }
@@ -957,8 +1036,11 @@ defmodule Mix.Tasks.Awfy.Compare do
       const flavors = uniqueValues(DATASET.rows, "emu_flavor");
       const langs = uniqueValues(DATASET.rows, "lang");
 
-      buildTabs(machineClasses, state.machine_class);
-      buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor);
+      // Defaults: Linux x86_64 + JIT — the cheapest, most-representative
+      // combo. The tab + radio fall back here on a fresh visit; persisted
+      // selections override.
+      buildTabs(machineClasses, state.machine_class, "linux-x86_64");
+      buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor, "jit");
       buildCheckboxGroup("control-lang", "lang", langs, state.lang);
 
       document.getElementById("x-axis").addEventListener("change", renderAll);
