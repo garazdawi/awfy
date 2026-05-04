@@ -207,8 +207,6 @@ defmodule Mix.Tasks.Awfy.Measure do
       # Per-scenario progress logged before the call so a hard crash
       # (peer-spawn failure, port termination — anything that bypasses
       # the rescue/catch below) is identifiable from the runner log.
-      # IO.write + flush so the line lands in stderr-buffered CI logs
-      # *before* the verify step gets to crash.
       Mix.shell().info("  [#{idx}/#{total}] verify #{name}")
       iter = Awfy.BencheeRunner.inner_iter_for(name)
 
