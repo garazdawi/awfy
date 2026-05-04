@@ -1,7 +1,7 @@
 # Isolation Policy — every benchmark gets a fresh BEAM
 
-**Cross-cuts**: `BENCH_VERSIONS_PLAN.md`, `CLOUD_BENCH_PLAN.md`,
-`NETWORK_BENCH_PLAN_TIER1.md`, `EXTENDED_BENCH_PLAN.md`. Supersedes
+**Cross-cuts**: `PLAN/BENCH_VERSIONS_PLAN.md`, `PLAN/CLOUD_BENCH_PLAN.md`,
+`PLAN/NETWORK_BENCH_PLAN_TIER1.md`, `PLAN/EXTENDED_BENCH_PLAN.md`. Supersedes
 prior wording in those plans about "run mnesia last", "warm
 supervisor tree perturbs subsequent benchmarks", etc.
 
@@ -87,15 +87,15 @@ Key points:
 
 ## Consequences for the existing plans
 
-- **`CLOUD_BENCH_PLAN.md`** — implementation note: the current
+- **`PLAN/CLOUD_BENCH_PLAN.md`** — implementation note: the current
   `mix awfy.measure` runs everything in one BEAM. Migrate to peer-
   per-benchmark before the network and extended plans land.
-- **`NETWORK_BENCH_PLAN_TIER1.md`** — the open question about
+- **`PLAN/NETWORK_BENCH_PLAN_TIER1.md`** — the open question about
   "epmd cookie + ordering inside the netns" goes away: each
   network benchmark spins up its own pair of peer nodes (in the
   pre-set-up netns), tears them down, and the controller never
   inherits epmd state between benchmarks.
-- **`EXTENDED_BENCH_PLAN.md`** — the open question about Mnesia
+- **`PLAN/EXTENDED_BENCH_PLAN.md`** — the open question about Mnesia
   perturbing later benchmarks via warm supervisor tree goes away.
   Mnesia can run in any order; its peer is gone by the time the
   next benchmark starts. Drop the "run mnesia last" advice.

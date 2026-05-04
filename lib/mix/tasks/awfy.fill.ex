@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Awfy.Fill do
 
   ## See also
 
-  - `FILL_TASK_PLAN.md` — design rationale.
+  - `PLAN/FILL_TASK_PLAN.md` — design rationale.
   - `mix awfy.measure` — what gets invoked per missing SHA.
   - `mix awfy.compare` — dashboard regeneration after merging runs.
   """

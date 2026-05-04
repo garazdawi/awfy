@@ -205,7 +205,7 @@ needing AWS access.
 
 **Promotion to Phase 1**: once `bench-test.yml` runs cleanly across
 all four platforms, the operator does the AWS / M5 setup
-(`SETUP.md`) and switches to `bench.yml` for daily runs. Costs and
+(`../SETUP.md`) and switches to `bench.yml` for daily runs. Costs and
 stability characteristics from `CLOUD_BENCH_PLAN.md` apply from
 that point on. `bench-test.yml` stays around for ad-hoc CI
 debugging.
@@ -285,7 +285,7 @@ gave you today" doesn't satisfy that. Terraform-managed pools also
 support ARM (`c7g.4xlarge`) cleanly, which CodeBuild's on-demand
 fleet doesn't in every region.
 
-Operator setup walkthrough: `SETUP.md` § 2.
+Operator setup walkthrough: `../SETUP.md` § 2.
 Module config + variables: `terraform/main.tf`,
 `terraform/variables.tf`.
 
@@ -295,7 +295,7 @@ The M5 is the operator's daily-driver, not a CI box, so it is **not**
 registered as a self-hosted GHA runner. macOS measurements are driven
 locally by `mix awfy.fill`, which reads `gh-pages`, computes which
 SHAs are missing for `macos-arm64`, and runs them on the operator's
-schedule. See `FILL_TASK_PLAN.md` for the design and `SETUP.md` § 3
+schedule. See `FILL_TASK_PLAN.md` for the design and `../SETUP.md` § 3
 for the operator workflow.
 
 The preflight gate (`Awfy.Preflight.blocking_warnings/0`) protects each
@@ -345,7 +345,7 @@ Spotlight indexing, Time Machine, low battery, etc.
    self-hosted runners).~~ Workflow uses
    `runs-on: [self-hosted, awfy-bench-…]`; the Terraform module
    in `terraform/` provisions the pools, walked through in
-   `SETUP.md` § 2 (the user does this once).
+   `../SETUP.md` § 2 (the user does this once).
 4. ~~Add Windows installer fetch + measure.~~
    (`bin/install-otp-windows.ps1` + `measure-windows` job.)
 5. ~~Register the M5 as a self-hosted runner.~~ Replaced by
@@ -375,7 +375,7 @@ vCPUs. The benchmark runs single-threaded, so:
 - **Quiescence** — bring the rest of the box to a low-noise floor:
   disable `irqbalance` in the AWS Linux AMI's bake step, mount tmpfs
   for `/tmp`, and skip `fstrim` / scheduled scans on the bench window.
-  Most of these are one-time AMI tweaks, documented under `SETUP.md`.
+  Most of these are one-time AMI tweaks, documented under `../SETUP.md`.
 
 The noise wins come from sibling-thread isolation, not from raw core
 count — `c6i.large` would be cheaper, but then *every* vCPU has a
@@ -385,7 +385,7 @@ own its own siblings.
 ## Per-benchmark VM isolation
 
 Every benchmark runs in a fresh BEAM peer node (`Awfy.PeerRunner`
-behind `Awfy.BencheeRunner`) — see `ISOLATION_POLICY.md`. Adds
+behind `Awfy.BencheeRunner`) — see `../ISOLATION_POLICY.md`. Adds
 ~3 min wall clock to a full sweep across the matrix; on
 per-second EC2 billing that's literal pennies.
 

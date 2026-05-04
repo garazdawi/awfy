@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 
-# Cloud benchmark workflow — see CLOUD_BENCH_PLAN.md.
+# Cloud benchmark workflow — see PLAN/CLOUD_BENCH_PLAN.md.
 #
 # Runs the AWFY suite against erlang/otp on a weekly cron via
 # Terraform-managed ephemeral self-hosted runners on AWS EC2,
@@ -9,7 +9,7 @@
 # (Linux ARM Graviton 3). Each benchmark process owns one physical
 # core (and its hyperthread sibling on Intel, by virtue of the
 # affinity mask) — gets us to ~3-5% CV without paying ~$1,100/yr
-# for full bare-metal. See CLOUD_BENCH_PLAN.md § Cost per sweep
+# for full bare-metal. See PLAN/CLOUD_BENCH_PLAN.md § Cost per sweep
 # and terraform/README.md for the runner setup.
 #
 # Triggers:
@@ -18,7 +18,7 @@
 #   * workflow_dispatch → operator-driven; the `otp_refs` input
 #                        accepts a comma-separated list and is the
 #                        backfill entry point. See
-#                        CLOUD_BENCH_PLAN.md § Backfill.
+#                        PLAN/CLOUD_BENCH_PLAN.md § Backfill.
 #
 # Push triggers are intentionally NOT wired here. Every push to
 # master against AWS would roughly double the bill (see plan); the

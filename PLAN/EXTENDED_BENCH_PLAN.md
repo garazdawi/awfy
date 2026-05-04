@@ -251,7 +251,7 @@ per Benchee iteration) rather than CLI-driven.
    inner counts so per-micro window is ≥1s — done as a one-time
    calibration during the port.
 5. ~~**Mnesia's effect on subsequent benchmarks in the same run.**~~
-   Resolved by `ISOLATION_POLICY.md` — every benchmark gets its
+   Resolved by `../ISOLATION_POLICY.md` — every benchmark gets its
    own fresh peer node, so Mnesia ordering within a sweep is
    irrelevant.
 

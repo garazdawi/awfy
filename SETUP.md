@@ -107,7 +107,7 @@ names match the patterns `awfy-bench-linux-x86_64-*`,
 `awfy-bench-linux-arm64-*`, and `awfy-bench-windows-*`. The
 custom AMI is what gives us a quiescent host: `irqbalance` off,
 `cpufreq` set to `performance`, no unattended-upgrades, etc. See
-`CLOUD_BENCH_PLAN.md` § AMI bake for the full list of tunings.
+`PLAN/CLOUD_BENCH_PLAN.md` § AMI bake for the full list of tunings.
 
 The bake is a separate, infrequent step — re-run it once a quarter
 to pick up base-image security updates, or after editing the
@@ -236,7 +236,7 @@ EU regions price these instance types ~7–15% higher than
 for `eu-central-1`. Bump `monthly_budget_usd` accordingly if you
 deploy in Europe (still in USD; see § 2.3).
 
-See `CLOUD_BENCH_PLAN.md` § Cost per sweep for the methodology
+See `PLAN/CLOUD_BENCH_PLAN.md` § Cost per sweep for the methodology
 behind these numbers.
 
 macOS isn't part of the cloud cost — runs locally via
@@ -345,10 +345,10 @@ About 40 sweeps total (~$24 on AWS, ~7 hours of M5 time on the
 macOS side via `mix awfy.fill`). After backfill the weekly cron
 keeps the recent feature releases current; new patch tags are
 benchmarked one-off via additional `workflow_dispatch` triggers.
-See `CLOUD_BENCH_PLAN.md` § Backfill and steady-state cadence.
+See `PLAN/CLOUD_BENCH_PLAN.md` § Backfill and steady-state cadence.
 
 For a no-AWS dry run of the wiring, use the parallel
 `bench-test.yml` workflow — it runs the same matrix on
 GHA-hosted runners (free, noisy timings). See
-`CLOUD_BENCH_PLAN.md` § Phase 0 for what it does and doesn't
+`PLAN/CLOUD_BENCH_PLAN.md` § Phase 0 for what it does and doesn't
 validate.

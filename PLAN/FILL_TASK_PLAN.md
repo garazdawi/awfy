@@ -139,7 +139,7 @@ annoying, Windows could move to fill-driven from a long-lived EC2
 5. **Pending**: end-to-end test — drop one run-dir from a local
    gh-pages copy, confirm `mix awfy.fill --shas <that-sha>`
    reproduces it.
-6. ~~Update `SETUP.md` to replace the m5-drain section with the fill
+6. ~~Update `../SETUP.md` to replace the m5-drain section with the fill
    task section. Delete `bin/m5-drain.sh`.~~
 7. ~~Update `bench.yml` to drop the `measure-macos` job (the macOS
    leg becomes pure local-fill).~~

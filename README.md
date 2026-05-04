@@ -108,7 +108,7 @@ git -C _pages push origin gh-pages # publish when satisfied (operator action)
 
 `mix awfy.fill` was built so non-Linux runners can stay out of the cloud
 matrix — Linux + Windows publish from CI, then any human-driven box fills
-in its slice on its own schedule. See [`FILL_TASK_PLAN.md`](FILL_TASK_PLAN.md).
+in its slice on its own schedule. See [`PLAN/FILL_TASK_PLAN.md`](PLAN/FILL_TASK_PLAN.md).
 
 ## Run-dir layout
 
@@ -170,7 +170,7 @@ spending an AWS dollar. Use it before promoting to `bench.yml` against
 the EC2 pools. Numbers from hosted runners are too noisy for regression
 detection; this is for pipeline correctness only.
 
-See [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) and
+See [`PLAN/CLOUD_BENCH_PLAN.md`](PLAN/CLOUD_BENCH_PLAN.md) and
 [`SETUP.md`](SETUP.md) for the AWS / Terraform setup the repo owner
 does once.
 
@@ -227,22 +227,22 @@ as tuple-of-records.
 
 ## Documentation
 
-- [`PORT_PLAN.md`](PORT_PLAN.md) — original port plan, per-benchmark notes.
+- [`PLAN/PORT_PLAN.md`](PLAN/PORT_PLAN.md) — original port plan, per-benchmark notes.
 - [`PROGRESS.md`](PROGRESS.md) — Phase 2 optimization checklist.
-- [`BENCH_VERSIONS_PLAN.md`](BENCH_VERSIONS_PLAN.md) — design behind
+- [`PLAN/BENCH_VERSIONS_PLAN.md`](PLAN/BENCH_VERSIONS_PLAN.md) — design behind
   `mix awfy.measure` / `mix awfy.compare` / `mix awfy.diff`.
-- [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) — CI architecture,
+- [`PLAN/CLOUD_BENCH_PLAN.md`](PLAN/CLOUD_BENCH_PLAN.md) — CI architecture,
   Terraform-runner rationale, cost analysis.
 - [`SETUP.md`](SETUP.md) — one-time setup for the workflow operator.
-- [`FILL_TASK_PLAN.md`](FILL_TASK_PLAN.md) — `mix awfy.fill` design.
+- [`PLAN/FILL_TASK_PLAN.md`](PLAN/FILL_TASK_PLAN.md) — `mix awfy.fill` design.
 - [`ISOLATION_POLICY.md`](ISOLATION_POLICY.md) — per-benchmark peer-node
   isolation rationale.
 - [`LICENSING_POLICY.md`](LICENSING_POLICY.md) — REUSE compliance, mixed
   AWFY-MIT / framework-Apache-2.0.
-- [`EXTENDED_BENCH_PLAN.md`](EXTENDED_BENCH_PLAN.md) — planned mnesia
+- [`PLAN/EXTENDED_BENCH_PLAN.md`](PLAN/EXTENDED_BENCH_PLAN.md) — planned mnesia
   TPC-B / ETS / scheduler-stress / message-passing families
   (not implemented).
-- [`NETWORK_BENCH_PLAN_TIER1.md`](NETWORK_BENCH_PLAN_TIER1.md) — planned
+- [`PLAN/NETWORK_BENCH_PLAN_TIER1.md`](PLAN/NETWORK_BENCH_PLAN_TIER1.md) — planned
   single-host network ladder (not implemented).
 
 ## Tests

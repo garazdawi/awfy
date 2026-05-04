@@ -34,7 +34,7 @@ defmodule Awfy.BencheeRunner do
 
   # Per-benchmark Benchee `:time` (seconds), calibrated from observed
   # medians so each scenario gets enough samples to dilute background-
-  # noise spikes (Q6 in BENCH_VERSIONS_PLAN.md).
+  # noise spikes (Q6 in PLAN/BENCH_VERSIONS_PLAN.md).
   #
   # Stability check at uniform `time: 3` showed fast benchmarks
   # (Towers, List, Permute, Queens, Bounce, Mandelbrot) with CVs of

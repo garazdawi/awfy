@@ -175,7 +175,7 @@ benchmarks add a few specific concerns:
    picking one — same pattern as ports/lang in the AWFY suite.
 
 4. ~~**Distribution cookie + `epmd` inside the netns.**~~ Resolved
-   by `ISOLATION_POLICY.md` — each network benchmark runs in its
+   by `../ISOLATION_POLICY.md` — each network benchmark runs in its
    own fresh peer pair (inside the pre-set-up netns), and epmd
    state never crosses a benchmark boundary. The setup script just
    has to provision the namespaces; per-benchmark peer lifecycle

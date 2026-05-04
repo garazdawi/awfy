@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   Pass `--ignore-preflight` to override for a quick local spot-check.
 
-  See `BENCH_VERSIONS_PLAN.md` for the design.
+  See `PLAN/BENCH_VERSIONS_PLAN.md` for the design.
   """
 
   use Mix.Task
