@@ -27,9 +27,11 @@ on:
   workflow_dispatch:
     inputs:
       otp_refs:
-        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 26|27|28)"
+        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…)"
         required: false
-        default: "26,27,28,master"
+        # Current testing set: a wide spread to validate both the
+        # legacy target-runner path (20-23) and the modern flow (24+).
+        default: "20,21,23,24,28,master"
 
 permissions:
   contents: read
@@ -63,7 +65,7 @@ jobs:
         env:
           INPUT_REFS: >-
             ${{ inputs.otp_refs ||
-                (github.event_name == 'schedule' && '26,27,28,master' || 'master') }}
+                (github.event_name == 'schedule' && '20,21,23,24,28,master' || 'master') }}
           # Needed for the per-target commit-timestamp lookup; the
           # default GHA token is fine since erlang/otp is public.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -173,7 +175,16 @@ jobs:
               echo "::error::could not expand shorthand '$raw'"
               exit 1
             fi
-            sha="$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1)"
+            # Resolve to a commit SHA. Annotated tags (which is how
+            # OTP releases are tagged) need `^{}` to dereference the
+            # tag object to the commit it points at; lightweight tags
+            # and branches return empty for `^{}` so fall back to the
+            # plain ref. Without this, the SHA below is the tag object
+            # itself, which then 404s against the commits API.
+            sha="$(git ls-remote https://github.com/erlang/otp.git "$ref^{}" | head -1 | cut -f1)"
+            if [ -z "$sha" ]; then
+              sha="$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1)"
+            fi
             if [ -z "$sha" ]; then
               echo "::error::could not resolve ref '$ref' on erlang/otp"
               exit 1
@@ -187,7 +198,14 @@ jobs:
             # benchmarking a year-old OTP today shouldn't make every old
             # release cluster at "now" — pull the commit's committer
             # date and let the run-dir position itself accordingly.
-            commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" --jq '.commit.committer.date' 2>/dev/null || echo "")"
+            #
+            # gh api with --jq still writes the JSON error body to
+            # stdout on 4xx responses (and returns exit 0 for some of
+            # them), so pipe through local jq with a `// ""` default to
+            # cleanly fall back to empty on any failure.
+            commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" 2>/dev/null \
+              | jq -r '.commit.committer.date // ""' 2>/dev/null \
+              || echo "")"
             # OTP < 23's crypto NIF uses APIs OpenSSL 3 removed
             # (RSA_get_key, EVP_MD_size). The GHA Ubuntu image ships
             # only OpenSSL 3, so for those targets drop ssl/ssh/crypto
