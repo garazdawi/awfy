@@ -1,96 +1,220 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 
+# Cloud benchmark workflow — see CLOUD_BENCH_PLAN.md.
+#
+# Runs the AWFY suite against erlang/otp on a weekly cron, on AWS
+# CodeBuild self-hosted runners that use pinned 4xlarge instances
+# (c6i.4xlarge / c7g.4xlarge / c6i.4xlarge+Win) so each benchmark
+# process owns one physical core (and its hyperthread sibling on
+# Intel, by virtue of the affinity mask). Pinning gets us to ~3-5%
+# CV without paying ~$1,100/yr for full bare-metal — see
+# CLOUD_BENCH_PLAN.md § Cost per sweep.
+#
+# Triggers:
+#   * schedule         → weekly Monday 06:00 UTC, latest patch of
+#                        each currently-tracked feature release.
+#   * workflow_dispatch → operator-driven; the `otp_refs` input
+#                        accepts a comma-separated list and is the
+#                        backfill entry point. See
+#                        CLOUD_BENCH_PLAN.md § Backfill.
+#
+# Push triggers are intentionally NOT wired here. Every push to
+# master against AWS would roughly double the bill (see plan); the
+# Phase-0 `bench-test.yml` workflow on free GHA-hosted runners
+# covers wiring sanity on every commit.
+#
+# macOS is not part of this workflow — it's local-fill on the
+# operator's M5 via `mix awfy.fill`. See SETUP.md § 3.
+
 name: bench
 
 on:
   schedule:
-    # Daily 04:00 UTC — picks up whatever's on erlang/otp master.
-    # Most catch-up; per-commit triggers are out of scope for v1
-    # since this repo doesn't watch erlang/otp directly.
-    - cron: "0 4 * * *"
+    # Weekly Monday 06:00 UTC. Picks up whatever each feature
+    # release's latest patch resolves to at run time, plus master.
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
-      otp_ref:
-        description: "OTP ref (branch/tag/SHA) to benchmark"
+      otp_refs:
+        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…). Use the full feature-release list for backfill."
         required: false
-        default: "master"
-      label:
-        description: "Run label (default: short OTP SHA)"
-        required: false
+        # Steady-state cron sweep: a handful of recent feature
+        # releases plus master. Override at dispatch time for
+        # backfill (e.g. "20.0,20.1,20.2,21.0,21.1,...,28.5,master").
+        default: "26,27,28,master"
 
-# Default to read-only at the workflow level; jobs that need write
-# privileges declare them explicitly per-job (least privilege).
 permissions:
   contents: read
 
-# Don't pile up concurrent sweeps for the same ref. The macOS leg
-# in particular takes the M5 offline for ~25 min and queueing
-# multiple runs achieves nothing useful.
 concurrency:
-  group: bench-${{ github.event.inputs.otp_ref || 'master' }}
+  # Same-trigger runs serialise; in-flight ones aren't cancelled
+  # since each sweep is a complete data point we'd rather finish.
+  group: bench-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
 
   # ---------------------------------------------------------------
-  # Resolve the OTP ref to a concrete SHA + run label so every
-  # downstream job operates on identical inputs. Outputs are
-  # consumed by every measure job.
+  # Resolve the comma-separated `otp_refs` input into a matrix of
+  # (ref, sha, label, major, ...) entries — same shape as
+  # bench-test.yml's resolve job. Two outputs:
+  #   * targets_modern   — OTP ≥ 24, runs the same-OTP peer flow
+  #     against a per-target Docker image.
+  #   * targets_target_mode — OTP < 24, runs through the cross-OTP
+  #     target runner (host on modern Elixir/OTP, target erl from
+  #     a source build, no Docker).
+  # has_* gate the dependent measure jobs so an empty matrix
+  # doesn't break expansion downstream.
   # ---------------------------------------------------------------
   resolve:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      otp_sha: ${{ steps.r.outputs.sha }}
-      otp_short: ${{ steps.r.outputs.short }}
-      otp_ref: ${{ steps.r.outputs.ref }}
-      label: ${{ steps.r.outputs.label }}
+      targets_modern: ${{ steps.r.outputs.targets_modern }}
+      targets_target_mode: ${{ steps.r.outputs.targets_target_mode }}
+      has_modern: ${{ steps.r.outputs.has_modern }}
+      has_target_mode: ${{ steps.r.outputs.has_target_mode }}
     steps:
       - id: r
-        # Inputs are routed through env vars rather than ${{ }} interpolation
-        # in the shell body — prevents script injection if a workflow_dispatch
-        # input contains shell metacharacters.
         env:
-          INPUT_REF: ${{ github.event.inputs.otp_ref || 'master' }}
-          INPUT_LABEL: ${{ github.event.inputs.label }}
+          INPUT_REFS: >-
+            ${{ inputs.otp_refs ||
+                (github.event_name == 'schedule' && '26,27,28,master' || 'master') }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REF="$INPUT_REF"
-          SHA="$(git ls-remote https://github.com/erlang/otp.git "$REF" | head -1 | cut -f1)"
-          if [ -z "$SHA" ]; then
-            echo "::error::could not resolve $REF on erlang/otp"
-            exit 1
-          fi
-          SHORT="${SHA:0:10}"
-          LABEL="$INPUT_LABEL"
-          [ -z "$LABEL" ] && LABEL="$SHORT"
+          set -euo pipefail
+
+          expand_ref() {
+            local r="$1"
+            case "$r" in
+              20) echo "OTP-20.3" ;;
+              2[0-9]|3[0-9])
+                git ls-remote --tags --refs https://github.com/erlang/otp.git "OTP-$r.*" \
+                  | awk '{print $2}' \
+                  | sed 's|refs/tags/||' \
+                  | grep -E "^OTP-$r\.[0-9.]+$" \
+                  | sort -V | tail -1
+                ;;
+              *) echo "$r" ;;
+            esac
+          }
+
+          otp_major_for_ref() {
+            local r="$1"
+            case "$r" in
+              OTP-*) echo "$r" | sed 's|^OTP-||' | cut -d. -f1 ;;
+              master|main) echo "29" ;;
+              maint-*) echo "$r" | sed 's|^maint-||' ;;
+              *)
+                local sha="$2" v
+                v="$(curl -fsSL "https://raw.githubusercontent.com/erlang/otp/$sha/OTP_VERSION" 2>/dev/null \
+                     | head -1 | cut -d. -f1)"
+                [ -n "$v" ] && echo "$v" || echo "29"
+                ;;
+            esac
+          }
+
+          elixir_version_for_major() {
+            case "$1" in
+              22|23) echo "1.14.5" ;;
+              24)    echo "1.16.3" ;;
+              25)    echo "1.17.3" ;;
+              26)    echo "1.18.4" ;;
+              27)    echo "1.19.5" ;;
+              *)     echo "1.19.5" ;;
+            esac
+          }
+
+          elixir_bundle_major_for_major() {
+            case "$1" in
+              22|23|24|25|26|27|28) echo "$1" ;;
+              *) echo "28" ;;
+            esac
+          }
+
+          modern="["
+          legacy="["
+          sep_m=""
+          sep_l=""
+          for raw in $(echo "$INPUT_REFS" | tr ',' ' '); do
+            raw="$(echo "$raw" | xargs)"
+            ref="$(expand_ref "$raw")"
+            if [ -z "$ref" ]; then
+              echo "::error::could not expand shorthand '$raw'"
+              exit 1
+            fi
+            sha="$(git ls-remote https://github.com/erlang/otp.git "$ref^{}" | head -1 | cut -f1)"
+            if [ -z "$sha" ]; then
+              sha="$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1)"
+            fi
+            if [ -z "$sha" ]; then
+              echo "::error::could not resolve ref '$ref' on erlang/otp"
+              exit 1
+            fi
+            short="${sha:0:10}"
+            # No -test suffix here; bench.yml writes production data
+            # to gh-pages.
+            label="$short"
+            major="$(otp_major_for_ref "$ref" "$sha")"
+            elixir="$(elixir_version_for_major "$major")"
+            elixir_bundle="$(elixir_bundle_major_for_major "$major")"
+            commit_timestamp="$(gh api "repos/erlang/otp/commits/$sha" 2>/dev/null \
+              | jq -r '.commit.committer.date // ""' 2>/dev/null \
+              || echo "")"
+            extra_configure=""
+            if [ "$major" -lt 24 ] 2>/dev/null; then
+                extra_configure="--without-ssl"
+            fi
+            case "$ref" in
+              master|main|maint-*) otp_label="$ref" ;;
+              OTP-*) otp_label="$(echo "${ref#OTP-}" | cut -d. -f1-2)" ;;
+              *) otp_label="$major" ;;
+            esac
+            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
+
+            if [ "$major" -lt 24 ] 2>/dev/null; then
+              legacy="${legacy}${sep_l}${entry}"
+              sep_l=","
+              echo "Resolved $raw → $ref → $sha (OTP $major, target-runner mode)"
+            else
+              modern="${modern}${sep_m}${entry}"
+              sep_m=","
+              echo "Resolved $raw → $ref → $sha (OTP $major, Elixir $elixir)"
+            fi
+          done
+          modern="${modern}]"
+          legacy="${legacy}]"
+
+          [ "$modern" = "[]" ] && has_modern=false || has_modern=true
+          [ "$legacy" = "[]" ] && has_target_mode=false || has_target_mode=true
+
           {
-            echo "sha=$SHA"
-            echo "short=$SHORT"
-            echo "ref=$REF"
-            echo "label=$LABEL"
+            echo "targets_modern=$modern"
+            echo "targets_target_mode=$legacy"
+            echo "has_modern=$has_modern"
+            echo "has_target_mode=$has_target_mode"
           } >> "$GITHUB_OUTPUT"
-          echo "Benchmarking erlang/otp@$SHA ($REF) as label '$LABEL'"
 
   # ---------------------------------------------------------------
-  # Build the Linux benchmarking image once per (commit, arch) and
-  # push to GHCR. Free GHA minutes on public repos. Subsequent runs
-  # benefit from BuildKit's GHA cache backend so a one-file commit
-  # rebuilds in 1-2 min instead of ~10.
+  # Build the per-target Linux benchmark image. Free GHA minutes
+  # (public repo); the cloud workflow pays only for measure time.
   # ---------------------------------------------------------------
   build-linux:
     needs: resolve
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
-      packages: write   # push image to GHCR
+      packages: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { arch: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
-          - { arch: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
-    runs-on: ${{ matrix.runner }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
+        arch:
+          - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
+          - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.arch.runner }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -105,29 +229,42 @@ jobs:
         with:
           context: .
           file: Dockerfile.linux
-          platforms: ${{ matrix.platform }}
+          platforms: ${{ matrix.arch.platform }}
           push: true
           build-args: |
-            OTP_SHA=${{ needs.resolve.outputs.otp_sha }}
+            OTP_SHA=${{ matrix.target.sha }}
+            OTP_REF=${{ matrix.target.ref }}
+            ELIXIR_OTP_MAJOR=${{ matrix.target.elixir_bundle }}
+            ELIXIR_VERSION=${{ matrix.target.elixir }}
+          secrets: |
+            gh_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
-            ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}
-            ghcr.io/${{ github.repository }}:latest-${{ matrix.arch }}
-          cache-from: type=gha,scope=linux-${{ matrix.arch }}
-          cache-to: type=gha,scope=linux-${{ matrix.arch }},mode=max
+            ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}
+          cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
+          cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
 
   # ---------------------------------------------------------------
-  # Linux measurements run on AWS CodeBuild as GitHub-hosted runners.
-  # Setup: a CodeBuild project per arch, named `awfy-bench-linux-x86_64`
-  # / `awfy-bench-linux-arm64`. See SETUP.md.
+  # Linux measurements on AWS CodeBuild self-hosted runners.
+  # Project names: awfy-bench-linux-x86_64 (c6i.4xlarge) and
+  # awfy-bench-linux-arm64 (c7g.4xlarge). See SETUP.md.
+  #
+  # CPU pinning: docker --cpuset-cpus=0 confines the entire container
+  # (mix orchestrator + peer + benchmark erl) to vCPU 0. On the Intel
+  # c6i, vCPU 0's hyperthread sibling is vCPU 8; we leave 8 idle so
+  # the core has no contention from other tenant code. On Graviton 3
+  # (c7g) there's no SMT, so vCPU 0 is one full physical core
+  # uncontended.
   # ---------------------------------------------------------------
   measure-linux:
     needs: [resolve, build-linux]
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
-      packages: read   # pull image from GHCR
+      packages: read
     strategy:
       fail-fast: false
       matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
         arch: [x86_64, arm64]
         flavor: [jit, emu]
     runs-on:
@@ -142,45 +279,58 @@ jobs:
             | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Pull benchmark image
         run: |
-          docker pull "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}"
-      - name: Preflight
+          docker pull "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch }}"
+      - name: Preflight (advisory only — CodeBuild runners always WARN)
         run: |
           docker run --rm \
-            "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}" \
-            awfy.preflight --quiet
+            "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch }}" \
+            awfy.preflight || true
       - name: Measure (${{ matrix.flavor }})
         env:
           ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
         run: |
           mkdir -p "$PWD/results"
           docker run --rm \
+            --cpuset-cpus=0 \
             -e ERL_FLAGS="$ERL_FLAGS_VAL" \
+            -e AWFY_OTP_COMMIT_TIMESTAMP="$AWFY_OTP_COMMIT_TIMESTAMP" \
+            -e AWFY_OTP_VERSION="$AWFY_OTP_VERSION" \
             -v "$PWD/results:/app/results" \
-            "ghcr.io/${{ github.repository }}:${{ needs.resolve.outputs.otp_sha }}-${{ matrix.arch }}" \
+            "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch }}" \
             awfy.measure \
-              --label "${{ needs.resolve.outputs.label }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}" \
+              --label "${{ matrix.target.label }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}" \
               --ignore-preflight
       - uses: actions/upload-artifact@v7
         with:
-          name: results-linux-${{ matrix.arch }}-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}
           path: results/
-          retention-days: 7
+          retention-days: 30
 
   # ---------------------------------------------------------------
-  # Windows measurements: AWS CodeBuild Windows project named
-  # `awfy-bench-windows`. No Docker — too slow on Windows. Install
-  # OTP from the upstream installer artifact, then run measure
-  # directly on the runner.
+  # Windows measurements on AWS CodeBuild (project
+  # `awfy-bench-windows`, c6i.4xlarge + Windows). No Docker —
+  # Windows containers are slow and licensing-heavy.
+  #
+  # CPU pinning: set the PowerShell process's ProcessorAffinity to
+  # CPU 0 before invoking mix; child processes (mix, erl, peer)
+  # inherit it on Windows.
   # ---------------------------------------------------------------
   measure-windows:
     needs: resolve
+    if: needs.resolve.outputs.has_modern == 'true'
     permissions:
       contents: read
-      actions: read   # `gh run download` against erlang/otp
+      actions: read
     strategy:
       fail-fast: false
       matrix:
-        flavor: [jit, emu]
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
+        # Windows installer ships JIT-only — no beam.emu.dll. Drop
+        # emu here; pick it back up if/when the upstream installer
+        # bundles emu, or if we side-load a local FLAVOR=emu build.
+        flavor: [jit]
     runs-on:
       - codebuild-awfy-bench-windows-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
@@ -190,22 +340,21 @@ jobs:
       - name: Install OTP
         shell: pwsh
         env:
-          # Manual override; otherwise install-otp-windows.ps1 picks
-          # tagged-release URLs for `OTP-X` refs and CI artifacts for
-          # branch / SHA refs.
           OTP_WIN_INSTALLER_URL: ${{ vars.OTP_WIN_INSTALLER_URL }}
-          OTP_REF: ${{ needs.resolve.outputs.otp_ref }}
+          OTP_REF: ${{ matrix.target.ref }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
           "$prefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Install Elixir
         shell: pwsh
+        env:
+          ELIXIR_VERSION: ${{ matrix.target.elixir }}
+          ELIXIR_OTP_MAJOR: ${{ matrix.target.elixir_bundle }}
         run: |
-          $version = "1.19.5"
-          $url = "https://github.com/elixir-lang/elixir/releases/download/v$version/elixir-otp-28.zip"
+          $url = "https://github.com/elixir-lang/elixir/releases/download/v$env:ELIXIR_VERSION/elixir-otp-$env:ELIXIR_OTP_MAJOR.zip"
           $zip = "$env:TEMP\elixir.zip"
-          $dest = "$env:USERPROFILE\.local\elixir\$version"
+          $dest = "$env:USERPROFILE\.local\elixir\$env:ELIXIR_VERSION"
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           "$dest\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
@@ -216,39 +365,120 @@ jobs:
           mix local.rebar --force
           mix deps.get
           mix compile
-      - name: Preflight
+      - name: Preflight (advisory only — CodeBuild runners always WARN)
         shell: pwsh
-        run: mix awfy.preflight --quiet
+        run: mix awfy.preflight || $true
       - name: Measure (${{ matrix.flavor }})
         shell: pwsh
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
         run: |
+          # Pin the PowerShell process (and its children: mix, erl,
+          # peer) to logical processor 0 — bitmask 0x1. On c6i.4xlarge
+          # vCPU 0's hyperthread sibling is vCPU 8 (not in the mask),
+          # so the physical core has no other work scheduled on it.
+          [System.Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity = [IntPtr]1
           mix awfy.measure `
-            --label "${{ needs.resolve.outputs.label }}-windows-x86_64-${{ matrix.flavor }}" `
+            --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
             --ignore-preflight
       - uses: actions/upload-artifact@v7
         with:
-          name: results-windows-x86_64-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
           path: results/
-          retention-days: 7
-
-  # macOS measurements are not part of this workflow — they are
-  # driven locally by `mix awfy.fill` on the operator's machine
-  # (see FILL_TASK_PLAN.md and SETUP.md). The fill task picks up
-  # any (otp_sha, macos-arm64, flavor) tuples missing from gh-pages
-  # and runs them at the operator's leisure, then commits to the
-  # gh-pages worktree for manual `git push`.
+          retention-days: 30
 
   # ---------------------------------------------------------------
-  # Aggregate every uploaded `results/` directory into the gh-pages
-  # branch and regenerate the dashboard. Runs even if some measure
-  # jobs failed — partial sweeps still produce a useful update.
+  # Cross-OTP target-runner path for OTP < 24. Host orchestrator
+  # runs on a pinned modern Elixir/OTP, target erl is built from
+  # source; the orchestrator shells out to the target erl per
+  # benchmark. Same CodeBuild Linux project as the modern flow —
+  # different setup steps because there's no Docker image for
+  # target-runner mode.
+  #
+  # CPU pinning: taskset -c 0 wraps the mix invocation. Children
+  # (peer, target erl) inherit the affinity mask.
+  # ---------------------------------------------------------------
+  measure-linux-target:
+    needs: resolve
+    if: needs.resolve.outputs.has_target_mode == 'true'
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
+        arch: [x86_64, arm64]
+        flavor: [jit, emu]
+    runs-on:
+      - codebuild-awfy-bench-linux-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install build deps for target OTP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf m4 \
+            libssl-dev libncurses-dev zlib1g-dev \
+            ca-certificates curl patch
+      - name: Cache target OTP build
+        id: otp-cache
+        uses: actions/cache@v4
+        with:
+          # See bench-test.yml for the rationale on the hashFiles
+          # segment — same scheme.
+          path: ~/.local/otp/${{ matrix.target.sha }}
+          key: otp-target-linux-${{ matrix.arch }}-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
+      - name: Build target OTP
+        env:
+          OTP_REF: ${{ matrix.target.ref }}
+          AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
+          CFLAGS: -O2 -g -fcommon
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
+          echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
+          echo "AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
+      - uses: erlef/setup-beam@v1
+        with:
+          # Host orchestrator only — never invokes the target erl
+          # directly, only via TargetRunner shell-out.
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: Compile orchestrator
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
+        env:
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+        run: |
+          taskset -c 0 mix awfy.measure \
+            --label "${{ matrix.target.label }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}" \
+            --ignore-preflight
+      - uses: actions/upload-artifact@v7
+        with:
+          name: results-${{ matrix.target.short }}-linux-${{ matrix.arch }}-${{ matrix.flavor }}
+          path: results/
+          retention-days: 30
+
+  # ---------------------------------------------------------------
+  # Aggregate every uploaded results/ dir onto gh-pages and
+  # regenerate the dashboard. Runs even if some measure jobs fail —
+  # partial sweeps still produce a useful update. macOS run-dirs
+  # join later via `mix awfy.fill` on the operator's Mac.
   # ---------------------------------------------------------------
   publish:
-    needs: [resolve, measure-linux, measure-windows]
+    needs: [resolve, measure-linux, measure-windows, measure-linux-target]
     permissions:
-      contents: write   # push to gh-pages
+      contents: write
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -269,23 +499,24 @@ jobs:
         run: |
           if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
             git fetch origin gh-pages
-            git worktree add -B gh-pages site origin/gh-pages
+            git worktree add -B gh-pages _pages origin/gh-pages
           else
-            git worktree add --orphan -b gh-pages site
-            (cd site && git rm -rf . 2>/dev/null || true)
+            git worktree add --orphan -b gh-pages _pages
+            (cd _pages && git rm -rf . 2>/dev/null || true)
           fi
 
       - name: Merge new run dirs into gh-pages
-        # awfy.compare scans direct children of --out for meta.json,
-        # so run dirs go straight into site/, not site/results/.
         run: |
           shopt -s nullglob
           for art in artifacts/results-*/; do
             for run in "$art"*/; do
               [ -d "$run" ] || continue
-              name="$(basename "$run")"
-              dest="site/$name"
-              [ -e "$dest" ] && continue
+              base="$(basename "$run")"
+              dest="_pages/$base"
+              if [ -e "$dest" ]; then
+                echo "[skip] $base already on gh-pages"
+                continue
+              fi
               cp -r "$run" "$dest"
             done
           done
@@ -293,23 +524,23 @@ jobs:
       - name: Generate dashboard
         run: |
           shopt -s nullglob
-          metas=(site/*/meta.json)
+          metas=(_pages/*/meta.json)
           if (( ${#metas[@]} == 0 )); then
-            echo "no run dirs in site/ — nothing to publish"
+            echo "no run dirs in _pages/ — nothing to publish"
             exit 0
           fi
           mix deps.get
-          mix awfy.compare --out site
+          mix awfy.compare --out _pages
 
       - name: Commit and push
         run: |
-          cd site
+          cd _pages
           git add -A
           if git diff --staged --quiet; then
-            echo "no changes to publish"
+            echo "[publish] no changes"
             exit 0
           fi
           git -c user.name="github-actions[bot]" \
               -c user.email="github-actions[bot]@users.noreply.github.com" \
-              commit -m "publish: ${{ needs.resolve.outputs.label }} ($(date -u +%Y-%m-%d))"
+              commit -m "bench: $(date -u +%Y-%m-%dT%H:%MZ)"
           git push origin gh-pages

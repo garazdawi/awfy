@@ -27,7 +27,9 @@ pull anonymously, or configure GHCR auth on the runners.
 
 The Linux and Windows measure jobs use AWS CodeBuild as a self-hosted
 GHA runner. AWS handles the instance lifecycle; you pay per build
-minute (~$0.005/min for Linux x86 `general1.small`).
+minute. Compute classes are sized so each benchmark process owns one
+physical core (and its hyperthread sibling on Intel) — see
+`CLOUD_BENCH_PLAN.md` § CPU pinning.
 
 ### One-time AWS setup
 
@@ -37,24 +39,41 @@ minute (~$0.005/min for Linux x86 `general1.small`).
 
 2. **Create three CodeBuild projects** with these exact names:
 
-   | Project name | Compute | OS / arch |
-   |--------------|---------|-----------|
-   | `awfy-bench-linux-x86_64` | `general1.small` (or larger) | Linux x86_64 |
-   | `awfy-bench-linux-arm64`  | ARM equivalent               | Linux ARM64  |
-   | `awfy-bench-windows`      | Windows medium               | Windows x86_64 |
+   | Project name | Compute (EC2-class) | OS / arch |
+   |--------------|---------------------|-----------|
+   | `awfy-bench-linux-x86_64` | `c6i.4xlarge` (16 vCPU, 32 GB) | Linux x86_64 |
+   | `awfy-bench-linux-arm64`  | `c7g.4xlarge` (16 vCPU, 32 GB, Graviton 3) | Linux ARM64  |
+   | `awfy-bench-windows`      | `c6i.4xlarge` (16 vCPU, 32 GB) + Windows | Windows x86_64 |
 
    For each:
    - Source: GitHub via the connection from step 1, this repo.
    - Webhook events: leave **disabled** — GHA pulls the runner.
-   - Environment image: AWS-managed standard image is fine; the workflow
-     installs everything it needs.
-   - For Linux projects, enable **privileged mode** (Docker-in-Docker is
-     needed to `docker pull` and `docker run` the benchmark image).
+   - Environment: select **"Custom Image"** or AWS-managed standard
+     image with EC2 launch type so you can pin instance type
+     (CodeBuild's pre-baked compute classes top out at general1.large
+     and don't expose c6i directly; use EC2 reserved capacity to get
+     the exact instance type).
+   - For Linux projects, enable **privileged mode** (Docker-in-Docker
+     is required for the `docker pull` + `docker run` flow).
    - Service role: needs `codeconnections:UseConnection`,
-     `logs:*`, `ecr-public:GetAuthorizationToken` (for GHCR pulls if
-     image is private — public image needs nothing extra).
+     `logs:*`, plus `ec2:*` for the EC2-launch path.
 
-3. **Workflow `runs-on` resolution.** The matching syntax in the
+3. **AMI quiescence (Linux).** Bake a minimal AMI for each Linux
+   project that:
+   - Disables `irqbalance` and `cpufreq` ondemand governors (set to
+     `performance`).
+   - Mounts `/tmp` as `tmpfs`.
+   - Doesn't run `fstrim`/`updatedb`/cron-noisy services during
+     benchmarks.
+   - On Intel, leaves SMT enabled — the workflow uses
+     `--cpuset-cpus=0` to avoid scheduling on vCPU 0's sibling
+     (vCPU 8 on c6i.4xlarge); this gets us sibling-isolation
+     without disabling SMT box-wide.
+
+   ARM64 (`c7g.4xlarge`, Graviton 3) has no SMT — vCPU 0 is one
+   physical core directly.
+
+4. **Workflow `runs-on` resolution.** The matching syntax in the
    workflow is:
    ```yaml
    runs-on:
@@ -63,20 +82,25 @@ minute (~$0.005/min for Linux x86 `general1.small`).
    No additional config needed in this repo — CodeBuild intercepts the
    job at AWS's end via the GitHub App connection.
 
-### Per-sweep cost (rough)
+### Per-sweep cost (rough — pinned 4xlarge tier)
 
-| Job | CodeBuild compute | Wall | Cost |
-|-----|-------------------|------|------|
-| `measure-linux x86_64 jit` | `general1.small` (3 GB, 2 vCPU) | ~10 min | ~$0.05 |
-| `measure-linux x86_64 emu` | same | ~10 min | ~$0.05 |
-| `measure-linux arm64 jit/emu` | ARM equivalent | ~10 min × 2 | ~$0.10 |
-| `measure-windows jit/emu`  | Windows medium                  | ~20 min × 2 | ~$0.30 |
+| Job | Instance | Wall | Rate | Cost |
+|-----|----------|------|------|------|
+| `measure-linux x86_64 jit/emu` | c6i.4xlarge | ~5 min × 2 | $0.68/h | ~$0.11 |
+| `measure-linux arm64 jit/emu`  | c7g.4xlarge | ~5 min × 2 | $0.58/h | ~$0.10 |
+| `measure-windows jit`          | c6i.4xlarge + Win | ~7 min | $1.08/h | ~$0.13 |
+| `measure-linux-target` (legacy OTP, both archs/flavors) | as above | ~7 min × 4 | mix of c6i/c7g | ~$0.30 |
 
-Total: **~$0.50 per full cloud sweep**. Daily for a year ≈ **$180**.
-Per-perf-relevant-commit (~200/yr) ≈ **$100**. (CodeBuild charges
-per build-minute including queue setup, vs. raw EC2 per-second
-billing; migrate to ephemeral EC2 runners via Terraform if the
-daily cost becomes annoying.)
+Total per full cloud sweep including legacy OTPs: **~$0.65**.
+Annualised numbers:
+
+| Cadence | Cost |
+|---------|------|
+| Weekly cron only | ~$76/yr |
+| Per-perf-relevant-commit (~200/yr) | ~$287/yr |
+| Daily | ~$524/yr |
+
+See `CLOUD_BENCH_PLAN.md` § Cost per sweep for the breakdown.
 
 macOS isn't part of the cloud cost — runs locally via
 `mix awfy.fill` on your M5; see section 3.
@@ -155,7 +179,7 @@ workflow (via `permissions: actions: read`); no extra secret needed.
 ## 5. First-run sanity check
 
 1. **Manually trigger the workflow** with `workflow_dispatch`,
-   `otp_ref=master`. The workflow has no `skip_macos` toggle —
+   `otp_refs=master`. The workflow has no `skip_macos` toggle —
    macOS isn't part of `bench.yml` at all (it's local-fill, see
    section 3).
 2. Wait for `build-linux` to push images to GHCR.
@@ -167,6 +191,23 @@ workflow (via `permissions: actions: read`); no extra secret needed.
    dashboard with Linux + Windows timings.
 6. On the M5: `mix awfy.fill` to add the macOS-arm64 column, then
    `git -C _pages push origin gh-pages` to publish.
+
+## 6. Backfill (one-time)
+
+Once the first sanity-check sweep is green, kick off the history
+backfill: one measurement per OTP feature release at its latest
+patch. Trigger `workflow_dispatch` with the full feature-release
+list as `otp_refs`, e.g.:
+
+```
+20.0,20.1,20.2,20.3,21.0,21.1,21.2,21.3,...,28.0,28.1,28.2,28.3,28.4,28.5,master
+```
+
+About 40 sweeps total (~$26 on AWS, ~7 hours of M5 time on the
+macOS side via `mix awfy.fill`). After backfill the weekly cron
+keeps the recent feature releases current; new patch tags are
+benchmarked one-off via additional `workflow_dispatch` triggers.
+See `CLOUD_BENCH_PLAN.md` § Backfill and steady-state cadence.
 
 For a no-AWS dry run of the wiring, use the parallel
 `bench-test.yml` workflow — it runs the same matrix on
