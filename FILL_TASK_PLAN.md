@@ -65,11 +65,11 @@ entirely. macOS becomes a pure local concern. The cloud workflow
 publishes Linux + Windows results immediately; macOS results join
 on the next dashboard rebuild (which the fill task triggers).
 
-Windows initially stays in the cloud workflow (CodeBuild). If we
-later want to drop CodeBuild's per-minute markup, Windows could
-move to fill-driven from a long-lived EC2 / on-prem Windows box —
-the task already supports `--platform windows-x86_64`, no code
-change needed.
+Windows initially stays in the cloud workflow (Terraform-managed
+ephemeral `c6i.4xlarge` + Windows). If cloud spend ever becomes
+annoying, Windows could move to fill-driven from a long-lived EC2
+/ on-prem Windows box — the task already supports
+`--platform windows-x86_64`, no code change needed.
 
 ## Why a Mix task and not the current bash script
 

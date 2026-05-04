@@ -191,8 +191,9 @@ or asking the user to start a self-hosted runner.
   and have ~5-10× higher CV than dedicated. Numbers are noisy
   enough that regression detection won't work — only pipeline
   correctness.
-- AWS-specific behaviour (CodeBuild quirks, permissions, image
-  pulls from GHCR onto AWS instances).
+- AWS-specific behaviour (Terraform-managed runner Lambda
+  quirks, IAM permissions, image pulls from GHCR onto the
+  ephemeral EC2 instances, custom-AMI quiescence).
 - M5-specific behaviour (the self-hosted runner registration, the
   drain script, OTP-from-source build on Apple Silicon).
 
@@ -250,9 +251,9 @@ Matrix (cloud-driven legs only — macOS lives in `mix awfy.fill`):
 strategy:
   matrix:
     target:
-      - { os: linux,   arch: x86_64, runner: codebuild-awfy-bench-linux-x86_64 }
-      - { os: linux,   arch: arm64,  runner: codebuild-awfy-bench-linux-arm64 }
-      - { os: windows, arch: x86_64, runner: codebuild-awfy-bench-windows }
+      - { os: linux,   arch: x86_64, runner: [self-hosted, awfy-bench-linux-x86_64] }
+      - { os: linux,   arch: arm64,  runner: [self-hosted, awfy-bench-linux-arm64]  }
+      - { os: windows, arch: x86_64, runner: [self-hosted, awfy-bench-windows]      }
 ```
 
 Build jobs (Linux only) push to
@@ -264,22 +265,29 @@ operator runs `mix awfy.fill` and pushes.
 
 ### AWS runner provisioning
 
-Two options — pick one to start, switch later if needed:
+**Ephemeral self-hosted runners via Terraform** —
+[`philips-labs/terraform-aws-github-runner`][module]. A Lambda
+watches GitHub for `workflow_job` queued events, spins up a fresh
+EC2 instance pinned to the right instance type, the runner
+registers as one-shot, runs the job, the instance terminates.
+Per-second EC2 billing — the bill tracks job wall-clock with
+no idle window.
 
-**A. Ephemeral self-hosted runners via Terraform** (preferred long-term)
-- Each measure job triggers a Terraform apply that spins up an EC2
-  instance, registers it as a self-hosted runner, then runs the job and
-  tears down.
-- Best cost: instance only billed for the ~13-20 min the job runs.
-- Higher setup complexity.
+[module]: https://github.com/philips-labs/terraform-aws-github-runner
 
-**B. AWS CodeBuild as a self-hosted runner** (simpler bootstrap)
-- AWS-managed runner pool; pay per-build-minute, no instance
-  lifecycle to manage.
-- Slightly more expensive per minute but zero ops.
+The pinning is the reason this path was picked over CodeBuild.
+CodeBuild's on-demand fleet only exposes named compute classes
+(`BUILD_GENERAL1_LARGE` etc.) — there's no way to require
+`c6i.4xlarge` specifically without a Reserved Capacity Fleet
+(always-on, ≥ $300/mo idle). AWFY's value proposition is trend
+lines that hold up across years; "8 vCPUs of whatever CodeBuild
+gave you today" doesn't satisfy that. Terraform-managed pools also
+support ARM (`c7g.4xlarge`) cleanly, which CodeBuild's on-demand
+fleet doesn't in every region.
 
-Start with B for time-to-first-measurement, migrate to A if the daily
-cost outgrows it.
+Operator setup walkthrough: `SETUP.md` § 2.
+Module config + variables: `terraform/main.tf`,
+`terraform/variables.tf`.
 
 ### macOS via local-fill (no self-hosted runner)
 
@@ -333,9 +341,11 @@ Spotlight indexing, Time Machine, low battery, etc.
    Will fall out of Phase 0 / first dedicated-runner sweep.
 2. ~~Write the GHA workflow with the Linux-only Docker build first.~~
    (`bench.yml`; Phase-0 `bench-test.yml` for hosted-runner validation.)
-3. ~~Wire AWS runner provisioning (option B — CodeBuild-as-runner).~~
-   Workflow uses `runs-on: codebuild-…`; CodeBuild project setup
-   is documented in `SETUP.md` (the user does this once).
+3. ~~Wire AWS runner provisioning (Terraform-managed ephemeral
+   self-hosted runners).~~ Workflow uses
+   `runs-on: [self-hosted, awfy-bench-…]`; the Terraform module
+   in `terraform/` provisions the pools, walked through in
+   `SETUP.md` § 2 (the user does this once).
 4. ~~Add Windows installer fetch + measure.~~
    (`bin/install-otp-windows.ps1` + `measure-windows` job.)
 5. ~~Register the M5 as a self-hosted runner.~~ Replaced by
@@ -376,8 +386,8 @@ own its own siblings.
 
 Every benchmark runs in a fresh BEAM peer node (`Awfy.PeerRunner`
 behind `Awfy.BencheeRunner`) — see `ISOLATION_POLICY.md`. Adds
-~3 min wall clock to a full sweep across the matrix; cost falls
-within CodeBuild per-minute rounding.
+~3 min wall clock to a full sweep across the matrix; on
+per-second EC2 billing that's literal pennies.
 
 ## Why not …
 

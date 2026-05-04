@@ -80,7 +80,7 @@ Key points:
 - **Peer startup**: ~300-500 ms per benchmark.
 - **Total added wall clock per sweep**: ~50 benchmarks × 500 ms ≈
   25 s per platform leg, ≈ 3 min per full sweep across the matrix.
-- **Cost impact**: trivial. Falls under per-job CodeBuild rounding.
+- **Cost impact**: trivial. ~$0.005 per sweep on per-second EC2.
 - **Wall clock impact**: also trivial — sweeps are paced by the
   slowest job (Windows with Mnesia at ~15-20 min), not by these
   added seconds.

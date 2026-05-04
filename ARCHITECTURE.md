@@ -398,10 +398,12 @@ both feed the shared `publish` job.
 
 ### `bench.yml` — production
 
-AWS CodeBuild self-hosted runners for Linux (x86_64 + arm64) and
-Windows; macOS-arm64 fed locally via `mix awfy.fill`. See
-[`SETUP.md`](SETUP.md) for the AWS connect-and-create-projects steps.
-Cost ≈ $0.50/sweep; daily ≈ $180/year.
+Terraform-managed ephemeral EC2 self-hosted runners for Linux
+(x86_64 = `c6i.4xlarge`, arm64 = `c7g.4xlarge`) and Windows
+(`c6i.4xlarge`); macOS-arm64 fed locally via `mix awfy.fill`. See
+[`SETUP.md`](SETUP.md) § 2 for the operator-side AWS / GitHub-App
+walkthrough and `terraform/main.tf` for the module config.
+Cost ≈ $0.61/sweep; daily ≈ $220/year.
 
 ### `reuse.yml`
 
@@ -490,8 +492,8 @@ change:
 
 ## Related documents
 
-* [`SETUP.md`](SETUP.md) — first-time setup of GHA permissions, AWS
-  CodeBuild projects, GHCR visibility.
+* [`SETUP.md`](SETUP.md) — first-time setup of GHA permissions,
+  the Terraform-managed AWS runner pools, GHCR visibility.
 * [`ISOLATION_POLICY.md`](ISOLATION_POLICY.md) — why and how the peer
   isolation works.
 * [`patches/README.md`](patches/README.md) — patch-file convention,

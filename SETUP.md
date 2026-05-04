@@ -23,222 +23,221 @@ within the same repo by default — no extra setup. Make the package
 public (Packages → Settings → Change visibility) so the AWS runners can
 pull anonymously, or configure GHCR auth on the runners.
 
-## 2. AWS CodeBuild as GitHub Actions runner
+## 2. Terraform-managed ephemeral self-hosted runners
 
-The Linux and Windows measure jobs use AWS CodeBuild as a self-hosted
-GHA runner. AWS handles the instance lifecycle; you pay per build
-minute. Compute classes are sized so each benchmark process owns one
-physical core (and its hyperthread sibling on Intel) — see
-`CLOUD_BENCH_PLAN.md` § CPU pinning.
+The Linux and Windows measure jobs run on ephemeral EC2 instances
+provisioned per-job by the [`philips-labs/terraform-aws-github-runner`][module]
+module. A Lambda watches GitHub for `workflow_job` queued events,
+spins up a fresh EC2 instance pinned to a specific instance type,
+the runner registers as ephemeral (one-shot), runs the job, the
+instance terminates. Per-second billing on raw EC2 — no idle
+charges. The pinning matters: AWFY trend lines compare runs across
+years, and a vCPU on `c6i.4xlarge` is a known quantity in a way
+that "8 vCPUs of whatever CodeBuild gave you today" is not.
+
+[module]: https://github.com/philips-labs/terraform-aws-github-runner
+
+| Pool label | Instance | Purpose |
+|------------|----------|---------|
+| `awfy-bench-linux-x86_64` | `c6i.4xlarge` | Linux x86_64 measurements |
+| `awfy-bench-linux-arm64`  | `c7g.4xlarge` (Graviton 3) | Linux ARM64 measurements |
+| `awfy-bench-windows`      | `c6i.4xlarge` + Windows | Windows measurements |
+
+The Terraform module — `terraform/main.tf` plus `variables.tf` /
+`outputs.tf` — is the source of truth. This section walks through
+the operator-side actions needed before `terraform apply` succeeds.
 
 ### One-time AWS setup
 
 Pick an AWS region with `c6i.4xlarge` and `c7g.4xlarge` capacity —
-`us-east-1`, `us-west-2`, and `eu-west-1` all qualify. Run every
-step below in the same region; the region is sticky in the AWS
-console URL (`?region=us-east-1`) and a mismatched one is the
-single most common reason "I can't see my project" happens.
+`us-east-1`, `us-west-2`, and `eu-west-1` all qualify. Stay in
+that region for every step below; the region is sticky in console
+URLs (`?region=us-east-1`) and a mismatch is the single most common
+"I can't see my resources" failure.
 
-#### 2.1. Connect AWS to GitHub (CodeConnections)
+You'll need: AWS CLI v2 with credentials configured (`aws sso
+login` or static keys), Terraform ≥ 1.5 (`brew install terraform`
+or `tfenv install latest`), and an existing VPC + at least one
+subnet with outbound internet (default VPC works).
 
-This is **CodePipeline → Settings → Connections** in the AWS
-console — the "Connections" page lives under CodePipeline, not
-CodeBuild, even though CodeBuild is the eventual consumer. AWS
-recently renamed the service from "AWS CodeStar Connections" to
-"AWS CodeConnections", so older docs may use either name. The
-direct URL is:
+#### 2.1. Create a GitHub App for the runners
 
-```
-https://console.aws.amazon.com/codesuite/settings/connections
-```
+The module needs one GitHub App that can register self-hosted
+runners and receive `workflow_job` webhooks. Create it once,
+share it across all three pools.
 
-Steps:
+1. Go to `https://github.com/settings/apps/new` (or, for an org:
+   `https://github.com/organizations/<org>/settings/apps/new`).
+2. **Name**: anything memorable, e.g. `awfy-bench-runners`.
+3. **Homepage URL**: the awfy repo URL.
+4. **Webhook**:
+   - **Active**: checked.
+   - **Webhook URL**: leave blank for now — you'll fill this in
+     after `terraform apply` prints the endpoint (step 2.4).
+   - **Webhook secret**: generate one with
+     `openssl rand -hex 32` and paste it. Save the same value;
+     you'll feed it to Terraform.
+5. **Repository permissions**:
+   - **Actions**: Read-only.
+   - **Administration**: Read & write (needed to register
+     runners against the repo).
+   - **Checks**: Read-only.
+   - **Metadata**: Read-only (mandatory).
+6. **Subscribe to events**: tick **Workflow job**.
+7. **Where can this GitHub App be installed?**: *Only on this
+   account*.
+8. **Create GitHub App**. After creation, on the App's settings
+   page:
+   - Note the **App ID** (top of the page).
+   - Click **Generate a private key** → downloads a `.pem` file.
+9. Click **Install App** (left sidebar) → install on the awfy
+   fork only (*Only select repositories* → `<owner>/awfy`).
 
-1. Click **Create connection**.
-2. Provider: **GitHub**. Connection name: anything memorable
-   (e.g. `awfy-bench-github`). Click **Connect to GitHub**.
-3. AWS opens a GitHub popup. Sign in to the GitHub account that
-   owns the awfy fork.
-4. **Choose the GitHub-App path, not the OAuth-app path.** The
-   popup defaults to OAuth if you just click *Authorize*; OAuth
-   grants full `repo` scope across every repo your account can
-   reach, which is far more access than the connection actually
-   needs. Instead, click the **Install a new app** link below
-   the *Connect* button. GitHub sends you to the *AWS Connector
-   for GitHub* install page. Pick **Only select repositories**
-   and pick `<owner>/awfy`. Install.
-5. Back in the AWS popup, click **Connect**. The connection's
-   status flips from *Pending* to *Available*.
-6. Verify you're on the App path, not OAuth:
-   - GitHub: `https://github.com/settings/installations` should
-     list **AWS Connector for GitHub** under *Installed GitHub
-     Apps*.
-   - The same connection should **not** appear under
-     `https://github.com/settings/applications` *Authorized
-     OAuth Apps*. If it does, revoke it there, delete the AWS
-     connection, and redo step 4 making sure to click *Install
-     a new app*.
-7. Note the connection ARN (top of the connection's page,
-   `arn:aws:codeconnections:<region>:<acct>:connection/<uuid>`).
-   You'll paste it into each CodeBuild project's source config.
+Encode the private key for Terraform:
 
-#### 2.2. Create three CodeBuild projects
-
-| Project name | CodeBuild compute class | Approx. specs | OS / arch |
-|--------------|-------------------------|---------------|-----------|
-| `awfy-bench-linux-x86_64` | `BUILD_GENERAL1_LARGE` | 8 vCPU, 15 GB | Linux x86_64 |
-| `awfy-bench-linux-arm64`  | `BUILD_GENERAL1_LARGE` (ARM image) | 8 vCPU, 15 GB | Linux ARM64 |
-| `awfy-bench-windows`      | `BUILD_GENERAL1_LARGE` (Windows) | 8 vCPU, 15 GB | Windows x86_64 |
-
-> **Why `BUILD_GENERAL1_LARGE` and not `c6i.4xlarge`?** CodeBuild's
-> on-demand fleet — what you get when you create a vanilla project
-> — only exposes AWS's canned compute classes (`SMALL` / `MEDIUM`
-> / `LARGE` / `XLARGE` / `2XLARGE`). Specific EC2 instance types
-> like `c6i.4xlarge` are only available via a **Reserved Capacity
-> Fleet** (CodeBuild → Compute fleets → Create fleet), which is
-> always-on and overkill at our weekly cadence. `BUILD_GENERAL1_LARGE`
-> at $0.020/min is the practical sweet spot: 8 dedicated vCPUs
-> per build, no shared-tenant noise, no fleet pre-allocation.
->
-> If you later want true `c6i.4xlarge` pinning, the upgrade path
-> is documented in `CLOUD_BENCH_PLAN.md` — either a reserved-
-> capacity fleet, or migrate to ephemeral EC2 runners managed by
-> Terraform. Both are bigger lifts than a per-project `LARGE`
-> pick. For now, accept that pinning is at the CodeBuild-class
-> level rather than the physical-core level; it's still a
-> substantial improvement over GHA-hosted shared runners.
-
-Direct URL: `https://console.aws.amazon.com/codesuite/codebuild/projects`.
-
-For each project:
-
-1. Click **Create build project**.
-2. **Project configuration**:
-   - **Project name** (exact): from the table above.
-   - Description: optional.
-3. **Source**:
-   - Source provider: **GitHub**.
-   - **Repository**: pick *Repository in my GitHub account*.
-   - **Connection**: pick the one you created in 2.1.
-   - **Repository**: `<owner>/awfy`.
-   - Source version: leave blank (the workflow tells CodeBuild
-     which commit to check out at runtime).
-4. **Primary source webhook events**: **leave unchecked**. GHA
-   pulls the runner from CodeBuild — the project doesn't react to
-   GitHub push events directly. (If this is checked, every push
-   to the awfy repo triggers a CodeBuild run, which is not what
-   we want.)
-5. **Environment**:
-   - Environment image: **Managed image**.
-   - Operating system: **Amazon Linux** (x86_64 and ARM
-     projects) or **Windows Server** for the Windows project.
-   - Image: latest available (the workflow installs everything
-     it actually needs on top).
-   - **Compute** radio buttons: pick **BUILD_GENERAL1_LARGE** —
-     the bottom of that group, the one labelled "8 vCPU, 15 GB".
-     The on-demand fleet doesn't expose a separate "Instance
-     type" field; the compute-class selection IS how you pick
-     hardware here.
-   - **Privileged**: **enabled** for both Linux projects (Docker
-     pull + run requires it). Leave disabled on Windows.
-   - **Service role**: let CodeBuild create a new one named
-     `codebuild-<project>-service-role`. Edit it after creation
-     (see 2.3).
-6. **Buildspec**: choose **Insert build commands** and put a
-   single-line placeholder like `echo noop`. The actual build
-   commands come from GHA via the runner protocol; CodeBuild's
-   own buildspec runs the runner agent first, which then takes
-   over. (The placeholder buildspec just satisfies the form.)
-7. Skip **Batch configuration**, **Artifacts**, and **Logs**
-   defaults.
-8. **Create build project**.
-
-#### 2.3. Service-role permissions
-
-For each project's auto-created service role
-(`codebuild-<project>-service-role`), open IAM → Roles → that role
-and attach an inline policy granting:
-
-- `codeconnections:UseConnection` on the connection ARN from 2.1.
-- `logs:CreateLogGroup`, `logs:CreateLogStream`, `logs:PutLogEvents`
-  on the project's log group ARN.
-- `ec2:RunInstances`, `ec2:DescribeInstances`, `ec2:TerminateInstances`,
-  `ec2:CreateNetworkInterface`, `ec2:DeleteNetworkInterface`,
-  `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`
-  (the EC2 fleet's lifecycle calls).
-
-The CodeBuild console offers a **Permissions** quick-link on the
-project page that takes you straight to the inline-policy editor
-for the right role.
-
-#### 2.4. CPU pinning under managed CodeBuild
-
-Skip if you went with a Reserved Capacity Fleet (where you control
-the AMI) — the AMI-bake instructions live in
-`CLOUD_BENCH_PLAN.md`. With a vanilla `BUILD_GENERAL1_LARGE`
-on-demand project (the path documented above) you don't get to
-tune the host kernel: CodeBuild owns the AMI and the build runs
-inside a container. What you can do is still useful, though:
-
-- The `bench.yml` workflow already passes `docker run --cpuset-cpus=0`
-  on the Linux measure jobs, which confines the awfy benchmark
-  container to a single vCPU inside the CodeBuild build environment.
-  Other vCPUs on the same build host stay free of awfy load —
-  shorter cache lines fight, less scheduler thrash.
-- Windows projects can't use cpuset (no Docker), but the workflow
-  sets the PowerShell process's `ProcessorAffinity` to CPU 0 for
-  the same effect.
-- The 8-vCPU class is enough for the cpuset trick to be meaningful
-  (one core in use, seven idle from awfy's perspective).
-
-If you later need true sibling-thread isolation or a quiescent
-host (no `irqbalance`, no `cpufreq` ondemand), upgrade to a
-Reserved Capacity Fleet with `c6i.4xlarge`/`c7g.4xlarge` and use
-the AMI bake-script in `CLOUD_BENCH_PLAN.md`. That's what the
-workflow assumes when it `--cpuset-cpus=0`'s — the underlying
-mapping just isn't visible at CodeBuild-managed level.
-
-#### 2.5. Workflow `runs-on` resolution
-
-Once the projects exist, the workflow resolves to them via:
-
-```yaml
-runs-on:
-  - codebuild-<project-name>-${{ github.run_id }}-${{ github.run_attempt }}
+```bash
+base64 -i ~/Downloads/awfy-bench-runners.*.pem | pbcopy   # macOS
+# Linux: base64 -w0 awfy-bench-runners.*.pem | xclip -selection clipboard
 ```
 
-No extra config in this repo — CodeBuild's GitHub App
-intercepts any GHA job whose `runs-on` label starts with
-`codebuild-` (per AWS's docs at
-*aws.amazon.com/blogs/devops/aws-codebuild-managed-self-hosted-github-actions-runners*).
+#### 2.2. Bake the runner AMIs
 
-To verify the wiring: trigger `bench` via `workflow_dispatch`
-with `otp_refs=master`, then watch *CodeBuild → Build history* —
-each measure-linux/windows job should produce one CodeBuild run.
+The Terraform module's `ami_filter` expects custom AMIs whose
+names match the patterns `awfy-bench-linux-x86_64-*`,
+`awfy-bench-linux-arm64-*`, and `awfy-bench-windows-*`. The
+custom AMI is what gives us a quiescent host: `irqbalance` off,
+`cpufreq` set to `performance`, no unattended-upgrades, etc. See
+`CLOUD_BENCH_PLAN.md` § AMI bake for the full list of tunings.
 
-### Per-sweep cost (rough — `BUILD_GENERAL1_LARGE` on-demand)
+The bake is a separate, infrequent step — re-run it once a quarter
+to pick up base-image security updates, or after editing the
+quiescence script. Until you have the AMIs, `terraform apply` will
+plan correctly but the Lambda will fail to launch instances
+(visible in CloudWatch logs).
 
-| Job | Compute class | Wall | Rate | Cost |
-|-----|---------------|------|------|------|
-| `measure-linux x86_64 jit/emu` | LARGE Linux | ~5 min × 2 | $0.020/min | ~$0.20 |
-| `measure-linux arm64 jit/emu`  | LARGE ARM   | ~5 min × 2 | $0.020/min | ~$0.20 |
-| `measure-windows jit`          | LARGE Windows | ~7 min | $0.025/min | ~$0.18 |
-| `measure-linux-target` (legacy OTP, both archs/flavors) | LARGE Linux | ~7 min × 4 | $0.020/min | ~$0.56 |
+For the initial bring-up, you can comment out the `ami_owners` /
+`ami_filter` blocks in `terraform/main.tf` and let the module pick
+the latest Amazon Linux 2023 / Windows Server 2022 AMI. Numbers
+won't be apples-to-apples with later runs once you bake your own
+AMI, so re-baseline the trend lines after the bake by deleting the
+relevant `_pages/<run-id>/` dirs and re-triggering `bench`.
 
-Total per full cloud sweep including legacy OTPs: **~$1.15**.
-Annualised numbers:
+#### 2.3. Configure and apply
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars`:
+
+```hcl
+aws_region            = "us-east-1"
+vpc_id                = "vpc-xxxxxxxx"
+subnet_ids            = ["subnet-aaaa", "subnet-bbbb"]
+github_app_id         = "<App ID from 2.1>"
+github_app_key_base64 = "<base64-encoded .pem from 2.1>"
+github_webhook_secret = "<the openssl rand value from 2.1>"
+
+# Cost guardrails (defaults shown; bump budget before a backfill)
+monthly_budget_usd             = 25
+budget_alert_emails            = ["you@example.com"]
+runners_maximum_count_per_pool = 8
+```
+
+Two things matter for keeping the bill bounded — both are wired
+automatically by `terraform/main.tf`:
+
+- **`runners_maximum_count_per_pool`** caps how many ephemeral
+  EC2 instances each pool can have running at once (default 8).
+  A typical sweep queues at most 8 jobs per pool, so 8 is the
+  steady-state ceiling; a stuck workflow that keeps queueing
+  jobs will pile up against this cap rather than spiral.
+- **`monthly_budget_usd`** sets an account-wide AWS Budget. Email
+  alerts fire at 50% / 80% / 100% of the limit plus a forecast
+  alert. **Email-only** — no auto-shutdown. If the bill crosses
+  100% the operator decides what to do (typically:
+  `terraform destroy` to stop the bleeding, then debug). Default
+  $25/mo is ~10× the daily-cron projection; bump before kicking
+  off a 40-version backfill (~$24 in EC2 alone). Always USD —
+  AWS Budgets has no euro option even when the AWS account is
+  invoiced in EUR; AWS converts the USD figures to euros on the
+  monthly bill. Pick the USD number you'd be comfortable with on
+  the invoice after FX conversion.
+
+If you don't supply `budget_alert_emails`, the budget is still
+created (so you can see it in the console) but no notifications
+fire. Strongly recommended: set at least one address.
+
+Apply:
+
+```bash
+terraform init
+terraform apply
+```
+
+Save two outputs:
+
+- `webhook_endpoint` — the URL the GitHub App should POST to.
+- `runner_labels` — the `runs-on` labels each pool emits. The
+  workflow already references these directly; this is just a
+  sanity check that they match.
+
+#### 2.4. Wire the webhook back to GitHub
+
+Take the `webhook_endpoint` from `terraform output` and paste it
+into the GitHub App's **Webhook URL** field (App settings →
+Webhook). Save. GitHub immediately POSTs a `ping` event; you can
+verify delivery on the App's *Advanced* tab.
+
+#### 2.5. Verify the wiring
+
+Trigger the cloud workflow once:
+
+```bash
+gh workflow run bench --ref master -f otp_refs=master
+```
+
+Within ~30 s, the philips-labs Lambda should pick up the
+`workflow_job queued` webhook and launch one EC2 instance per
+queued job. Watch:
+
+- AWS Console → EC2 → Instances (filter: tag `ghr:Application =
+  awfy-bench-linux-x86_64`).
+- GitHub → repo → Settings → Actions → Runners — short-lived
+  entries appear and disappear as instances register and shut
+  down.
+- CloudWatch → Log groups → `/aws/lambda/awfy-bench-*` for any
+  failure stack traces.
+
+A clean run produces one instance per measure job, each living
+~5–10 minutes.
+
+### Per-sweep cost (raw EC2 + Lambda overhead, us-east-1)
+
+| Job | Instance | Wall | Rate | Cost |
+|-----|----------|------|------|------|
+| `measure-linux x86_64 jit/emu` | c6i.4xlarge | ~5 min × 2 | $0.68/h | ~$0.11 |
+| `measure-linux arm64 jit/emu`  | c7g.4xlarge | ~5 min × 2 | $0.58/h | ~$0.10 |
+| `measure-windows jit`          | c6i.4xlarge + Win | ~7 min | $0.86/h | ~$0.10 |
+| `measure-linux-target` (legacy OTP, both archs/flavors) | c6i/c7g.4xlarge | ~7 min × 4 | ~$0.63/h | ~$0.30 |
+
+Lambda + control-plane overhead is < $0.01/sweep. Total per full
+sweep including legacy OTPs: **~$0.61**. Annualised:
 
 | Cadence | Cost |
 |---------|------|
-| Weekly cron only | ~$60/yr |
-| Per-perf-relevant-commit (~200/yr) | ~$230/yr |
-| Daily | ~$420/yr |
+| Weekly cron only | ~$32/yr |
+| Per-perf-relevant-commit (~200/yr) | ~$122/yr |
+| Daily | ~$220/yr |
 
-These are CodeBuild-managed numbers — slightly higher per build
-minute than raw EC2 because you're paying for AWS's runner
-management, but you get strictly per-minute billing (no idle
-charges). See `CLOUD_BENCH_PLAN.md` § Cost per sweep for the
-raw-EC2 numbers if you migrate to a fleet later.
+EU regions price these instance types ~7–15% higher than
+`us-east-1` — multiply each row by ~1.10 for `eu-west-1`, ~1.15
+for `eu-central-1`. Bump `monthly_budget_usd` accordingly if you
+deploy in Europe (still in USD; see § 2.3).
+
+See `CLOUD_BENCH_PLAN.md` § Cost per sweep for the methodology
+behind these numbers.
 
 macOS isn't part of the cloud cost — runs locally via
 `mix awfy.fill` on your M5; see section 3.
@@ -294,7 +293,7 @@ git -C _pages push origin gh-pages
 
 The same `mix awfy.fill` works on any platform — handy if you
 ever want to fill from a Windows VM or a Linux ARM box without
-adding it to CodeBuild.
+adding it to the runner pool.
 
 ## 4. Windows installer resolution (no setup needed)
 
@@ -321,9 +320,10 @@ workflow (via `permissions: actions: read`); no extra secret needed.
    macOS isn't part of `bench.yml` at all (it's local-fill, see
    section 3).
 2. Wait for `build-linux` to push images to GHCR.
-3. Watch `measure-linux` jobs queue and run on CodeBuild — first run
-   will be slow (cold layer cache, ~15 min total). Subsequent runs
-   reuse the cache.
+3. Watch `measure-linux` jobs queue and run on the ephemeral
+   runner pools — first run will be slow (cold AMI boot + cold
+   layer cache, ~15 min total). Subsequent runs reuse the GHA
+   layer cache; AMI boot is always cold (ephemeral by design).
 4. Confirm `publish` creates the `gh-pages` branch and pushes.
 5. Visit `https://<owner>.github.io/<repo>/` — should show the AWFY
    dashboard with Linux + Windows timings.
@@ -341,7 +341,7 @@ list as `otp_refs`, e.g.:
 20.0,20.1,20.2,20.3,21.0,21.1,21.2,21.3,...,28.0,28.1,28.2,28.3,28.4,28.5,master
 ```
 
-About 40 sweeps total (~$26 on AWS, ~7 hours of M5 time on the
+About 40 sweeps total (~$24 on AWS, ~7 hours of M5 time on the
 macOS side via `mix awfy.fill`). After backfill the weekly cron
 keeps the recent feature releases current; new patch tags are
 benchmarked one-off via additional `workflow_dispatch` triggers.

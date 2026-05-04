@@ -108,7 +108,8 @@ measure-network-linux:
       topology: [loopback, netns-1ms, netns-10ms]
       flavor: [jit, emu]
   runs-on:
-    - codebuild-awfy-bench-linux-x86_64-${{ … }}
+    - self-hosted
+    - awfy-bench-linux-x86_64
   steps:
     - uses: actions/checkout@v4
     - run: docker pull ghcr.io/${{ github.repository }}:${{ … }}-x86_64
@@ -126,10 +127,10 @@ measure-network-linux:
 ```
 
 Six new jobs (3 topologies × 2 flavors), each ~10 min, all on the
-existing Linux x86 CodeBuild project. No new AWS resources. Cost:
-~$0.30 / sweep added, $110/yr daily. Same artifact + publish flow as
-the compute jobs; the `mix awfy.compare` dashboard picks them up
-automatically.
+existing `awfy-bench-linux-x86_64` Terraform-managed pool. No new
+AWS resources. Cost: ~$0.20 / sweep added, $73/yr daily. Same
+artifact + publish flow as the compute jobs; the `mix awfy.compare`
+dashboard picks them up automatically.
 
 ARM and Windows are excluded from the network axis in v1: ARM
 because it's lower-priority for network-stack work (the BEAM TCP
@@ -151,8 +152,9 @@ benchmarks add a few specific concerns:
 - **Ephemeral port range** — high-throughput tests can exhaust it.
   Set `net.ipv4.ip_local_port_range = 10000 65535` at job start.
 - **Don't run multiple network bench jobs concurrently on the same
-  CodeBuild instance.** Concurrency: `network-${{ runner }}` group on
-  this single job to serialise.
+  EC2 instance.** Concurrency: `network-${{ runner }}` group on
+  this single job to serialise. (Ephemeral runners give us one
+  instance per job by default; this is belt-and-braces.)
 
 ## Open questions
 

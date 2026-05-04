@@ -145,9 +145,9 @@ analysis. Override with `AWFY_NO_ISOLATION=1` for ad-hoc work.
                      │ GitHub Actions matrix    │
                      │  build-linux-x86 (free)  │ ── docker push ───► GHCR
                      │  build-linux-arm (free)  │ ── docker push ───► GHCR
-                     │  measure-linux-x86       │ ── docker run on AWS CodeBuild
-                     │  measure-linux-arm       │ ── docker run on AWS CodeBuild
-                     │  measure-windows         │ ── installer on AWS CodeBuild
+                     │  measure-linux-x86       │ ── docker run on EC2 c6i.4xlarge
+                     │  measure-linux-arm       │ ── docker run on EC2 c7g.4xlarge
+                     │  measure-windows         │ ── installer on EC2 c6i.4xlarge+Win
                      │  publish (gh-pages)      │ ── push run-dirs + dashboard
                      └──────────────────────────┘
                                                 ▲
@@ -156,16 +156,22 @@ analysis. Override with `AWFY_NO_ISOLATION=1` for ad-hoc work.
 
 Linux is the cadence (CI on every relevant master commit); macOS joins
 later via local fill; Windows is in the CI matrix today but could move
-to local-fill if CodeBuild's per-minute markup becomes annoying.
+to local-fill if cloud spend becomes annoying.
+
+The cloud runners are ephemeral EC2 instances managed by Terraform
+(`terraform/`) via the `philips-labs/terraform-aws-github-runner`
+module — pinned to `c6i.4xlarge` (Linux x86 + Windows) and
+`c7g.4xlarge` (Linux ARM Graviton 3) so trend lines hold up across
+years.
 
 `bench-test.yml` is a parallel workflow that runs the same matrix on
 free GHA-hosted runners — it validates the wiring end-to-end without
 spending an AWS dollar. Use it before promoting to `bench.yml` against
-CodeBuild. Numbers from hosted runners are too noisy for regression
+the EC2 pools. Numbers from hosted runners are too noisy for regression
 detection; this is for pipeline correctness only.
 
 See [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) and
-[`SETUP.md`](SETUP.md) for the AWS / CodeBuild setup the repo owner
+[`SETUP.md`](SETUP.md) for the AWS / Terraform setup the repo owner
 does once.
 
 ## The 14 benchmarks
@@ -225,8 +231,8 @@ as tuple-of-records.
 - [`PROGRESS.md`](PROGRESS.md) — Phase 2 optimization checklist.
 - [`BENCH_VERSIONS_PLAN.md`](BENCH_VERSIONS_PLAN.md) — design behind
   `mix awfy.measure` / `mix awfy.compare` / `mix awfy.diff`.
-- [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) — CI architecture, AWS
-  CodeBuild rationale, cost analysis.
+- [`CLOUD_BENCH_PLAN.md`](CLOUD_BENCH_PLAN.md) — CI architecture,
+  Terraform-runner rationale, cost analysis.
 - [`SETUP.md`](SETUP.md) — one-time setup for the workflow operator.
 - [`FILL_TASK_PLAN.md`](FILL_TASK_PLAN.md) — `mix awfy.fill` design.
 - [`ISOLATION_POLICY.md`](ISOLATION_POLICY.md) — per-benchmark peer-node

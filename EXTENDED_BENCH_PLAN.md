@@ -148,14 +148,14 @@ measure-extended:
     fail-fast: false
     matrix:
       include:
-        - { os: linux,   arch: x86_64, runner: codebuild-…, flavor: jit }
-        - { os: linux,   arch: x86_64, runner: codebuild-…, flavor: emu }
-        - { os: linux,   arch: arm64,  runner: codebuild-…, flavor: jit }
-        - { os: linux,   arch: arm64,  runner: codebuild-…, flavor: emu }
-        - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5], flavor: jit }
-        - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5], flavor: emu }
-        - { os: windows, arch: x86_64, runner: codebuild-…, flavor: jit }
-        - { os: windows, arch: x86_64, runner: codebuild-…, flavor: emu }
+        - { os: linux,   arch: x86_64, runner: [self-hosted, awfy-bench-linux-x86_64], flavor: jit }
+        - { os: linux,   arch: x86_64, runner: [self-hosted, awfy-bench-linux-x86_64], flavor: emu }
+        - { os: linux,   arch: arm64,  runner: [self-hosted, awfy-bench-linux-arm64],  flavor: jit }
+        - { os: linux,   arch: arm64,  runner: [self-hosted, awfy-bench-linux-arm64],  flavor: emu }
+        - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5],                flavor: jit }
+        - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5],                flavor: emu }
+        - { os: windows, arch: x86_64, runner: [self-hosted, awfy-bench-windows],      flavor: jit }
+        - { os: windows, arch: x86_64, runner: [self-hosted, awfy-bench-windows],      flavor: emu }
   steps:
     - …pull image / install OTP per platform…
     - run: mix awfy.measure_extended --label …-ext-${{ matrix.flavor }}
