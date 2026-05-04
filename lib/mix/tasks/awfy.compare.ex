@@ -151,7 +151,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       snapshot_html: """
       <h3>Latest snapshot — per-benchmark across versions</h3>
       <p class="sub">Median runtime (ms) at the most recent run for each (OTP × benchmark) on the selected platform. Whiskers show ± 2σ.</p>
-      <canvas id="snapshot"></canvas>
+      <div class="chart-wrap snapshot"><canvas id="snapshot"></canvas></div>
       """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
@@ -398,8 +398,14 @@ defmodule Mix.Tasks.Awfy.Compare do
         .controls .group b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
         .controls label { cursor: pointer; user-select: none; }
         .controls select { font: inherit; padding: 0.15rem 0.35rem; border: 1px solid var(--er-border); border-radius: 3px; background: white; }
-        canvas { width: 100% !important; height: 420px !important; }
-        canvas#snapshot { height: 520px !important; }
+        /* Chart.js responsive sizing requires a parent with explicit
+           dimensions when maintainAspectRatio is false. Without one,
+           the canvas's bitmap and display sizes drift apart and the
+           plot renders squashed. Wrap each canvas in a .chart-wrap
+           that owns the height; the canvas fills it absolutely. */
+        .chart-wrap { position: relative; width: 100%; height: 420px; margin: 1rem 0; }
+        .chart-wrap.snapshot { height: 520px; }
+        .chart-wrap > canvas { position: absolute; inset: 0; }
         .bench-links { columns: 3; padding-left: 1.25rem; }
         .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
         details { margin-top: 1.5rem; }
@@ -410,8 +416,8 @@ defmodule Mix.Tasks.Awfy.Compare do
         @media (max-width: 600px) {
           body { padding: 1rem 0.75rem 2rem; }
           h1 { font-size: 1.4rem; }
-          canvas { height: 340px !important; }
-          canvas#snapshot { height: 600px !important; }
+          .chart-wrap { height: 340px; }
+          .chart-wrap.snapshot { height: 600px; }
           .bench-links { columns: 2; }
           .tab { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
         }
@@ -449,7 +455,7 @@ defmodule Mix.Tasks.Awfy.Compare do
 
       <div id="headline" class="headline"></div>
 
-      <canvas id="chart"></canvas>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
 
       #{Map.get(ctx, :snapshot_html, "")}
 
