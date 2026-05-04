@@ -128,18 +128,23 @@ jobs:
           #   - "X.Y"           → latest patch of that minor.
           # Anything else (full tag, "master", "maint-*", SHA) passes
           # through verbatim.
+          # `grep -m1` stops grep itself at the first match, so the
+          # downstream `awk` pipe never sees a closed-write SIGPIPE
+          # — important under `set -o pipefail`, which would otherwise
+          # turn the SIGPIPE into a nonzero pipeline exit on shorthand
+          # like "22.3" that matches many lines (most majors only have
+          # one matching line, so the bug went unnoticed until we
+          # added the X.Y form in the push-trigger default).
           expand_ref() {
             local r="$1"
             case "$r" in
               20) echo "OTP-20.3" ;;
               2[0-9]|3[0-9])
-                grep -E "^OTP-$r\\.[0-9.]+ " "$TABLE" \
-                  | head -1 | awk '{print $1}'
+                grep -m1 -E "^OTP-$r\\.[0-9.]+ " "$TABLE" | awk '{print $1}'
                 ;;
               [0-9][0-9].[0-9]|[0-9][0-9].[0-9][0-9])
                 local re="OTP-${r//./\\.}"
-                grep -E "^${re}(\\.|[ ])" "$TABLE" \
-                  | head -1 | awk '{print $1}'
+                grep -m1 -E "^${re}(\\.|[ ])" "$TABLE" | awk '{print $1}'
                 ;;
               *) echo "$r" ;;
             esac
