@@ -180,7 +180,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       title: "AWFY — Suite Dashboard",
       heading: "AWFY Suite — Cross-version Dashboard",
       subhead:
-        "Per-benchmark median runtime across OTP versions for the selected platform, with the geomean trend over time below.",
+        "Geomean speedup across versions and platforms, with a per-benchmark snapshot below.",
       breadcrumb: "",
       warnings_html: warnings_html(warnings),
       dataset_json: dataset_json,
@@ -189,13 +189,13 @@ defmodule Mix.Tasks.Awfy.Compare do
       baseline_label: baseline_label || "",
       snapshot_html: """
       <h3 class="snapshot-heading">Latest snapshot — per-benchmark across versions</h3>
-      <p class="sub">Median runtime (ms) at the most recent run for each (OTP major × benchmark) on the selected platform — only the latest patch of each major contributes a bar. Whiskers show ± 2σ.</p>
+      <p class="sub">Speedup (×) over the earliest recorded run for each (lang × machine_class × benchmark) baseline, evaluated at each major's latest patch. Bars above 1× are faster than baseline. Whiskers show ± 2σ.</p>
       <div class="snapshot-majors" id="control-snapshot-majors"></div>
       <div class="chart-wrap snapshot"><canvas id="snapshot"></canvas></div>
       """,
       trend_heading_html: """
-      <h3>Geomean trend over versions</h3>
-      <p class="sub">Geometric mean of <code>median / baseline_median</code> across all benchmarks, one point per tagged OTP version (plus the latest master tip); one line per language for the selected platform, normalized to its earliest data-point.</p>
+      <h3>Geomean speedup over versions</h3>
+      <p class="sub">Geometric mean of <code>baseline_median / median</code>, higher = faster. JIT only. Per-platform lines anchor at each platform's own earliest recorded run for every (lang × benchmark) — each line starts at 1× wherever its data begins. The thicker <strong>all platforms</strong> line is pinned to the earliest OTP version present on every platform, so cross-platform numbers are apples-to-apples. Chart is intentionally not configurable; toggle individual platforms via the legend.</p>
       """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
@@ -491,6 +491,8 @@ defmodule Mix.Tasks.Awfy.Compare do
 
       #{ctx.warnings_html}
 
+      #{if ctx.page_kind == "suite", do: Map.get(ctx, :trend_heading_html, "") <> ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
+
       <div id="machine-tabs" class="tabs"></div>
 
       <div class="controls">
@@ -507,9 +509,7 @@ defmodule Mix.Tasks.Awfy.Compare do
 
       #{Map.get(ctx, :snapshot_html, "")}
 
-      #{Map.get(ctx, :trend_heading_html, "")}
-
-      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      #{if ctx.page_kind != "suite", do: ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
 
       #{Map.get(ctx, :benchmarks_list_html, "")}
 
@@ -693,7 +693,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       });
     }
 
-    function buildCheckboxGroup(controlId, name, values, persisted) {
+    function buildCheckboxGroup(controlId, name, values, persisted, defaultPredicate) {
       const container = document.getElementById(controlId);
       values.forEach(v => {
         const lab = document.createElement("label");
@@ -701,7 +701,9 @@ defmodule Mix.Tasks.Awfy.Compare do
         inp.type = "checkbox";
         inp.name = name;
         inp.value = v;
-        inp.checked = persisted ? persisted.includes(v) : true;
+        inp.checked = persisted
+          ? persisted.includes(v)
+          : (defaultPredicate ? !!defaultPredicate(v) : true);
         inp.addEventListener("change", onFilterChange);
         lab.appendChild(inp);
         lab.appendChild(document.createTextNode(" " + v));
@@ -768,7 +770,13 @@ defmodule Mix.Tasks.Awfy.Compare do
       );
     }
 
-    /* Build series: group rows by (lang, machine, arch, emu_flavor). */
+    /* Build series: group rows by (lang, machine, arch, emu_flavor).
+       Per-bench page only — y values are baseline_ms / current_ms so
+       higher = faster than the earliest run for that series, matching
+       the suite chart's "× over baseline" framing. Whisker bounds
+       map cleanly: ymin/ymax in ms invert to baseline/(ms+2σ) and
+       baseline/(ms-2σ) respectively.
+    */
     function buildSeries(rows, xAxis) {
       const groups = {};
       rows.forEach(row => {
@@ -781,126 +789,186 @@ defmodule Mix.Tasks.Awfy.Compare do
 
       return Object.entries(groups).map(([key, items]) => {
         const sorted = [...items].sort((a, b) => {
-          if (a[xKey] < b[xKey]) return -1;
-          if (a[xKey] > b[xKey]) return 1;
+          if (xKey === "otp") {
+            const c = compareOtpVersions(a.otp, b.otp);
+            if (c !== 0) return c;
+          } else if (a[xKey] !== b[xKey]) {
+            return a[xKey] < b[xKey] ? -1 : 1;
+          }
           return a.timestamp < b.timestamp ? -1 : 1;
         });
+        // Baseline = earliest row in this series with a usable median.
+        const base = sorted.find(r => typeof r.median_ms === "number" && r.median_ms > 0);
+        const baseMs = base ? base.median_ms : null;
         return {
           // Display label is just the language; machine class + flavor
           // are already encoded in the active tab + radio so repeating
           // them on every legend entry is noise.
           label: items[0].lang,
           data: sorted.map(r => {
-            // Chart.js with `parsing: false` + time scale requires
-            // numeric x (epoch ms) — strings get silently skipped on
-            // mobile Safari, leaving an empty chart. For the otp
-            // (category) axis a string is fine.
             const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
+            const ratio = (baseMs && r.median_ms) ? baseMs / r.median_ms : null;
+            const yMax = (baseMs && r.median_ms - sigma > 0) ? baseMs / (r.median_ms - sigma) : ratio;
+            const yMin = (baseMs && r.median_ms + sigma > 0) ? baseMs / (r.median_ms + sigma) : ratio;
             return {
               x,
-              y: r.median_ms,
-              // For lineWithErrorBars: yMin/yMax are the whisker bounds.
-              yMin: r.median_ms - sigma,
-              yMax: r.median_ms + sigma,
+              y: ratio,
+              yMin,
+              yMax,
+              median_ms: r.median_ms,
               stddev: r.stddev_ms,
               run_label: r.label,
-              inner_iter: r.inner_iter
+              inner_iter: r.inner_iter,
+              base_ms: baseMs
             };
           })
         };
       });
     }
 
-    /* For the suite page: roll up rows into per-(run × series) geomean
-       ratios.
+    /* Suite geomean: combined-language, per-platform speedup over the
+       earliest recorded run.
 
-       Two modes for picking the (series-key, benchmark) → baseline_ms
-       reference:
+       Filter:
+         - JIT only — emu is a separate, smaller story.
 
-       1. Per-series (default). Each series uses its own earliest row
-          (by timestamp) for each benchmark as the baseline. This makes
-          the chart robust to mixed hostnames/labels — every series
-          curve starts at 1.0 and shows its own trend.
+       Baselines (hybrid):
+         - Per-platform lines: each (lang, machine_class, benchmark)
+           anchors at its OWN earliest OTP version (compareOtpVersions
+           ordering, timestamp tiebreak). Each platform's line starts
+           at 1× — pragmatic, lets every platform tell its own story
+           even when they joined the dashboard at different OTPs.
+         - "All platforms" combined line: pinned to the earliest OTP
+           version present on EVERY platform (the intersection of
+           per-platform OTP sets). All ratios on the combined line
+           are then comparable apples-to-apples; no platform is
+           credited for progress that happened before it was
+           measured. Loses early history but keeps the cross-platform
+           number coherent.
 
-       2. Pinned (when BASELINE_LABEL is explicitly set AND that label
-          actually exists in DATASET.runs). All series normalize
-          against rows from that label. Useful for "regression vs
-          before-jit2" comparisons. Series whose hostname/arch/etc.
-          differs from the pinned label have no reference and
-          contribute nothing — that's intentional, the user asked for
-          a specific reference.
+       Output ratio:
+         - baseline_ms / current_ms, so higher = faster than baseline.
+
+       Series:
+         - One per machine_class.
+         - Plus an "all platforms" series, only plotted at OTPs ≥ pin.
+
+       Filter state from the controls is intentionally ignored — this
+       chart is always the headline view.
     */
-    function buildSuiteSeries(rows, xAxis) {
-      const pinned = BASELINE_LABEL &&
-        (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null);
+    function buildSuiteGeomeanSeries() {
+      const rows = DATASET.rows.filter(r => r.emu_flavor === "jit");
 
+      const runOtp = {};
+      DATASET.runs.forEach(r => { runOtp[r.label] = r.otp; });
+
+      // Per-platform-per-lang baselines: earliest OTP version per
+      // (lang, machine_class, benchmark), tiebreak by timestamp.
       const baseIdx = {};
-      if (pinned) {
-        rows.filter(r => r.label === BASELINE_LABEL).forEach(r => {
-          const k = seriesKey(r) + "|" + r.benchmark;
-          baseIdx[k] = r.median_ms;
-        });
-      } else {
-        // Per-series-earliest baseline.
+      rows.forEach(r => {
+        const otp = runOtp[r.label];
+        if (!otp) return;
+        const k = r.lang + "|" + r.machine_class + "|" + r.benchmark;
+        const cur = baseIdx[k];
+        if (!cur ||
+            compareOtpVersions(otp, cur.otp) < 0 ||
+            (compareOtpVersions(otp, cur.otp) === 0 && r.timestamp < cur.ts)) {
+          baseIdx[k] = { ms: r.median_ms, otp, ts: r.timestamp };
+        }
+      });
+
+      // Pin for the combined line: earliest OTP version present on
+      // every platform (intersection of per-mc OTP sets).
+      const otpsByMc = {};
+      rows.forEach(r => {
+        const otp = runOtp[r.label];
+        if (!otp) return;
+        if (!otpsByMc[r.machine_class]) otpsByMc[r.machine_class] = new Set();
+        otpsByMc[r.machine_class].add(otp);
+      });
+      const mcs = Object.keys(otpsByMc);
+      let commonOtps = mcs.length ? [...otpsByMc[mcs[0]]] : [];
+      for (let i = 1; i < mcs.length; i++) {
+        commonOtps = commonOtps.filter(o => otpsByMc[mcs[i]].has(o));
+      }
+      commonOtps.sort(compareOtpVersions);
+      const pinnedOtp = commonOtps[0] || null;
+
+      // Combined-line baseline: median at the pinned OTP per
+      // (lang, machine_class, benchmark). If multiple runs share the
+      // pinned OTP (re-runs), pick the earliest timestamp.
+      const pinnedBaseIdx = {};
+      if (pinnedOtp) {
         rows.forEach(r => {
-          const k = seriesKey(r) + "|" + r.benchmark;
-          if (!baseIdx[k] || r.timestamp < baseIdx[k].ts) {
-            baseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
+          if (runOtp[r.label] !== pinnedOtp) return;
+          if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
+          const k = r.lang + "|" + r.machine_class + "|" + r.benchmark;
+          if (!pinnedBaseIdx[k] || r.timestamp < pinnedBaseIdx[k].ts) {
+            pinnedBaseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
           }
         });
-        Object.keys(baseIdx).forEach(k => { baseIdx[k] = baseIdx[k].ms; });
       }
 
-      // Group all rows by (label, series-key) — one geomean point
-      // per run per series, no aggregation across runs. The plan is
-      // to seed history with one run per OTP feature release (20.0,
-      // 20.1, …) plus one ongoing point for master, so each tagged
-      // version stays its own datapoint.
-      const groups = {};
+      // Bucket ratios for the per-platform lines.
+      const archByMcOtp = {};
       rows.forEach(r => {
-        const sk = seriesKey(r);
-        const gk = r.label + "|" + sk;
-        if (!groups[gk]) groups[gk] = { label: r.label, sk, rows: [], runMeta: null };
-        groups[gk].rows.push(r);
-        groups[gk].runMeta = DATASET.runs.find(x => x.label === r.label);
+        const otp = runOtp[r.label];
+        if (!otp || !r.median_ms) return;
+        const bk = r.lang + "|" + r.machine_class + "|" + r.benchmark;
+        const base = baseIdx[bk];
+        if (!base || !base.ms) return;
+        const ratio = base.ms / r.median_ms;
+
+        if (!archByMcOtp[r.machine_class]) archByMcOtp[r.machine_class] = {};
+        if (!archByMcOtp[r.machine_class][otp]) archByMcOtp[r.machine_class][otp] = [];
+        archByMcOtp[r.machine_class][otp].push(ratio);
       });
 
-      const seriesByKey = {};
-      Object.values(groups).forEach(g => {
-        const ratios = [];
-        g.rows.forEach(r => {
-          const bk = g.sk + "|" + r.benchmark;
-          const baseMs = baseIdx[bk];
-          if (baseMs && r.median_ms) {
-            ratios.push(r.median_ms / baseMs);
-          }
+      // Combined line: only OTPs ≥ pin, ratios against pinnedBaseIdx.
+      const allByOtp = {};
+      if (pinnedOtp) {
+        rows.forEach(r => {
+          const otp = runOtp[r.label];
+          if (!otp || !r.median_ms) return;
+          if (compareOtpVersions(otp, pinnedOtp) < 0) return;
+          const bk = r.lang + "|" + r.machine_class + "|" + r.benchmark;
+          const base = pinnedBaseIdx[bk];
+          if (!base || !base.ms) return;
+          const ratio = base.ms / r.median_ms;
+          if (!allByOtp[otp]) allByOtp[otp] = [];
+          allByOtp[otp].push(ratio);
         });
-        if (ratios.length === 0) return;
+      }
+
+      const geomean = (ratios) => {
+        if (!ratios || ratios.length === 0) return null;
         const sumLog = ratios.reduce((a, b) => a + Math.log(b), 0);
-        const gm = Math.exp(sumLog / ratios.length);
+        return Math.exp(sumLog / ratios.length);
+      };
 
-        if (!seriesByKey[g.sk]) {
-          // sk = "lang / machine_class / flavor" — for display strip
-          // everything but the lang since the rest is already pinned by
-          // the active tab + flavor radio.
-          const langOnly = g.sk.split(" / ")[0];
-          seriesByKey[g.sk] = { label: langOnly, data: [] };
-        }
-        // For the otp axis, x is the full version string (e.g. "20.1"
-        // or "master") and the chart uses a category scale sorted by
-        // compareOtpVersions. For the timestamp axis, x is epoch ms;
-        // Chart.js' time scale with `parsing: false` silently drops
-        // string x values on mobile Safari otherwise.
-        const xVal = xAxis === "otp" ? g.runMeta.otp : Date.parse(g.runMeta.timestamp);
-        seriesByKey[g.sk].data.push({ x: xVal, y: gm, run_label: g.label, n_benchmarks: ratios.length });
-      });
+      const archSeries = Object.entries(archByMcOtp)
+        .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)
+        .map(([mc, byOtp]) => ({
+          label: mc,
+          data: Object.entries(byOtp)
+            .map(([otp, ratios]) => ({ x: otp, y: geomean(ratios), n_benchmarks: ratios.length }))
+            .sort((a, b) => compareOtpVersions(a.x, b.x))
+        }));
 
-      Object.values(seriesByKey).forEach(s => {
-        s.data.sort((a, b) => (a.x < b.x ? -1 : a.x > b.x ? 1 : 0));
-      });
+      const allSeries = pinnedOtp ? {
+        label: "all platforms (pinned to OTP " + pinnedOtp + ")",
+        data: Object.entries(allByOtp)
+          .map(([otp, ratios]) => ({ x: otp, y: geomean(ratios), n_benchmarks: ratios.length, pinnedOtp }))
+          .sort((a, b) => compareOtpVersions(a.x, b.x)),
+        // Visually distinct: bold black line so the combined trend
+        // doesn't blend with the per-platform palette.
+        borderColor: "#111",
+        backgroundColor: "#111",
+        borderWidth: 3
+      } : null;
 
-      return Object.values(seriesByKey);
+      return allSeries ? [allSeries, ...archSeries] : archSeries;
     }
 
     let chart = null;
@@ -917,37 +985,39 @@ defmodule Mix.Tasks.Awfy.Compare do
     function colorFor(i) { return PALETTE[i % PALETTE.length]; }
 
     function renderChart() {
-      // X axis is always OTP version since we removed the toggle —
-      // buildSeries / buildSuiteSeries still take it as a parameter
-      // so they can be repurposed for other axes if needed later.
+      // X axis is always OTP version. Suite uses the configurable-free
+      // geomean builder; per-bench uses the standard series builder
+      // (filtered against the controls).
       const xAxis = "otp";
       const state = readUIState();
-      const filtered = applyFilters(DATASET.rows, state);
-
       const series = PAGE_KIND === "suite"
-        ? buildSuiteSeries(filtered, xAxis)
-        : buildSeries(filtered, xAxis);
+        ? buildSuiteGeomeanSeries()
+        : buildSeries(applyFilters(DATASET.rows, state), xAxis);
 
-      const datasets = series.map((s, i) => ({
-        label: s.label,
-        data: s.data,
-        borderColor: colorFor(i),
-        backgroundColor: colorFor(i),
-        fill: false,
-        spanGaps: false,
-        tension: 0.05,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        // Error-bar style for lineWithErrorBars (per-bench page).
-        errorBarColor: colorFor(i),
-        errorBarWhiskerColor: colorFor(i),
-        errorBarLineWidth: 1.5,
-        errorBarWhiskerSize: 6
-      }));
+      const datasets = series.map((s, i) => {
+        const baseColor = s.borderColor || colorFor(i);
+        return {
+          label: s.label,
+          data: s.data,
+          borderColor: s.borderColor || baseColor,
+          backgroundColor: s.backgroundColor || baseColor,
+          borderWidth: s.borderWidth || 2,
+          fill: false,
+          spanGaps: false,
+          tension: 0.05,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          // Error-bar style for lineWithErrorBars (per-bench page).
+          errorBarColor: baseColor,
+          errorBarWhiskerColor: baseColor,
+          errorBarLineWidth: 1.5,
+          errorBarWhiskerSize: 6
+        };
+      });
 
       const yLabel = PAGE_KIND === "suite"
-        ? "geomean ratio (lower = faster)"
-        : "median ms (lower = faster)";
+        ? "geomean speedup (× over earliest, higher = faster)"
+        : "speedup × (over earliest run, higher = faster)";
 
       const chartType = PAGE_KIND === "bench" ? "lineWithErrorBars" : "line";
 
@@ -1000,7 +1070,9 @@ defmodule Mix.Tasks.Awfy.Compare do
             y: {
               title: { display: true, text: yLabel, font: titleFont },
               ticks: { font: tickFont },
-              beginAtZero: PAGE_KIND === "suite" ? false : true,
+              // Both modes are now ratios; let the axis breathe so
+              // the spread above/below 1× is readable.
+              beginAtZero: false,
               grid: { color: "#eee" }
             }
           },
@@ -1025,10 +1097,10 @@ defmodule Mix.Tasks.Awfy.Compare do
                 label: (ctx) => {
                   const r = ctx.raw;
                   const v = (typeof r.y === "number") ? r.y.toFixed(3) : r.y;
-                  const unit = PAGE_KIND === "suite" ? "×" : " ms";
-                  let line = ctx.dataset.label + ": " + v + unit;
-                  if (r.stddev !== undefined && r.stddev !== null) line += "  σ=" + r.stddev.toFixed(2);
-                  if (r.n_benchmarks) line += "  (" + r.n_benchmarks + " benches)";
+                  let line = ctx.dataset.label + ": " + v + "×";
+                  if (typeof r.median_ms === "number") line += "  (" + r.median_ms.toFixed(2) + " ms)";
+                  if (r.stddev !== undefined && r.stddev !== null) line += "  σ=" + r.stddev.toFixed(2) + " ms";
+                  if (r.n_benchmarks) line += "  (" + r.n_benchmarks + " ratios)";
                   return line;
                 },
                 afterBody: (items) => {
@@ -1121,12 +1193,12 @@ defmodule Mix.Tasks.Awfy.Compare do
     /* ---- Per-benchmark snapshot bar chart -----------------------------
        Grouped vertical bars: one column per benchmark on the x axis,
        one bar per (OTP major, language) — only the latest patch of each
-       major contributes. Whiskers are ± 2σ. The trend chart below
-       shows every patch; this snapshot stays sparse so the headline
-       view doesn't drown in backfill columns.
-       Legend label uses the actual patch version of the latest run for
-       each major (e.g. "OTP 28.5 · Erlang"), so the operator never has
-       to guess which patch a bar represents.
+       major contributes. Y-axis is speedup (× over the earliest run for
+       that lang × machine_class × flavor × benchmark) so higher = faster
+       than baseline; bars at 1× match the earliest run. Whiskers map
+       through the same inversion (yMin = base/(med+2σ), yMax = base/
+       (med-2σ)). Lang filter defaults to Erlang only; toggle Elixir on
+       to layer it in.
     */
     function renderSnapshot() {
       const el = document.getElementById("snapshot");
@@ -1137,11 +1209,26 @@ defmodule Mix.Tasks.Awfy.Compare do
       const filtered = applyFilters(DATASET.rows, state)
         .filter(r => enabledMajors.has(majorOf(r.otp)));
 
+      // Baseline index built from the unfiltered row set so toggling
+      // the major checkboxes can never accidentally shift the baseline
+      // — it's always the dataset's earliest recorded run for each
+      // (lang, machine_class, flavor, benchmark). Anchored to OTP
+      // version order, then timestamp as tiebreak.
+      const baseIdx = {};
+      DATASET.rows.forEach(r => {
+        if (r.machine_class !== state.machine_class) return;
+        if (r.emu_flavor !== state.emu_flavor) return;
+        if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
+        const k = r.lang + "|" + r.benchmark;
+        const cur = baseIdx[k];
+        const cmp = cur ? compareOtpVersions(r.otp, cur.otp) : -1;
+        if (!cur || cmp < 0 || (cmp === 0 && r.timestamp < cur.ts)) {
+          baseIdx[k] = { ms: r.median_ms, otp: r.otp, ts: r.timestamp };
+        }
+      });
+
       // Per-major collapse: only the latest patch per OTP major shows
       // in the snapshot — the trend chart still surfaces every patch.
-      // Index runs by (major, lang, benchmark); the "latest" tiebreak
-      // is timestamp first, then version-string ordering as a fallback
-      // for backfill batches submitted in one cron pulse.
       const latest = {};
       filtered.forEach(r => {
         const m = majorOf(r.otp);
@@ -1163,33 +1250,34 @@ defmodule Mix.Tasks.Awfy.Compare do
       }
       el.style.display = "";
 
-      // Each major picks its latest-patch row; the OTP version that
-      // ends up represented is whatever that latest row carries. Use
-      // the patch-version string (r.otp, e.g. "28.5") for the legend
-      // so the operator never has to guess which patch a bar shows.
       const majors = [...new Set(rows.map(r => majorOf(r.otp)))].sort(compareOtpVersions);
       const langs = [...new Set(rows.map(r => r.lang))].sort();
       const benches = [...new Set(rows.map(r => r.benchmark))].sort();
       const versionForMajor = {};
       rows.forEach(r => { versionForMajor[majorOf(r.otp)] = r.otp; });
 
-      // One dataset per (major, lang). Vertical bars grouped by
-      // benchmark name on the x axis — fits better with the rest of
-      // the dashboard (also vertical) and lets the y axis read in the
-      // natural "lower = faster" direction with median ms on it.
+      // One dataset per (major, lang). Bars are speedup ratios; whiskers
+      // invert through the same baseline so they read as "× over base".
       const datasets = [];
       majors.forEach((m, mi) => {
         langs.forEach((lang, li) => {
           const data = benches.map(b => {
             const r = latest[m + "|" + lang + "|" + b];
             // Bar chart with parsing.yMinKey reads `.yMin` on every
-            // datapoint, so a bare null crashes Chart.js with
+            // datapoint, so bare null crashes Chart.js with
             // "Cannot read properties of null (reading 'yMin')".
             // Hand back an object with null fields instead — the bar
-            // is then skipped without breaking the parser.
+            // is skipped without breaking the parser.
             if (!r) return { x: b, y: null, yMin: null, yMax: null, raw: null };
+            const base = baseIdx[lang + "|" + b];
+            if (!base || !base.ms || !r.median_ms) {
+              return { x: b, y: null, yMin: null, yMax: null, raw: r };
+            }
+            const ratio = base.ms / r.median_ms;
             const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
-            return { x: b, y: r.median_ms, yMin: r.median_ms - sigma, yMax: r.median_ms + sigma, raw: r };
+            const yMax = (r.median_ms - sigma > 0) ? base.ms / (r.median_ms - sigma) : ratio;
+            const yMin = (r.median_ms + sigma > 0) ? base.ms / (r.median_ms + sigma) : ratio;
+            return { x: b, y: ratio, yMin, yMax, raw: r, baseMs: base.ms };
           });
           const v = versionForMajor[m];
           const labelOtp = (v === "master" || v === "main") ? v : "OTP " + v;
@@ -1288,7 +1376,11 @@ defmodule Mix.Tasks.Awfy.Compare do
       // selections override.
       buildTabs(machineClasses, state.machine_class, "linux-x86_64");
       buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor, "jit");
-      buildCheckboxGroup("control-lang", "lang", langs, state.lang);
+      // Default: Erlang only. Elixir is opt-in via the checkbox so the
+      // snapshot's bar count starts manageable; toggle it on to layer
+      // the second language alongside.
+      buildCheckboxGroup("control-lang", "lang", langs, state.lang,
+        (v) => v === "erlang");
       // The major-checkboxes container is only on the suite page;
       // skip on per-bench pages where the snapshot doesn't render.
       if (PAGE_KIND === "suite") {
