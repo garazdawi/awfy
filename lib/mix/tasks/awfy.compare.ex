@@ -541,31 +541,24 @@ defmodule Mix.Tasks.Awfy.Compare do
       return Number.isFinite(m) ? String(m) : null;
     }
 
+    // The newest OTP major that has shipped a GA release on
+    // erlang.org. Bumped manually per major (annual cadence) — the
+    // alternative of deriving it from data is unreliable because
+    // legacy run-dirs recorded the in-development major (e.g. "29")
+    // before AWFY_OTP_VERSION was wired, and there's no telltale
+    // signal in the otp string itself separating a bare "29" from a
+    // future released "29". One source of truth, easy to grep.
+    const MAX_RELEASED_MAJOR = 28;
+
     // The dashboard's default snapshot scope is "supported releases".
     // OTP support window covers the current and previous two majors;
     // master is always included as the rolling tip. Anything older
     // gets opted in via the major checkboxes under the snapshot.
     //
-    // The "current major" is derived from the latest *released*
-    // (non-RC) tag in the data. RC versions of an upcoming major
-    // (e.g. OTP-29.0-rc3) get backfilled for trend visibility but
-    // don't shift the support window: today max-released = 28, so
-    // default = {26, 27, 28, master}; 29 stays opt-in until OTP-29.0
-    // is tagged. The check excludes maint- branches and any otp_label
-    // containing "-rc" (case-insensitive).
+    // RC versions of an upcoming major (e.g. OTP-29.0-rc3) get
+    // backfilled for trend visibility but don't shift the support
+    // window — that's what the MAX_RELEASED_MAJOR constant guards.
     function defaultMajorsSet(allMajors) {
-      const releasedMajors = DATASET.rows
-        .map(r => r.otp)
-        .filter(o => o && o !== "master" && o !== "main"
-          && o.indexOf("maint-") !== 0 && !/-rc/i.test(o))
-        .map(o => parseInt(o, 10))
-        .filter(Number.isFinite);
-      if (releasedMajors.length === 0) {
-        // Nothing released in the dataset yet — show whatever exists
-        // so a fresh deploy still has bars on the snapshot.
-        return new Set(allMajors);
-      }
-      const max = Math.max(...releasedMajors);
       const supported = new Set();
       allMajors.forEach(m => {
         if (m === "master" || m === "main") {
@@ -574,7 +567,9 @@ defmodule Mix.Tasks.Awfy.Compare do
         }
         if (/^[0-9]+$/.test(m)) {
           const n = parseInt(m, 10);
-          if (n >= max - 2 && n <= max) supported.add(m);
+          if (n >= MAX_RELEASED_MAJOR - 2 && n <= MAX_RELEASED_MAJOR) {
+            supported.add(m);
+          }
         }
       });
       return supported;
