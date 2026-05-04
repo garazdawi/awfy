@@ -599,9 +599,12 @@ jobs:
           # link step (`multiple definition of erts_allctr_wrappers` in
           # erts/emulator/beam/erl_alloc.h). `-fcommon` restores the
           # older behaviour and is harmless on newer OTPs that don't
-          # trigger the conflict. Configure honors CFLAGS env on top of
-          # its own auto-detected flags.
-          CFLAGS: -fcommon
+          # trigger the conflict.
+          #
+          # OTP's configure REPLACES (not appends) when CFLAGS env is
+          # set, and refuses to run unless -O is present. So we have
+          # to bake in the defaults (-O2 -g) ourselves.
+          CFLAGS: -O2 -g -fcommon
           # Same prebuilt-artifact caveat as the macOS build step.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
