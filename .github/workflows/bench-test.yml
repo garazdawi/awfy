@@ -336,6 +336,24 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           "$dest\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Ensure WMIC is available
+        shell: pwsh
+        # Benchee.System.available_memory/1 calls
+        #   System.cmd("WMIC", ["COMPUTERSYSTEM", "GET", "TOTALPHYSICALMEMORY"])
+        # to fingerprint the host. Recent GHA windows-latest images
+        # (Server 2025) drop WMIC by default — the call raises :enoent
+        # inside `Benchee.run/2` and floods stderr with stack traces.
+        # Install the optional WMIC capability so the call succeeds.
+        run: |
+          $cap = Get-WindowsCapability -Online -Name "WMIC*" |
+            Where-Object State -ne "Installed" |
+            Select-Object -First 1
+          if ($cap) {
+            Write-Host "Installing $($cap.Name) …"
+            Add-WindowsCapability -Online -Name $cap.Name | Out-Null
+          } else {
+            Write-Host "WMIC already installed or no capability needed"
+          }
       - name: Compile awfy
         shell: pwsh
         run: |
