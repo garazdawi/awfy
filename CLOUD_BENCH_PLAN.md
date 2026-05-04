@@ -123,6 +123,32 @@ detection thresholds we're aiming for (≥2% commit-over-commit deltas).
 Pinned-on-shared-Nitro reaches ~3-5% CV in practice — sufficient for
 the trends the dashboard is built around.
 
+## Backfill and steady-state cadence
+
+The dashboard is most useful when it shows the full historical arc, so
+the first run after AWS comes online seeds history with one
+measurement per **feature release** (`X.Y`) at its **latest patch**:
+`OTP-20.0` → latest 20.0.x, `OTP-20.1` → latest 20.1.x, and so on.
+About 4 feature releases per major × ~10 majors (20–28 plus master) ≈
+**~40 sweeps to backfill**. At $0.65/sweep that's a one-time
+**~$26** on the AWS side. The matrix already supports a comma-separated
+`otp_refs` input on `workflow_dispatch`; the backfill is just a single
+manual trigger with the resolved tag list.
+
+After backfill, the cron sweep stays on the latest patches of recent
+feature releases (mostly to catch master-tip drift), and **each new
+patch release** triggers a one-off measurement event to keep the
+per-feature-release line current. Patch cadence across all live
+majors is roughly 30-50 tags/year industry-wide → ~$20-30/year of
+incremental AWS cost on top of the $76/yr cron baseline.
+
+**Local-Mac implication.** `mix awfy.fill` on the M5 has to do the
+same backfill work — ~40 sweeps × ~10 min each ≈ **~7 hours of M5
+time**, comfortably done overnight in batches. After that the M5
+mirrors the cloud cadence: pick up the latest patch tags as they
+appear via the existing `mix awfy.fill` SHA-diff mechanism. See
+`FILL_TASK_PLAN.md` for the operator workflow.
+
 ## Phase 0 — validate on GHA-hosted runners (no AWS, no M5)
 
 Before wiring any AWS infrastructure or registering the M5, run the
