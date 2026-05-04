@@ -10,9 +10,10 @@ precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
 SPDX-License-Identifier = "Apache-2.0"
 
-# Repo metadata (gitignore, gitmodules, tool-versions) — same.
+# Repo metadata (gitignore, gitmodules, tool-versions, gitattributes)
+# — same.
 [[annotations]]
-path = [".gitignore", ".gitmodules", ".tool-versions"]
+path = [".gitignore", ".gitmodules", ".tool-versions", ".gitattributes"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
 SPDX-License-Identifier = "Apache-2.0"
