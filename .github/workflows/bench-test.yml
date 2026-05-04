@@ -322,12 +322,7 @@ jobs:
             awfy.preflight || true
       - name: Measure (${{ matrix.flavor }})
         env:
-          # OTP 28 renamed the non-JIT emulator flavor from "smp" to
-          # "emu". OTP 24-27 still spell it "smp" — passing -emu_flavor
-          # emu there errors out with "Invalid emulator type or flavor".
-          # `<` on string-major works for 2-digit majors; revisit if/when
-          # we cross 99.
-          ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && (matrix.target.major < '28' && '-emu_flavor smp' || '-emu_flavor emu') || '' }}
+          ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mkdir -p "$PWD/results"
@@ -454,10 +449,7 @@ jobs:
       - name: Measure (${{ matrix.flavor }})
         shell: pwsh
         env:
-          # OTP 28 renamed the non-JIT emulator flavor from "smp" to
-          # "emu". OTP 24-27 still spell it "smp"; passing -emu_flavor
-          # emu there errors out with "Invalid emulator type or flavor".
-          ERL_FLAGS: ${{ matrix.flavor == 'emu' && (matrix.target.major < '28' && '-emu_flavor smp' || '-emu_flavor emu') || '' }}
+          ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mix awfy.measure `
@@ -528,10 +520,7 @@ jobs:
         run: mix awfy.preflight || true
       - name: Measure (${{ matrix.flavor }})
         env:
-          # OTP 28 renamed the non-JIT emulator flavor from "smp" to
-          # "emu". OTP 24-27 still spell it "smp"; passing -emu_flavor
-          # emu there errors out with "Invalid emulator type or flavor".
-          ERL_FLAGS: ${{ matrix.flavor == 'emu' && (matrix.target.major < '28' && '-emu_flavor smp' || '-emu_flavor emu') || '' }}
+          ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
         run: |
           mix awfy.measure \
