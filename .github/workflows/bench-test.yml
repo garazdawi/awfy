@@ -508,8 +508,21 @@ jobs:
           # entirely; the script's own OTP_INSTALLED guard then just
           # recompiles the small target-beam tree. Same scheme as the
           # measure-linux-target leg below.
+          #
+          # The hashFiles segment busts the cache whenever any file
+          # that materially affects the cached prefix changes:
+          #
+          #   * bin/install-otp-source.sh   — configure flags, build
+          #     command, target-beam compile.
+          #   * bin/fetch-otp-source.sh     — source resolution
+          #     (release tarball / prebuilt artifact / archive).
+          #   * patches/**                  — per-major OTP patches
+          #     applied before configure.
+          #   * .github/workflows/bench-test.yml — configure-flag
+          #     env (AWFY_OTP_EXTRA_CONFIGURE, CFLAGS) is composed
+          #     here; coarse but correct.
           path: ~/.local/otp/${{ matrix.target.sha }}
-          key: otp-macos-arm64-${{ matrix.target.sha }}
+          key: otp-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench-test.yml') }}
       - name: Build OTP from source
         id: otp
         env:
@@ -614,8 +627,10 @@ jobs:
         with:
           # install-otp-source.sh content-addresses by SHA, so the
           # cache key is exact. Hits skip the 5-10 min source build.
+          # See the measure-macos cache block above for the full
+          # rationale on the hashFiles segment.
           path: ~/.local/otp/${{ matrix.target.sha }}
-          key: otp-target-linux-${{ matrix.arch.name }}-${{ matrix.target.sha }}
+          key: otp-target-linux-${{ matrix.arch.name }}-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench-test.yml') }}
       - name: Build target OTP
         env:
           # Pass the ref name (e.g. OTP-20.3), not the SHA — install-otp-source.sh's
