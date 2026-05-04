@@ -106,9 +106,9 @@ defmodule Mix.Tasks.Awfy.Compare do
       title: "AWFY — #{bench_name}",
       heading: bench_name,
       subhead:
-        "Median runtime in milliseconds. Each line = one (lang × machine × arch × emu_flavor) combination across runs.",
+        "Median runtime in milliseconds for each run on the selected platform. Whiskers show ± 2σ.",
       breadcrumb: """
-      <a href="../index.html">&larr; Suite overview</a>
+      <a href="../index.html">&larr; Suite</a> · #{bench_name}
       """,
       warnings_html: warnings_html(warnings),
       dataset_json: dataset_json,
@@ -141,13 +141,18 @@ defmodule Mix.Tasks.Awfy.Compare do
       title: "AWFY — Suite Dashboard",
       heading: "AWFY Suite — Cross-version Dashboard",
       subhead:
-        "Geometric mean of `median / baseline_median` across all benchmarks. Each line = one (lang × machine × arch × emu_flavor) combination, normalized to its own earliest data-point (or to a pinned <code>--baseline LABEL</code> if specified). Lower is faster.",
+        "Geometric mean of <code>median / baseline_median</code> across all benchmarks. Pick a machine class above; each line = one language for that platform, normalized to its earliest data-point.",
       breadcrumb: "",
       warnings_html: warnings_html(warnings),
       dataset_json: dataset_json,
       page_kind: "suite",
       bench_name: "",
       baseline_label: baseline_label || "",
+      snapshot_html: """
+      <h3>Latest snapshot — per-benchmark across versions</h3>
+      <p class="sub">Median runtime (ms) at the most recent run for each (OTP × benchmark) on the selected platform. Whiskers show ± 2σ.</p>
+      <canvas id="snapshot"></canvas>
+      """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
       <ul class="bench-links">#{bench_links}</ul>
@@ -316,54 +321,137 @@ defmodule Mix.Tasks.Awfy.Compare do
       <title>#{ctx.title}</title>
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
       <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-error-bars@4"></script>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
       <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 1100px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-        h1 { margin-bottom: 0.25rem; }
-        h1 + .sub { color: #666; margin-top: 0; margin-bottom: 1rem; }
-        .breadcrumb { margin-bottom: 1rem; }
-        .breadcrumb a { color: #06c; text-decoration: none; }
-        .warnings { background: #fff8e1; border-left: 4px solid #f6b73c; padding: 0.5rem 1rem; margin: 1rem 0; }
-        .controls { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1rem; }
-        .filter-group { border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem 0.75rem; }
-        .filter-group h4 { margin: 0 0 0.5rem 0; font-size: 0.85rem; text-transform: uppercase; color: #555; letter-spacing: 0.05em; }
-        .filter-group label { display: block; font-size: 0.9rem; margin-bottom: 0.15rem; cursor: pointer; }
-        .x-axis-toggle { font-size: 0.9rem; }
-        canvas { width: 100% !important; height: 480px !important; }
-        .bench-links { columns: 3; }
-        .bench-links li { margin-bottom: 0.25rem; }
-        details { margin-top: 1rem; }
-        summary { cursor: pointer; color: #555; }
-        pre { background: #f4f4f4; padding: 0.5rem; overflow-x: auto; font-size: 0.85rem; }
+        /* Palette pulled from erlang.org: brand red #a2003e, body #202020,
+           border #dee2e6, link blue #0d6efd, Montserrat as the headline
+           sans. Layout stays content-first — generous whitespace, no
+           heavy chrome. */
+        :root {
+          --er-red: #a2003e;
+          --er-red-soft: #fbeef2;
+          --er-text: #202020;
+          --er-muted: #6c757d;
+          --er-border: #dee2e6;
+          --er-bg: #ffffff;
+          --er-tint: #f8f9fa;
+          --er-link: #0d6efd;
+          --er-good: #1f6f33;
+          --er-bad: #b03030;
+          --sans: "Montserrat", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          --mono: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+        }
+        * { box-sizing: border-box; }
+        body {
+          font-family: var(--sans);
+          max-width: 1140px;
+          margin: 0 auto;
+          padding: 1.5rem 1.25rem 3rem;
+          color: var(--er-text);
+          background: var(--er-bg);
+          line-height: 1.55;
+        }
+        a { color: var(--er-link); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .site-header {
+          display: flex; align-items: baseline; gap: 0.75rem;
+          padding-bottom: 1rem; margin-bottom: 1.5rem;
+          border-bottom: 4px solid var(--er-red);
+        }
+        .site-header .brand { font-weight: 700; font-size: 1.05rem; color: var(--er-red); letter-spacing: 0.02em; text-transform: uppercase; }
+        .site-header .brand a { color: inherit; }
+        .site-header .breadcrumb { color: var(--er-muted); font-size: 0.9rem; }
+        .site-header .breadcrumb a { color: var(--er-muted); }
+        h1 { font-weight: 700; font-size: 1.75rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+        h1 + .sub { color: var(--er-muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+        h3 { font-weight: 600; font-size: 1.15rem; margin-top: 2.5rem; margin-bottom: 0.25rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--er-border); }
+        h3 + .sub { color: var(--er-muted); margin-top: 0.4rem; font-size: 0.9rem; }
+        .warnings { background: #fff8e1; border-left: 4px solid #f6b73c; padding: 0.6rem 1rem; margin: 1rem 0; border-radius: 4px; }
+        .warnings ul { margin: 0.25rem 0 0 1.25rem; padding: 0; }
+        .headline {
+          font-size: 1rem; line-height: 1.55;
+          padding: 0.85rem 1.1rem; margin: 0 0 1.5rem;
+          background: var(--er-red-soft);
+          border-left: 4px solid var(--er-red);
+          border-radius: 4px;
+        }
+        .headline .num { font-weight: 700; font-variant-numeric: tabular-nums; }
+        .headline .speedup { color: var(--er-good); }
+        .headline .slowdown { color: var(--er-bad); }
+        .headline .empty { color: var(--er-muted); font-style: italic; }
+        .tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 2px solid var(--er-border); margin-bottom: 1rem; }
+        .tab { background: none; border: none; padding: 0.55rem 1.1rem; cursor: pointer; font: inherit; font-size: 0.95rem; color: var(--er-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.1s, border-color 0.1s; }
+        .tab:hover { color: var(--er-red); }
+        .tab.active { color: var(--er-red); border-bottom-color: var(--er-red); font-weight: 600; }
+        .controls {
+          display: flex; flex-wrap: wrap; gap: 1.25rem;
+          align-items: center; margin-bottom: 1rem; font-size: 0.9rem;
+          padding: 0.6rem 0.85rem;
+          background: var(--er-tint);
+          border: 1px solid var(--er-border);
+          border-radius: 4px;
+        }
+        .controls .group { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+        .controls .group b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+        .controls label { cursor: pointer; user-select: none; }
+        .controls select { font: inherit; padding: 0.15rem 0.35rem; border: 1px solid var(--er-border); border-radius: 3px; background: white; }
+        canvas { width: 100% !important; height: 420px !important; }
+        canvas#snapshot { height: 520px !important; }
+        .bench-links { columns: 3; padding-left: 1.25rem; }
+        .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
+        details { margin-top: 1.5rem; }
+        summary { cursor: pointer; color: var(--er-muted); font-size: 0.9rem; }
+        summary:hover { color: var(--er-text); }
+        pre { background: var(--er-tint); padding: 0.6rem 0.8rem; overflow-x: auto; font-size: 0.82rem; font-family: var(--mono); border: 1px solid var(--er-border); border-radius: 4px; }
+        code { font-family: var(--mono); background: var(--er-tint); padding: 0.05em 0.3em; border-radius: 3px; font-size: 0.9em; }
+        @media (max-width: 600px) {
+          body { padding: 1rem 0.75rem 2rem; }
+          h1 { font-size: 1.4rem; }
+          canvas { height: 340px !important; }
+          canvas#snapshot { height: 600px !important; }
+          .bench-links { columns: 2; }
+          .tab { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
+        }
       </style>
     </head>
     <body>
-      <div class="breadcrumb">#{ctx.breadcrumb}</div>
+      <header class="site-header">
+        <span class="brand"><a href="../">AWFY · Erlang/OTP</a></span>
+        <span class="breadcrumb">#{ctx.breadcrumb}</span>
+      </header>
       <h1>#{ctx.heading}</h1>
       <p class="sub">#{ctx.subhead}</p>
 
       #{ctx.warnings_html}
 
+      <div id="machine-tabs" class="tabs"></div>
+
       <div class="controls">
-        <div class="x-axis-toggle">
-          <label>X axis:
+        <div class="group" id="control-flavor">
+          <b>Flavor</b>
+        </div>
+        <div class="group" id="control-lang">
+          <b>Language</b>
+        </div>
+        <div class="group">
+          <b>X axis</b>
+          <label>
             <select id="x-axis">
-              <option value="timestamp" selected>by timestamp</option>
-              <option value="otp">by OTP version</option>
+              <option value="timestamp" selected>timestamp</option>
+              <option value="otp">OTP version</option>
             </select>
           </label>
         </div>
-        <div class="filter-group" id="filter-lang">
-          <h4>Language</h4>
-        </div>
-        <div class="filter-group" id="filter-machine_class">
-          <h4>Machine</h4>
-        </div>
-        <div class="filter-group" id="filter-emu_flavor">
-          <h4>Emu flavor</h4>
-        </div>
       </div>
 
+      <div id="headline" class="headline"></div>
+
       <canvas id="chart"></canvas>
+
+      #{Map.get(ctx, :snapshot_html, "")}
 
       #{Map.get(ctx, :benchmarks_list_html, "")}
 
@@ -415,49 +503,86 @@ defmodule Mix.Tasks.Awfy.Compare do
       catch (e) {}
     }
 
-    function buildFilterUI(field, values, state) {
-      const container = document.getElementById("filter-" + field);
-      const persisted = state[field];
+    /* ---- Filter state (tabs + radio + checkboxes) ----------------------
+       Machine class becomes a tab strip — exclusive selection — because
+       overlaying linux-x86_64, linux-arm64, macos-arm64, windows-x86_64
+       on one chart drowns the trend. Flavor becomes a radio for the same
+       reason (jit/emu run different code paths; comparing them on one
+       axis is rarely what you want). Languages stay as multi-select
+       checkboxes since seeing erlang and elixir together is the point.
+    */
+
+    function buildTabs(values, persisted) {
+      const container = document.getElementById("machine-tabs");
+      const initial = (persisted && values.includes(persisted)) ? persisted : values[0];
       values.forEach(v => {
-        const id = "f-" + field + "-" + v.replace(/[^a-z0-9]/gi, "_");
-        const div = document.createElement("label");
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.id = id;
-        cb.dataset.field = field;
-        cb.dataset.value = v;
-        cb.checked = persisted ? persisted.includes(v) : true;
-        cb.addEventListener("change", onFilterChange);
-        div.appendChild(cb);
-        div.appendChild(document.createTextNode(" " + v));
-        container.appendChild(div);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "tab" + (v === initial ? " active" : "");
+        btn.dataset.value = v;
+        btn.textContent = v;
+        btn.addEventListener("click", () => {
+          container.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+          btn.classList.add("active");
+          onFilterChange();
+        });
+        container.appendChild(btn);
       });
     }
 
-    // Filter UI fields. The HTML container IDs match these names.
-    const FILTER_FIELDS = ["lang", "machine_class", "emu_flavor"];
+    function buildRadioGroup(controlId, name, values, persisted) {
+      const container = document.getElementById(controlId);
+      const initial = (persisted && values.includes(persisted)) ? persisted : values[0];
+      values.forEach(v => {
+        const lab = document.createElement("label");
+        const inp = document.createElement("input");
+        inp.type = "radio";
+        inp.name = name;
+        inp.value = v;
+        inp.checked = (v === initial);
+        inp.addEventListener("change", onFilterChange);
+        lab.appendChild(inp);
+        lab.appendChild(document.createTextNode(" " + v));
+        container.appendChild(lab);
+      });
+    }
+
+    function buildCheckboxGroup(controlId, name, values, persisted) {
+      const container = document.getElementById(controlId);
+      values.forEach(v => {
+        const lab = document.createElement("label");
+        const inp = document.createElement("input");
+        inp.type = "checkbox";
+        inp.name = name;
+        inp.value = v;
+        inp.checked = persisted ? persisted.includes(v) : true;
+        inp.addEventListener("change", onFilterChange);
+        lab.appendChild(inp);
+        lab.appendChild(document.createTextNode(" " + v));
+        container.appendChild(lab);
+      });
+    }
 
     function onFilterChange() {
       const state = readUIState();
       saveFilterState(state);
-      renderChart();
+      renderAll();
     }
 
     function readUIState() {
-      const state = {};
-      FILTER_FIELDS.forEach(field => {
-        state[field] = [...document.querySelectorAll(
-          'input[type=checkbox][data-field="' + field + '"]:checked'
-        )].map(cb => cb.dataset.value);
-      });
-      return state;
+      const activeTab = document.querySelector("#machine-tabs .tab.active");
+      return {
+        machine_class: activeTab ? activeTab.dataset.value : null,
+        emu_flavor: (document.querySelector('input[name="flavor"]:checked') || {}).value,
+        lang: [...document.querySelectorAll('input[name="lang"]:checked')].map(c => c.value)
+      };
     }
 
     function applyFilters(rows, state) {
       return rows.filter(r =>
         (state.lang || []).includes(r.lang) &&
-        (state.machine_class || []).includes(r.machine_class) &&
-        (state.emu_flavor || []).includes(r.emu_flavor)
+        r.machine_class === state.machine_class &&
+        r.emu_flavor === state.emu_flavor
       );
     }
 
@@ -480,16 +605,23 @@ defmodule Mix.Tasks.Awfy.Compare do
         });
         return {
           label: key,
-          data: sorted.map(r => ({
+          data: sorted.map(r => {
             // Chart.js with `parsing: false` + time scale requires
             // numeric x (epoch ms) — strings get silently skipped on
             // mobile Safari, leaving an empty chart.
-            x: xAxis === "otp" ? r.otp : Date.parse(r.timestamp),
-            y: r.median_ms,
-            stddev: r.stddev_ms,
-            run_label: r.label,
-            inner_iter: r.inner_iter
-          }))
+            const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
+            const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
+            return {
+              x,
+              y: r.median_ms,
+              // For lineWithErrorBars: yMin/yMax are the whisker bounds.
+              yMin: r.median_ms - sigma,
+              yMax: r.median_ms + sigma,
+              stddev: r.stddev_ms,
+              run_label: r.label,
+              inner_iter: r.inner_iter
+            };
+          })
         };
       });
     }
@@ -573,6 +705,17 @@ defmodule Mix.Tasks.Awfy.Compare do
     }
 
     let chart = null;
+    let snapshotChart = null;
+
+    /* erlang.org-friendly palette: brand red on top, then the standard
+       categorical wheel. Order matters — the first dataset (almost
+       always erlang) gets the red. */
+    const PALETTE = [
+      "#a2003e", "#0d6efd", "#1f6f33", "#e07b00", "#7b3eb3",
+      "#6c757d", "#a05a2c", "#0a8f8f", "#bcbd22"
+    ];
+
+    function colorFor(i) { return PALETTE[i % PALETTE.length]; }
 
     function renderChart() {
       const xAxis = document.getElementById("x-axis").value;
@@ -583,32 +726,34 @@ defmodule Mix.Tasks.Awfy.Compare do
         ? buildSuiteSeries(filtered, xAxis)
         : buildSeries(filtered, xAxis);
 
-      const palette = [
-        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
-      ];
-
       const datasets = series.map((s, i) => ({
         label: s.label,
         data: s.data,
-        borderColor: palette[i % palette.length],
-        backgroundColor: palette[i % palette.length],
+        borderColor: colorFor(i),
+        backgroundColor: colorFor(i),
         fill: false,
         spanGaps: false,
         tension: 0.05,
         pointRadius: 4,
-        pointHoverRadius: 6
+        pointHoverRadius: 6,
+        // Error-bar style for lineWithErrorBars (per-bench page).
+        errorBarColor: colorFor(i),
+        errorBarWhiskerColor: colorFor(i),
+        errorBarLineWidth: 1.5,
+        errorBarWhiskerSize: 6
       }));
 
       const yLabel = PAGE_KIND === "suite"
         ? (BASELINE_LABEL && (DATASET.runs.find(r => r.label === BASELINE_LABEL) || null)
             ? "geomean ratio vs " + BASELINE_LABEL + " (lower = faster)"
             : "geomean ratio vs each series's earliest data-point (lower = faster)")
-        : "median ms";
+        : "median ms (lower = faster)";
+
+      const chartType = PAGE_KIND === "bench" ? "lineWithErrorBars" : "line";
 
       if (chart) chart.destroy();
       chart = new Chart(document.getElementById("chart"), {
-        type: "line",
+        type: chartType,
         data: { datasets },
         options: {
           responsive: true,
@@ -617,11 +762,12 @@ defmodule Mix.Tasks.Awfy.Compare do
           interaction: { intersect: false, mode: "nearest" },
           scales: {
             x: xAxis === "timestamp"
-              ? { type: "time", time: { tooltipFormat: "yyyy-MM-dd HH:mm", displayFormats: { hour: "MM/dd HH:mm" } }, title: { display: true, text: "timestamp" } }
-              : { type: "category", title: { display: true, text: "OTP version" } },
-            y: { title: { display: true, text: yLabel }, beginAtZero: PAGE_KIND === "suite" ? false : true }
+              ? { type: "time", time: { tooltipFormat: "yyyy-MM-dd HH:mm", displayFormats: { hour: "MM/dd HH:mm" } }, title: { display: true, text: "timestamp" }, grid: { color: "#eee" } }
+              : { type: "category", title: { display: true, text: "OTP version" }, grid: { color: "#eee" } },
+            y: { title: { display: true, text: yLabel }, beginAtZero: PAGE_KIND === "suite" ? false : true, grid: { color: "#eee" } }
           },
           plugins: {
+            legend: { labels: { font: { family: "Montserrat, sans-serif" } } },
             tooltip: {
               callbacks: {
                 label: (ctx) => {
@@ -640,11 +786,166 @@ defmodule Mix.Tasks.Awfy.Compare do
       });
     }
 
+    /* ---- Headline metric ----------------------------------------------
+       "OTP X is N× faster than OTP Y on geomean of M benchmarks."
+       Computed against the active machine_class + flavor. We pick the
+       chronologically newest OTP version vs the chronologically oldest
+       so it always reflects the most recent direction of travel.
+    */
+    function renderHeadline() {
+      const el = document.getElementById("headline");
+      if (!el) return;
+      const state = readUIState();
+      const filtered = applyFilters(DATASET.rows, state);
+      if (filtered.length === 0) {
+        el.innerHTML = '<span class="empty">No data for this combination yet.</span>';
+        return;
+      }
+
+      const otps = [...new Set(filtered.map(r => r.otp).filter(Boolean))]
+        .sort((a, b) => parseFloat(a) - parseFloat(b));
+      if (otps.length < 2) {
+        el.innerHTML = '<span class="empty">Need at least two OTP versions for a comparison.</span>';
+        return;
+      }
+      const oldest = otps[0], newest = otps[otps.length - 1];
+
+      const langs = [...new Set(filtered.map(r => r.lang))].sort();
+      const lines = langs.map(lang => {
+        // For each (lang, benchmark) pick the latest run on each end.
+        const pickLatest = (otp) => {
+          const m = {};
+          filtered.filter(r => r.lang === lang && r.otp === otp).forEach(r => {
+            if (!m[r.benchmark] || r.timestamp > m[r.benchmark].timestamp) m[r.benchmark] = r;
+          });
+          return m;
+        };
+        const oldRuns = pickLatest(oldest);
+        const newRuns = pickLatest(newest);
+        const benches = Object.keys(oldRuns).filter(b => newRuns[b] && oldRuns[b].median_ms && newRuns[b].median_ms);
+        if (benches.length === 0) return null;
+        const sumLog = benches.reduce((s, b) => s + Math.log(oldRuns[b].median_ms / newRuns[b].median_ms), 0);
+        const speedup = Math.exp(sumLog / benches.length);
+        return { lang, speedup, n: benches.length };
+      }).filter(Boolean);
+
+      if (lines.length === 0) {
+        el.innerHTML = '<span class="empty">No matching benchmarks across the two OTP endpoints.</span>';
+        return;
+      }
+
+      el.innerHTML = lines.map(({ lang, speedup, n }) => {
+        const pct = (speedup - 1) * 100;
+        const word = pct >= 0 ? "faster" : "slower";
+        const cls = pct >= 0 ? "speedup" : "slowdown";
+        return '<div><strong>' + lang + '</strong>: OTP ' + newest +
+               ' is <span class="num ' + cls + '">' + speedup.toFixed(2) + '×</span> ' +
+               '<span class="' + cls + '">' + word + '</span> than OTP ' + oldest +
+               ' <span class="num">(' + (pct >= 0 ? "+" : "") + pct.toFixed(1) + '%)</span>' +
+               ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean of ' + n + ' benchmarks</span></div>';
+      }).join("");
+    }
+
+    /* ---- Per-benchmark snapshot bar chart -----------------------------
+       Grouped horizontal bars: one row per benchmark, one bar per OTP
+       version, stacked by language. Shows the most recent (OTP, lang,
+       benchmark) row for the active machine_class + flavor; whiskers are
+       ± 2σ. Lets you see at a glance which benches actually got faster.
+    */
+    function renderSnapshot() {
+      const el = document.getElementById("snapshot");
+      if (!el) return;
+
+      const state = readUIState();
+      const filtered = applyFilters(DATASET.rows, state);
+
+      // Most recent row per (otp, lang, benchmark).
+      const latest = {};
+      filtered.forEach(r => {
+        const k = r.otp + "|" + r.lang + "|" + r.benchmark;
+        if (!latest[k] || r.timestamp > latest[k].timestamp) latest[k] = r;
+      });
+      const rows = Object.values(latest);
+      if (rows.length === 0) {
+        if (snapshotChart) snapshotChart.destroy();
+        snapshotChart = null;
+        el.style.display = "none";
+        return;
+      }
+      el.style.display = "";
+
+      const otps = [...new Set(rows.map(r => r.otp))].sort((a, b) => parseFloat(a) - parseFloat(b));
+      const langs = [...new Set(rows.map(r => r.lang))].sort();
+      const benches = [...new Set(rows.map(r => r.benchmark))].sort();
+
+      // One dataset per (otp, lang). Bars are grouped by benchmark name
+      // on the y axis (horizontal layout reads better with 14 names).
+      const datasets = [];
+      otps.forEach((otp, oi) => {
+        langs.forEach((lang, li) => {
+          const data = benches.map(b => {
+            const r = latest[otp + "|" + lang + "|" + b];
+            if (!r) return null;
+            const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
+            return { x: r.median_ms, xMin: r.median_ms - sigma, xMax: r.median_ms + sigma, y: b, raw: r };
+          });
+          datasets.push({
+            label: "OTP " + otp + " · " + lang,
+            data,
+            backgroundColor: colorFor(oi * langs.length + li),
+            borderColor: colorFor(oi * langs.length + li),
+            errorBarColor: "rgba(0,0,0,0.45)",
+            errorBarWhiskerColor: "rgba(0,0,0,0.45)",
+            errorBarLineWidth: 1,
+            errorBarWhiskerSize: 4
+          });
+        });
+      });
+
+      if (snapshotChart) snapshotChart.destroy();
+      snapshotChart = new Chart(el, {
+        type: "barWithErrorBars",
+        data: { labels: benches, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: "y",
+          parsing: { xAxisKey: "x", yAxisKey: "y", xMinKey: "xMin", xMaxKey: "xMax" },
+          interaction: { intersect: false, mode: "nearest" },
+          scales: {
+            x: { title: { display: true, text: "median ms (lower = faster)" }, beginAtZero: true, grid: { color: "#eee" } },
+            y: { title: { display: false }, grid: { display: false } }
+          },
+          plugins: {
+            legend: { position: "bottom", labels: { font: { family: "Montserrat, sans-serif" }, boxWidth: 12 } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const r = ctx.raw && ctx.raw.raw;
+                  if (!r) return ctx.dataset.label;
+                  const parts = [ctx.dataset.label + ": " + r.median_ms.toFixed(2) + " ms"];
+                  if (r.stddev_ms !== undefined && r.stddev_ms !== null) parts.push("σ=" + r.stddev_ms.toFixed(2));
+                  if (r.inner_iter) parts.push("iter=" + r.inner_iter);
+                  return parts.join("  ");
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderAll() {
+      renderHeadline();
+      renderChart();
+      if (PAGE_KIND === "suite") renderSnapshot();
+    }
+
     function renderRunsMeta() {
       const lines = DATASET.runs.map(r =>
-        r.timestamp + "  " + r.label.padEnd(20) +
+        r.timestamp + "  " + r.label.padEnd(40) +
         "  otp=" + r.otp + "  elixir=" + r.elixir +
-        "  " + (r.hostname || "?") + " (" + (r.cpu || "?") + ")  emu=" + (r.emu_flavor || "?")
+        "  " + (r.machine_class || r.hostname || "?") + " (" + (r.cpu || "?") + ")  emu=" + (r.emu_flavor || "?")
       );
       document.getElementById("runs-meta").textContent = lines.join("\\n");
     }
@@ -652,14 +953,17 @@ defmodule Mix.Tasks.Awfy.Compare do
     /* Init */
     (function () {
       const state = loadFilterState();
-      FILTER_FIELDS.forEach(field => {
-        const values = uniqueValues(DATASET.rows, field);
-        buildFilterUI(field, values, state);
-      });
+      const machineClasses = uniqueValues(DATASET.rows, "machine_class");
+      const flavors = uniqueValues(DATASET.rows, "emu_flavor");
+      const langs = uniqueValues(DATASET.rows, "lang");
 
-      document.getElementById("x-axis").addEventListener("change", renderChart);
+      buildTabs(machineClasses, state.machine_class);
+      buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor);
+      buildCheckboxGroup("control-lang", "lang", langs, state.lang);
+
+      document.getElementById("x-axis").addEventListener("change", renderAll);
       renderRunsMeta();
-      renderChart();
+      renderAll();
     })();
     """
   end
