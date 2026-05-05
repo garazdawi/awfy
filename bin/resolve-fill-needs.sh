@@ -89,14 +89,14 @@ otp_major_for_ref() {
   local r="$1"
   case "$r" in
     OTP-*)
-      echo "$r" | sed 's|^OTP-||' | cut -d. -f1
+      echo "${r#OTP-}" | cut -d. -f1
       ;;
     master|main)
       # Bumps when erlang/otp's master moves to the next major.
       echo "29"
       ;;
     maint-*)
-      echo "$r" | sed 's|^maint-||'
+      echo "${r#maint-}"
       ;;
     *)
       # Fall back to fetching OTP_VERSION from the resolved SHA.

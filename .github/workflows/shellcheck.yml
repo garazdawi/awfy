@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Static analysis for the bash scripts the bench-test workflow relies
+# on (bin/*.sh). Catches the classes of bug we already hit by hand —
+# pipefail-vs-SIGPIPE crosstalk, parameter-expansion gotchas,
+# unintended word-splitting — at PR time rather than mid-fill.
+#
+# We only check committed shell scripts; PowerShell isn't covered by
+# shellcheck. The Dockerfile.linux RUN steps embed bash but aren't
+# practical to lint as standalone files; their critical correctness
+# is exercised by build-linux on every push.
+
+name: shellcheck
+
+on:
+  push:
+    paths:
+      - "bin/**.sh"
+      - ".github/workflows/shellcheck.yml"
+  pull_request:
+    paths:
+      - "bin/**.sh"
+      - ".github/workflows/shellcheck.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Run shellcheck on bin/*.sh
+        # ubuntu-latest ships shellcheck (≥ 0.10) preinstalled. Default
+        # severity = style — we lint everything, including style hints,
+        # because the script set is small and easy to keep clean.
+        # In-script `# shellcheck disable=SCxxxx` comments handle
+        # legitimate exceptions (intentional word-splitting, controlled
+        # globs).
+        run: |
+          shopt -s nullglob
+          scripts=(bin/*.sh)
+          if [ "${#scripts[@]}" -eq 0 ]; then
+            echo "no bash scripts under bin/"
+            exit 0
+          fi
+          shellcheck --version
+          shellcheck "${scripts[@]}"

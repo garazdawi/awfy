@@ -98,9 +98,9 @@ trap 'rm -rf "$WORK"' EXIT
     # apply order when fixes depend on each other. (AWFY_ROOT was
     # resolved at the top of this script — see comment there.)
     case "$REF" in
-        OTP-*) MAJOR="$(echo "$REF" | sed 's|^OTP-||' | cut -d. -f1)" ;;
+        OTP-*) MAJOR="$(echo "${REF#OTP-}" | cut -d. -f1)" ;;
         master|main) MAJOR="master" ;;
-        maint-*) MAJOR="$(echo "$REF" | sed 's|^maint-||')" ;;
+        maint-*) MAJOR="${REF#maint-}" ;;
         *)
             # Resolve major from the source's OTP_VERSION file.
             if [ -f "$SRC/OTP_VERSION" ]; then
@@ -153,6 +153,13 @@ trap 'rm -rf "$WORK"' EXIT
     # build crypto fine against either OpenSSL version. Future
     # benchmarks that exercise crypto will run on those newer targets
     # unaffected.
+    #
+    # SC2086 is intentional on the trailing AWFY_OTP_EXTRA_CONFIGURE
+    # expansion: callers may pass multiple flags as one env var
+    # (e.g. "--without-ssl --without-ssh"), and we want bash word-
+    # splitting to turn that into separate configure args. Quoting
+    # would pass the whole string as a single argument.
+    # shellcheck disable=SC2086
     ./configure \
         --prefix="$PREFIX" \
         --disable-debug \
@@ -194,6 +201,10 @@ trap 'rm -rf "$WORK"' EXIT
     # ourselves so the flag resolves on every Unix target. (Windows
     # uses install-otp-windows.ps1, not this script.)
     if [ -d "$ERL_TOP/bin" ]; then
+        # SC2012: glob-listing controlled paths is fine here — the
+        # erts-VSN dirs are written by `make install` and never have
+        # spaces or special chars.
+        # shellcheck disable=SC2012
         erts_bin="$(ls -d "$PREFIX"/lib/erlang/erts-*/bin 2>/dev/null | head -1)"
         if [ -n "$erts_bin" ]; then
             for src in "$ERL_TOP"/bin/*/beam.emu; do
