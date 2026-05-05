@@ -982,25 +982,49 @@ jobs:
         # awfy_benchmark must be compiled first (the other modules
         # `-behaviour(awfy_benchmark)`, and a missing behaviour spec
         # silently falls back to "behaviour undefined" warnings).
+        #
+        # Resolve all sources to absolute paths up front. Earlier
+        # iterations relied on PowerShell line-continuation backticks
+        # plus `Get-ChildItem` and quietly produced an empty pass-2
+        # source list — `awfy_target_runner.beam` never landed in
+        # ebin and the timing pass blew up with `undef
+        # awfy_target_runner:run_iters_io/3`. Switching to explicit
+        # `Resolve-Path` calls + a post-compile listing makes that
+        # class of failure loud.
         run: |
           $prefix = $env:AWFY_TARGET_PREFIX
           $erlc = Join-Path $prefix "bin\erlc.exe"
           $targetLib = Join-Path $prefix "awfy_target\awfy-0.1.0"
-          New-Item -ItemType Directory -Force -Path "$targetLib\ebin" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$targetLib\priv" | Out-Null
-          & $erlc -o "$targetLib\ebin" `
-            apps/awfy/src/awfy_benchmark.erl `
-            apps/awfy/src/awfy_random.erl `
-            apps/awfy/src/awfy_som_vector.erl
+          $ebin = Join-Path $targetLib "ebin"
+          New-Item -ItemType Directory -Force -Path $ebin | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $targetLib "priv") | Out-Null
+
+          $srcDir = (Resolve-Path "apps/awfy/src").Path
+          $srcTargetDir = (Resolve-Path "apps/awfy/src_target").Path
+          $bootstrap = @("awfy_benchmark.erl", "awfy_random.erl", "awfy_som_vector.erl") |
+                       ForEach-Object { Join-Path $srcDir $_ }
+          $allSrcs = @(Get-ChildItem -Path $srcDir -Filter *.erl).FullName +
+                     @(Get-ChildItem -Path $srcTargetDir -Filter *.erl).FullName
+          Write-Host "pass 1: $($bootstrap.Count) bootstrap sources"
+          Write-Host "pass 2: $($allSrcs.Count) total sources"
+
+          & $erlc -o $ebin @bootstrap
           if ($LASTEXITCODE -ne 0) { throw "target erlc (pass 1) failed: $LASTEXITCODE" }
-          $srcs = @(Get-ChildItem -Filter *.erl apps/awfy/src) `
-                + @(Get-ChildItem -Filter *.erl apps/awfy/src_target)
-          & $erlc -pa "$targetLib\ebin" -o "$targetLib\ebin" $srcs.FullName
+
+          & $erlc -pa $ebin -o $ebin @allSrcs
           if ($LASTEXITCODE -ne 0) { throw "target erlc (pass 2) failed: $LASTEXITCODE" }
-          if (Test-Path apps/awfy/priv) {
-            Copy-Item -Recurse -Force apps/awfy/priv\* "$targetLib\priv\"
+
+          $beams = Get-ChildItem -Path $ebin -Filter *.beam
+          Write-Host "compiled $($beams.Count) beams into $ebin"
+          $beams | ForEach-Object { Write-Host "  $($_.Name)" }
+          if (-not ($beams.Name -contains "awfy_target_runner.beam")) {
+            throw "awfy_target_runner.beam missing from $ebin after compile"
           }
-          "AWFY_TARGET_BEAMS=$targetLib\ebin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          if (Test-Path apps/awfy/priv) {
+            Copy-Item -Recurse -Force apps/awfy/priv\* (Join-Path $targetLib "priv\")
+          }
+          "AWFY_TARGET_BEAMS=$ebin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: erlef/setup-beam@v1
         if: steps.install_target_otp.outputs.skipped != 'true'
         with:
