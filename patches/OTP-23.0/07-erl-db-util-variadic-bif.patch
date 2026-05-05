@@ -1,0 +1,76 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: erl_db_util.c casts BIF function pointers through a variadic
+#        prototype (`Eterm (*)(Process*, ...)`). On arm64 macOS the
+#        AAPCS64 calling convention passes the first variadic arg on
+#        the stack, so the BIF reads garbage where its arg-array
+#        pointer should be — match-spec calls into bifs (e.g.
+#        `is_seq_trace/0`, `set_seq_token/2`) crash or misbehave.
+#        Switch to the proper non-variadic `BIF_RETTYPE (*)(BIF_ALIST)`
+#        prototype and pass the missing 3rd arg (`NULL` for the export
+#        — match-spec bifs don't use it) at each callsite.
+# Upstream: daaf5e32cf "Fix BIF function pointer cast in erl_db_util"
+#           (in OTP-23.2). Backported into OTP-23.2 maint; forward-
+#           applies on 23.0/.1.
+
+--- a/erts/emulator/beam/erl_db_util.c
++++ b/erts/emulator/beam/erl_db_util.c
+@@ -2031,7 +2031,7 @@
+     Process *tmpp;
+     Process *current_scheduled;
+     ErtsSchedulerData *esdp;
+-    Eterm (*bif)(Process*, ...);
++    BIF_RETTYPE (*bif)(BIF_ALIST);
+     Eterm bif_args[3];
+     int fail_label;
+ #ifdef DMC_DEBUG
+@@ -2338,8 +2338,8 @@
+             *esp++ = t;
+             break;
+ 	case matchCall0:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
+-	    t = (*bif)(build_proc, bif_args);
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
++	    t = (*bif)(build_proc, bif_args, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;
+@@ -2349,8 +2349,8 @@
+ 	    *esp++ = t;
+ 	    break;
+ 	case matchCall1:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
+-	    t = (*bif)(build_proc, esp-1);
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
++	    t = (*bif)(build_proc, esp-1, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;
+@@ -2360,10 +2360,10 @@
+ 	    esp[-1] = t;
+ 	    break;
+ 	case matchCall2:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
+ 	    bif_args[0] = esp[-1];
+ 	    bif_args[1] = esp[-2];
+-	    t = (*bif)(build_proc, bif_args);
++	    t = (*bif)(build_proc, bif_args, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;
+@@ -2374,11 +2374,11 @@
+ 	    esp[-1] = t;
+ 	    break;
+ 	case matchCall3:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
+ 	    bif_args[0] = esp[-1];
+ 	    bif_args[1] = esp[-2];
+ 	    bif_args[2] = esp[-3];
+-	    t = (*bif)(build_proc, bif_args);
++	    t = (*bif)(build_proc, bif_args, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;

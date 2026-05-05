@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: configure's `in6addr_any is declared` test calls printf() in
+#        a conftest without including <stdio.h>. Modern Clang treats
+#        the implicit declaration as an error so the conftest fails
+#        to link and erts_cv_have_in6addr_any caches "no" — the
+#        emulator then redefines `in6addr_any` as `static const`,
+#        clashing with libc's `extern` declaration.
+# Upstream: Tyler Stromberg f32b878cfb (in OTP-23.2). Backported into
+#           23.2 maint; forward-applies on 23.0/.1.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -17669,6 +17671,7 @@
+ 		#include <sys/types.h>
+ 		#include <sys/socket.h>
+ 		#include <netinet/in.h>
++		#include <stdio.h>
+
+ int
+ main ()

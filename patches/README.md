@@ -5,53 +5,61 @@ SPDX-License-Identifier: Apache-2.0
 
 # OTP build patches
 
-Patches in `patches/OTP-<major>/*.patch` are applied to the OTP source
-tree before `./configure`, in lexicographic filename order, with
-`patch -p1`. The major-version directory is selected from the build's
-OTP ref:
+Patches in `patches/OTP-<major>.<minor>/*.patch` are applied to the
+OTP source tree before `./configure`, in lexicographic filename
+order, with `patch -p1 -N`. The function-release-line directory
+(e.g. `OTP-23.0`, `OTP-23.1`) is selected from the build's OTP ref:
 
-| Ref form                   | Patch directory used  |
-|----------------------------|-----------------------|
-| `OTP-X.Y.Z`                | `patches/OTP-X/`      |
-| `maint-X`                  | `patches/OTP-X/`      |
-| `master` / `main`          | `patches/OTP-master/` |
+| Ref form                   | Patch directory used                         |
+|----------------------------|----------------------------------------------|
+| `OTP-X.Y.Z` / `OTP-X.Y.Z.W`| `patches/OTP-X.Y/`                           |
+| `maint-X` / `master`       | resolved via the source's `OTP_VERSION` file |
 | Bare SHA / branch          | resolved via the source's `OTP_VERSION` file |
 
 Both `bin/install-otp-source.sh` (used for macOS and Linux source
 builds) and `Dockerfile.linux` apply the same patch set, so a fix
 written once works across both environments.
 
-### Mixed-state source trees
+### Per-(major.minor) directories
 
-A single `patches/OTP-<major>/` set has to handle two source-tree
-shapes within the same major: older "grey" function-release tips
-(e.g. `OTP-21.0.9`) where none of our backported fixes are present,
-and the active maintenance tip (e.g. `OTP-21.3.8.24`) where some or
-all of them have been merged upstream into 4-component security
-patches. The runner therefore tries each patch twice:
+The maintenance backport policy means that within a single major,
+different function-release lines have different sets of fixes
+already merged upstream. For example: `OTP-23.2.7` already has the
+arm64 darwin LDFLAGS fix that `OTP-23.0.4` does not. To avoid
+running brittle "forward-or-reverse" dry-run heuristics at build
+time, each function-release line gets its own directory holding
+*only* the patches it actually needs:
 
-* **forward dry-run with `-N`** — clean: apply.
-* **reverse dry-run** — clean: skip silently (already upstream).
-* **neither** — abort with a real conflict.
+* `OTP-23.0/` — arm64/aarch64 chk_arch_, arm64 darwin LDFLAGS,
+  in6addr stdio, macOS version check removal, erl_db_util variadic
+  BIF (7 fixes)
+* `OTP-23.1/` — only the missing aarch64 chk_arch_ entry
+* `OTP-23.2/` — only the missing aarch64 chk_arch_ entry
+* `OTP-23.3/` — nothing (all upstream)
 
-Two consequences for how patches in this directory should be written:
+The build script just iterates `patches/OTP-X.Y/*.patch` and
+forward-applies each one. No dry-runs, no reverse logic, no fuzz —
+if a patch is in the directory, it must apply cleanly.
+
+Patches shared across function-release lines within the same major
+are kept as relative symlinks back to the canonical copy, e.g.
+`patches/OTP-23.1/01-add-aarch64-arch.patch` →
+`../OTP-23.0/01-add-aarch64-arch.patch`. Git tracks the symlink, so
+a single edit to the canonical patch propagates everywhere.
+
+When adding a new fix:
 
 1. **Each `.patch` file should fix exactly one upstream issue** with
    the simplest possible shape — a pure addition or a pure deletion.
-   Mixed hunks (e.g. an ADD and a DELETE in the same file) make the
-   forward / reverse dry-run heuristic unreliable on a partially
-   backported tree, where one hunk is already applied and the other
-   isn't. Splitting into per-fix files gives each hunk its own
-   independent forward/reverse decision.
-2. **Patches must apply with `patch -p1 -N`**, not just `patch -p1`.
-   `-N` is what makes the forward dry-run *fail* on already-applied
-   hunks instead of silently auto-detecting "Reversed (or previously
-   applied) patch" and exiting 0.
-
-If you ever need a fix that only applies to a specific function-
-release line within a major, add a `patches/OTP-X.Y/` directory
-alongside the major-wide one — the runner can be extended to apply
-both. So far we haven't needed it.
+   Splitting the fix this way makes it easier to drop just the parts
+   that have been backported when a new function-release tip rolls
+   forward.
+2. **Place the patch only in the directories where it applies.**
+   Run `patch -p1 -N --dry-run` against each candidate function-
+   release tip to find out which lines need the fix; symlink-share
+   across the ones that do.
+3. **Patches must apply with `patch -p1 -N`** (no fuzz, no reverse).
+   The build aborts if any patch in the directory fails to apply.
 
 ## File format
 
@@ -128,11 +136,13 @@ modern toolchains. Patches likely to live here over time:
    `./configure …` and `make` the workflow does.)
 2. Make the smallest fix that compiles. Test that `erl` boots and
    `mix awfy.measure --benchmarks Bounce --time 1 --warmup 0` runs.
-3. `cd /tmp/otp && git diff > /Users/lukas/code/awfy/patches/OTP-X/01-short-name.patch`.
+3. `cd /tmp/otp && git diff > /Users/lukas/code/awfy/patches/OTP-X.Y/01-short-name.patch`.
    Use a numeric prefix to control apply order if patches depend on
    each other. Keep each `.patch` to a single upstream issue (see
-   "Mixed-state source trees" above) — split a multi-hunk fix into
-   one file per hunk if the hunks could be backported separately.
+   "Per-(major.minor) directories" above) — split a multi-hunk fix
+   into one file per hunk if the hunks could be backported separately.
+   If the same fix applies to multiple function-release lines in the
+   same major, symlink-share it from a canonical directory.
 4. Add the header comment described above.
 5. Commit. The next workflow run will pick the patch up automatically.
 

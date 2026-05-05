@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: macOS Apple Silicon reports `uname -m == arm64`. Without an
+#        entry in chk_arch_, ARCH falls through to noarch and the
+#        *-darwin* fallthrough then forces -m32 into LDFLAGS.
+# Upstream: Mark Peek b93b9f9543 (in OTP-24.0). Backported into
+#           OTP-23.2 maint; forward-applies on 23.0/.1, reverse-
+#           applies (= already upstream) on 23.2+.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -6361,6 +6361,7 @@
+     ppc64)	ARCH=ppc64;;
+     ppc64le)	ARCH=ppc64le;;
+     "Power Macintosh")	ARCH=ppc;;
++    arm64)	ARCH=arm64;;
+     armv5b)	ARCH=arm;;
+     armv5teb)	ARCH=arm;;
+     armv5tel)	ARCH=arm;;

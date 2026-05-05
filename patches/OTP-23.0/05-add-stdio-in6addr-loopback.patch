@@ -1,0 +1,18 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: same as 04 (missing <stdio.h> in a conftest), but for the
+#        in6addr_loopback declaration test rather than in6addr_any.
+# Upstream: Tyler Stromberg f32b878cfb (same commit as 04, in
+#           OTP-23.2). Backported into 23.2 maint.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -17710,6 +17713,7 @@
+ 		#include <sys/types.h>
+ 		#include <sys/socket.h>
+ 		#include <netinet/in.h>
++		#include <stdio.h>
+
+ int
+ main ()

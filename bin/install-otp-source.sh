@@ -92,56 +92,49 @@ trap 'rm -rf "$WORK"' EXIT
     cd "$SRC"
     export ERL_TOP="$SRC"
 
-    # Apply patches from $AWFY_ROOT/patches/OTP-<major>/*.patch — see
-    # patches/README.md for the convention. Patches are sorted by
-    # filename so prefixed numbers (01-foo.patch, 02-bar.patch) control
-    # apply order when fixes depend on each other. (AWFY_ROOT was
+    # Apply patches from $AWFY_ROOT/patches/OTP-<major>.<minor>/*.patch
+    # — see patches/README.md for the convention. Patches are sorted
+    # by filename so prefixed numbers (01-foo.patch, 02-bar.patch)
+    # control apply order when fixes depend on each other. Each
+    # function-release line (e.g. 23.0, 23.1, 23.2, 23.3) gets its
+    # own directory, holding only the patches that are missing from
+    # that line's source — patches already merged upstream into a
+    # given function-release are simply not present in its directory,
+    # so we can forward-apply unconditionally without dry-run /
+    # reverse-apply heuristics. Shared patches across minor lines are
+    # kept as symlinks into a sibling directory. (AWFY_ROOT was
     # resolved at the top of this script — see comment there.)
     case "$REF" in
-        OTP-*) MAJOR="$(echo "${REF#OTP-}" | cut -d. -f1)" ;;
-        master|main) MAJOR="master" ;;
-        maint-*) MAJOR="${REF#maint-}" ;;
-        *)
-            # Resolve major from the source's OTP_VERSION file.
+        OTP-*)
+            REF_VER="${REF#OTP-}"
+            MAJOR_MINOR="$(echo "$REF_VER" | cut -d. -f1-2)"
+            ;;
+        master|main) MAJOR_MINOR="master" ;;
+        maint-*)
+            # `maint-23` tracks the highest minor in OTP-23; we don't
+            # know which one without resolving, so look at the source.
             if [ -f "$SRC/OTP_VERSION" ]; then
-                MAJOR="$(head -1 "$SRC/OTP_VERSION" | cut -d. -f1)"
+                MAJOR_MINOR="$(head -1 "$SRC/OTP_VERSION" | cut -d. -f1-2)"
             else
-                MAJOR=""
+                MAJOR_MINOR=""
+            fi
+            ;;
+        *)
+            # Resolve from the source's OTP_VERSION file.
+            if [ -f "$SRC/OTP_VERSION" ]; then
+                MAJOR_MINOR="$(head -1 "$SRC/OTP_VERSION" | cut -d. -f1-2)"
+            else
+                MAJOR_MINOR=""
             fi
             ;;
     esac
 
-    PATCH_DIR="$AWFY_ROOT/patches/OTP-$MAJOR"
-    if [ -n "$MAJOR" ] && [ -d "$PATCH_DIR" ]; then
+    PATCH_DIR="$AWFY_ROOT/patches/OTP-$MAJOR_MINOR"
+    if [ -n "$MAJOR_MINOR" ] && [ -d "$PATCH_DIR" ]; then
         for p in "$PATCH_DIR"/*.patch; do
             [ -f "$p" ] || continue
-            # patches/OTP-<major>/ holds fixes targeted at *some*
-            # versions in the major. Within a single major different
-            # function-release lines can have the fix already
-            # backported (the maint tip OTP-21.3.8.24 has most of
-            # patches/OTP-21/ upstream; the older grey OTP-21.0.9
-            # doesn't). Distinguish with two dry-runs:
-            #   * forward applies cleanly  → fix is missing, apply
-            #   * reverse applies cleanly  → fix is already in source,
-            #                                skip silently
-            #   * neither                  → real conflict, abort
-            #
-            # `-N`/--forward on the forward dry-run is load-bearing: a
-            # plain `patch --dry-run` auto-detects already-applied
-            # hunks and silently exits 0 with "assume -R", which would
-            # send us down the apply branch and then the real
-            # `patch -p1` would either prompt for input or apply the
-            # reverse. With -N, already-applied patches return non-zero
-            # so we fall through to the explicit reverse check.
-            if patch -p1 -N --dry-run --silent < "$p" >/dev/null 2>&1; then
-                echo "Applying $p"
-                patch -p1 -N < "$p"
-            elif patch -p1 -R --dry-run --silent < "$p" >/dev/null 2>&1; then
-                echo "Skipping $p (already applied)"
-            else
-                echo "::error::patch $p does not apply forward or reverse against this source tree"
-                exit 1
-            fi
+            echo "Applying $p"
+            patch -p1 -N < "$p"
         done
     fi
 

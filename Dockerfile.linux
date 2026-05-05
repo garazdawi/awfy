@@ -69,28 +69,17 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     /usr/local/bin/fetch-otp-source.sh "${OTP_REF:-$OTP_SHA}" "$OTP_SHA" /tmp && \
     mv /tmp/otp /otp && \
     cd /otp && \
-    # Apply patches/OTP-<major>/*.patch matching this build's major.
-    # See patches/README.md for the convention.
+    # Apply patches/OTP-<major>.<minor>/*.patch matching this build's
+    # function-release line. See patches/README.md for the convention.
     if [ -f OTP_VERSION ]; then \
-      OTP_MAJOR="$(head -1 OTP_VERSION | cut -d. -f1)"; \
+      OTP_MAJOR_MINOR="$(head -1 OTP_VERSION | cut -d. -f1-2)"; \
     else \
-      OTP_MAJOR="$ELIXIR_OTP_MAJOR"; \
+      OTP_MAJOR_MINOR="$ELIXIR_OTP_MAJOR"; \
     fi && \
-    # `-N` on the forward dry-run is load-bearing: without it
-    # already-applied hunks make `patch --dry-run` silently exit 0
-    # via "assume -R", which then drives the apply branch into a
-    # reverse-apply. -N makes already-applied return non-zero so we
-    # fall through to the explicit reverse check below.
-    if [ -d "/tmp/patches/OTP-$OTP_MAJOR" ]; then \
-      for p in /tmp/patches/OTP-$OTP_MAJOR/*.patch; do \
+    if [ -d "/tmp/patches/OTP-$OTP_MAJOR_MINOR" ]; then \
+      for p in /tmp/patches/OTP-$OTP_MAJOR_MINOR/*.patch; do \
         [ -f "$p" ] || continue; \
-        if patch -p1 -N --dry-run --silent < "$p" >/dev/null 2>&1; then \
-          echo "Applying $p"; patch -p1 -N < "$p"; \
-        elif patch -p1 -R --dry-run --silent < "$p" >/dev/null 2>&1; then \
-          echo "Skipping $p (already applied)"; \
-        else \
-          echo "::error::patch $p does not apply forward or reverse"; exit 1; \
-        fi; \
+        echo "Applying $p"; patch -p1 -N < "$p"; \
       done; \
     fi && \
     ./configure \
