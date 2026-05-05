@@ -115,8 +115,33 @@ trap 'rm -rf "$WORK"' EXIT
     if [ -n "$MAJOR" ] && [ -d "$PATCH_DIR" ]; then
         for p in "$PATCH_DIR"/*.patch; do
             [ -f "$p" ] || continue
-            echo "Applying $p"
-            patch -p1 < "$p"
+            # patches/OTP-<major>/ holds fixes targeted at *some*
+            # versions in the major. Within a single major different
+            # function-release lines can have the fix already
+            # backported (the maint tip OTP-21.3.8.24 has most of
+            # patches/OTP-21/ upstream; the older grey OTP-21.0.9
+            # doesn't). Distinguish with two dry-runs:
+            #   * forward applies cleanly  → fix is missing, apply
+            #   * reverse applies cleanly  → fix is already in source,
+            #                                skip silently
+            #   * neither                  → real conflict, abort
+            #
+            # `-N`/--forward on the forward dry-run is load-bearing: a
+            # plain `patch --dry-run` auto-detects already-applied
+            # hunks and silently exits 0 with "assume -R", which would
+            # send us down the apply branch and then the real
+            # `patch -p1` would either prompt for input or apply the
+            # reverse. With -N, already-applied patches return non-zero
+            # so we fall through to the explicit reverse check.
+            if patch -p1 -N --dry-run --silent < "$p" >/dev/null 2>&1; then
+                echo "Applying $p"
+                patch -p1 -N < "$p"
+            elif patch -p1 -R --dry-run --silent < "$p" >/dev/null 2>&1; then
+                echo "Skipping $p (already applied)"
+            else
+                echo "::error::patch $p does not apply forward or reverse against this source tree"
+                exit 1
+            fi
         done
     fi
 

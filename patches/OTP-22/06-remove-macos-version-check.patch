@@ -1,30 +1,23 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fixes: make/configure aborts on modern macOS with
-#        "You are natively building Erlang/OTP for a later version of
-#         MacOSX than current version (26.4.1)".
-#        The script tries to assemble an integer macOS version from
-#        sw_vers output via a sed regex that assumes the old "10.X.Y"
-#        format and produces a 3-4 digit number. Modern macOS reports
-#        "26.4.1", which the regex maps to "2641", but the C-level
-#        comparison expects six digits like "260400" — so any
-#        single-digit minor or post-10.x macOS rejects the build.
-# Upstream: removed entirely in OTP-23.2 (Björn Gustavsson f1044ef9e3,
-#           "macOS: Remove version check in configure script"). The
-#           commit message: "The reason for this test has been lost in
-#           the mists of time." Modern Xcode handles deployment-target
-#           gating via -mmacosx-version-min anyway.
-# Drop this once we no longer build OTP < 23.2 from source on macOS.
+# Fixes: same as the OTP-21 counterpart but the file moved between
+#        majors — in OTP-22 the sw_vers / macosx_version block lives
+#        in `make/configure`, not the top-level `configure`.
+#        The block parses `sw_vers -productVersion` with a regex
+#        assuming a single-digit major (`[1-9][0-9]`); on macOS 11+
+#        the regex misbehaves and the `__ENVIRONMENT_MAC_OS_X_VERSION_
+#        MIN_REQUIRED__ > $int_macosx_version` guard fires with
+#        "natively building Erlang/OTP for a later version of MacOSX".
+# Upstream: f1044ef9e3, "Remove macos version check" (in OTP-23.2).
+#           Already removed in recent maint-22 patches.
 
 --- a/make/configure
 +++ b/make/configure
-@@ -4631,66 +4631,14 @@
- if test X${enable_native_libs} = Xyes -a X${enable_hipe} != Xno; then
-   NATIVE_LIBS_ENABLED=yes
+@@ -4633,65 +4633,6 @@
  fi
--
--
+
+
 -if test $CROSS_COMPILING = no; then
 -   case $host_os in
 -   	darwin*)
@@ -49,14 +42,14 @@
 -	   test $int_macosx_version != unexpected || {
 -	   	as_fn_error $? "Unexpected MacOSX version ($macosx_version) returned by 'sw_vers -productVersion'; this configure script probably needs to be updated" "$LINENO" 5
 -	   }
-
+-
 -cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 -/* end confdefs.h.  */
 -
 -#if __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ > $int_macosx_version
 -#error Compiling for a newer MacOSX version...
 -#endif
-
+-
 -int
 -main ()
 -{
@@ -83,12 +76,7 @@
 -	   ;;
 -   esac
 -fi
-+# macOS version check removed (upstream f1044ef9e3 in OTP-23.2):
-+# the regex parsing breaks for macOS 11+ (single-digit minor padded
-+# wrong), and the underlying compile-time check rejects any modern
-+# build host. The check was about ensuring built binaries can run on
-+# the same host that built them; modern Xcode handles this implicitly
-+# via -mmacosx-version-min, so the explicit gate is dead weight.
-
+-
  ac_ext=c
  ac_cpp='$CPP $CPPFLAGS'
+ ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'

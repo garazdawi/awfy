@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: configure's `in6addr_any is declared` test calls printf() in a
+#        conftest without including <stdio.h>. Old toolchains tolerated
+#        the implicit declaration; modern macOS Clang treats
+#        -Wimplicit-function-declaration as an error, so the conftest
+#        link fails and erts_cv_have_in6addr_any caches "no". The
+#        emulator then redefines `in6addr_any` as `static const`,
+#        clashing with libc's `extern` declaration in <netinet6/in6.h>
+#        and the build fails with "static declaration … follows
+#        non-static declaration".
+# Upstream: Tyler Stromberg f32b878cfb, "Add missing include statements
+#           in in6addr tests" (in OTP-23.2). Already backported into
+#           recent maint-21 patches.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -17598,6 +17600,7 @@
+ 		#include <sys/types.h>
+ 		#include <sys/socket.h>
+ 		#include <netinet/in.h>
++		#include <stdio.h>
+
+ int
+ main ()

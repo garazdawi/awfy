@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: same as the OTP-21 counterpart — Linux on Apple Silicon
+#        (`uname -m == aarch64` under crossbuild) without an entry in
+#        chk_arch_ falls through to noarch and configure derails.
+#        Hard prerequisite for any AArch64 host build.
+# Upstream: Mark Peek b93b9f9543, "Update config scripts to compile
+#           for Apple Silicon (arm64)" (in OTP-24.0). Not present in
+#           any released OTP-22 patch — every OTP-22 source needs this.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -6270,6 +6270,7 @@
+     armv6hl)	ARCH=arm;;
+     armv7l)	ARCH=arm;;
+     armv7hl)	ARCH=arm;;
++    aarch64)	ARCH=arm64;;
+     tile)	ARCH=tile;;
+     e2k)        ARCH=e2k;;
+     *)	 	ARCH=noarch;;

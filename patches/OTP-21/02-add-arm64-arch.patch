@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: macOS Apple Silicon reports `uname -m == arm64`. Without an
+#        entry in chk_arch_, ARCH falls through to noarch and the
+#        configure script derails (matches *-darwin* and forces -m32).
+# Upstream: Mark Peek b93b9f9543, "Update config scripts to compile
+#           for Apple Silicon (arm64)" (in OTP-24.0). Backported by
+#           the OTP team into recent maint-21 patches (e.g. present
+#           in OTP-21.3.8.24 source) so this patch reverse-applies
+#           cleanly there. On older OTP-21 sources without the
+#           backport, it forward-applies.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -6273,6 +6273,7 @@
+     ppc64)	ARCH=ppc64;;
+     ppc64le)	ARCH=ppc64le;;
+     "Power Macintosh")	ARCH=ppc;;
++    arm64)	ARCH=arm64;;
+     armv5b)	ARCH=arm;;
+     armv5teb)	ARCH=arm;;
+     armv5tel)	ARCH=arm;;

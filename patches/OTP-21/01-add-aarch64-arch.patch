@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: erts/configure's chk_arch_ table maps host_cpu names to OTP's
+#        ARCH variable. Linux ARM64 reports `uname -m == aarch64`, but
+#        OTP < 24 only has entries for armv5b/armv5tel/armv7l/etc. —
+#        not aarch64. The catchall sets ARCH=noarch, then the
+#        ARCH-$OPSYS case-statement matches `*-darwin*` (or noarch-*)
+#        and the build derails downstream.
+# Upstream: never landed for old branches. b93b9f9543 ("Update config
+#           scripts to compile for Apple Silicon") added arm64 (the
+#           Apple Silicon name from `uname -m`) but missed aarch64
+#           (the Linux ARM64 name). Both are needed for the awfy
+#           workflow which runs measure-linux-target on
+#           ubuntu-24.04-arm runners.
+# This patch is a pure addition between the existing armv7hl and tile
+# entries; both old (no arm64 either) and post-upstream-backport
+# (arm64 present, aarch64 still missing) source trees forward-apply
+# cleanly because the surrounding context is unchanged.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -6281,6 +6281,7 @@
+     armv6hl)	ARCH=arm;;
+     armv7l)	ARCH=arm;;
+     armv7hl)	ARCH=arm;;
++    aarch64)	ARCH=arm64;;
+     tile)	ARCH=tile;;
+     e2k)        ARCH=e2k;;
+     *)	 	ARCH=noarch;;

@@ -21,6 +21,38 @@ Both `bin/install-otp-source.sh` (used for macOS and Linux source
 builds) and `Dockerfile.linux` apply the same patch set, so a fix
 written once works across both environments.
 
+### Mixed-state source trees
+
+A single `patches/OTP-<major>/` set has to handle two source-tree
+shapes within the same major: older "grey" function-release tips
+(e.g. `OTP-21.0.9`) where none of our backported fixes are present,
+and the active maintenance tip (e.g. `OTP-21.3.8.24`) where some or
+all of them have been merged upstream into 4-component security
+patches. The runner therefore tries each patch twice:
+
+* **forward dry-run with `-N`** — clean: apply.
+* **reverse dry-run** — clean: skip silently (already upstream).
+* **neither** — abort with a real conflict.
+
+Two consequences for how patches in this directory should be written:
+
+1. **Each `.patch` file should fix exactly one upstream issue** with
+   the simplest possible shape — a pure addition or a pure deletion.
+   Mixed hunks (e.g. an ADD and a DELETE in the same file) make the
+   forward / reverse dry-run heuristic unreliable on a partially
+   backported tree, where one hunk is already applied and the other
+   isn't. Splitting into per-fix files gives each hunk its own
+   independent forward/reverse decision.
+2. **Patches must apply with `patch -p1 -N`**, not just `patch -p1`.
+   `-N` is what makes the forward dry-run *fail* on already-applied
+   hunks instead of silently auto-detecting "Reversed (or previously
+   applied) patch" and exiting 0.
+
+If you ever need a fix that only applies to a specific function-
+release line within a major, add a `patches/OTP-X.Y/` directory
+alongside the major-wide one — the runner can be extended to apply
+both. So far we haven't needed it.
+
 ## File format
 
 Patches are unified diffs against the OTP source tree, with paths
@@ -98,7 +130,9 @@ modern toolchains. Patches likely to live here over time:
    `mix awfy.measure --benchmarks Bounce --time 1 --warmup 0` runs.
 3. `cd /tmp/otp && git diff > /Users/lukas/code/awfy/patches/OTP-X/01-short-name.patch`.
    Use a numeric prefix to control apply order if patches depend on
-   each other.
+   each other. Keep each `.patch` to a single upstream issue (see
+   "Mixed-state source trees" above) — split a multi-hunk fix into
+   one file per hunk if the hunks could be backported separately.
 4. Add the header comment described above.
 5. Commit. The next workflow run will pick the patch up automatically.
 

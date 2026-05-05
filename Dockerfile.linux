@@ -76,11 +76,21 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     else \
       OTP_MAJOR="$ELIXIR_OTP_MAJOR"; \
     fi && \
+    # `-N` on the forward dry-run is load-bearing: without it
+    # already-applied hunks make `patch --dry-run` silently exit 0
+    # via "assume -R", which then drives the apply branch into a
+    # reverse-apply. -N makes already-applied return non-zero so we
+    # fall through to the explicit reverse check below.
     if [ -d "/tmp/patches/OTP-$OTP_MAJOR" ]; then \
       for p in /tmp/patches/OTP-$OTP_MAJOR/*.patch; do \
         [ -f "$p" ] || continue; \
-        echo "Applying $p"; \
-        patch -p1 < "$p"; \
+        if patch -p1 -N --dry-run --silent < "$p" >/dev/null 2>&1; then \
+          echo "Applying $p"; patch -p1 -N < "$p"; \
+        elif patch -p1 -R --dry-run --silent < "$p" >/dev/null 2>&1; then \
+          echo "Skipping $p (already applied)"; \
+        else \
+          echo "::error::patch $p does not apply forward or reverse"; exit 1; \
+        fi; \
       done; \
     fi && \
     ./configure \

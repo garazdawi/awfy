@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fixes: erts/configure's `case $ARCH-$OPSYS` block special-cases
+#        amd64-darwin* to add -m64 to LDFLAGS but routes everything
+#        else darwin to a *-darwin* fallthrough that adds -m32.
+#        With arm64 ARCH (from the previous patch) on macOS, we'd hit
+#        that fallthrough and get -m32 → "unknown architecture
+#        armv4t" linker errors.
+# Upstream: same commit as 02 (b93b9f9543). Already backported into
+#           OTP-22.3.4.27 et al.; older OTP-22 sources still need it.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -6328,7 +6330,7 @@
+
+
+ case $ARCH-$OPSYS in
+-	amd64-darwin*)
++	amd64-darwin*|arm64-darwin*)
+ 		{ $as_echo "$as_me:${as_lineno-$LINENO}: Adjusting LDFLAGS to cope with 64bit Darwin" >&5
+ $as_echo "$as_me: Adjusting LDFLAGS to cope with 64bit Darwin" >&6;}
+ 		case $LDFLAGS in

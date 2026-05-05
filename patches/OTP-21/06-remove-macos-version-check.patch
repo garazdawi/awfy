@@ -1,27 +1,23 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 #
-# Fixes: top-level ./configure aborts on modern macOS with
-#        "You are natively building Erlang/OTP for a later version of
-#         MacOSX than current version (26.4.1)".
-#        Same bug as the OTP-22 make/configure variant (regex-based
-#        version parsing assumes the old "10.X.Y" format), but in
-#        OTP-21 the check lives at the top level rather than under
-#        make/. Modern macOS (any 11+ release) trips the check
-#        unconditionally.
-# Upstream: removed in OTP-23.2 (Björn Gustavsson f1044ef9e3, "macOS:
-#           Remove version check in configure script"). Modern Xcode
-#           handles deployment-target gating via -mmacosx-version-min.
-# Drop this once we no longer build OTP < 23.2 from source on macOS.
+# Fixes: top-level configure runs an `sw_vers -productVersion` check that
+#        parses macOS version with a regex assuming single-digit major
+#        (`[1-9][0-9]`). On macOS 11+ the regex misbehaves and the
+#        compile-time guard `__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__
+#        > $int_macosx_version` fires with "natively building Erlang/OTP
+#        for a later version of MacOSX". Upstream removed the whole block
+#        — Apple toolchains already enforce deployment-target sanity, so
+#        the manual guard is redundant — and we follow suit.
+# Upstream: f1044ef9e3, "Remove macos version check" (in OTP-23.2).
+#           Already removed in OTP-21.3.8.24+ maint patches.
 
 --- a/configure
 +++ b/configure
-@@ -3962,66 +3962,14 @@
- if test X${enable_native_libs} = Xyes -a X${enable_hipe} != Xno; then
-   NATIVE_LIBS_ENABLED=yes
+@@ -3964,65 +3964,6 @@
  fi
--
--
+
+
 -if test $CROSS_COMPILING = no; then
 -   case $host_os in
 -   	darwin*)
@@ -46,14 +42,14 @@
 -	   test $int_macosx_version != unexpected || {
 -	   	as_fn_error $? "Unexpected MacOSX version ($macosx_version) returned by 'sw_vers -productVersion'; this configure script probably needs to be updated" "$LINENO" 5
 -	   }
-
+-
 -cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 -/* end confdefs.h.  */
 -
 -#if __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ > $int_macosx_version
 -#error Compiling for a newer MacOSX version...
 -#endif
-
+-
 -int
 -main ()
 -{
@@ -80,12 +76,7 @@
 -	   ;;
 -   esac
 -fi
-+# macOS version check removed (upstream f1044ef9e3 in OTP-23.2):
-+# the regex parsing breaks for macOS 11+ (single-digit minor padded
-+# wrong), and the underlying compile-time check rejects any modern
-+# build host. The check was about ensuring built binaries can run on
-+# the same host that built them; modern Xcode handles this implicitly
-+# via -mmacosx-version-min, so the explicit gate is dead weight.
-
+-
  rm -f $ERL_TOP/lib/SKIP-APPLICATIONS
  for app in `cd lib && ls -d *`; do
+     var=`eval echo \\$with_$app`
