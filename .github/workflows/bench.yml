@@ -160,9 +160,9 @@ jobs:
           # resolve. See that script for the rationale on aborting
           # vs hardcoded fallback.
           _MASTER_MAJOR=""
-          latest_master_major() {
+          next_master_major() {
             if [ -z "$_MASTER_MAJOR" ]; then
-              _MASTER_MAJOR="$(./bin/latest-master-major.sh)"
+              _MASTER_MAJOR="$(./bin/next-master-major.sh)"
             fi
             echo "$_MASTER_MAJOR"
           }
@@ -171,13 +171,13 @@ jobs:
             local r="$1"
             case "$r" in
               OTP-*) echo "$r" | sed 's|^OTP-||' | cut -d. -f1 ;;
-              master) latest_master_major ;;
+              master) next_master_major ;;
               maint-*) echo "$r" | sed 's|^maint-||' ;;
               *)
                 local sha="$2" v
                 v="$(curl -fsSL "https://raw.githubusercontent.com/erlang/otp/$sha/OTP_VERSION" 2>/dev/null \
                      | head -1 | cut -d. -f1)"
-                [ -n "$v" ] && echo "$v" || latest_master_major
+                [ -n "$v" ] && echo "$v" || next_master_major
                 ;;
             esac
           }

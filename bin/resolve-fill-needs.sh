@@ -88,9 +88,9 @@ fi
 # on curl failure rather than fall back to a hardcoded number.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 _MASTER_MAJOR=""
-latest_master_major() {
+next_master_major() {
   if [ -z "$_MASTER_MAJOR" ]; then
-    _MASTER_MAJOR="$("$SCRIPT_DIR/latest-master-major.sh")"
+    _MASTER_MAJOR="$("$SCRIPT_DIR/next-master-major.sh")"
   fi
   echo "$_MASTER_MAJOR"
 }
@@ -105,7 +105,7 @@ otp_major_for_ref() {
       echo "${r#OTP-}" | cut -d. -f1
       ;;
     master)
-      latest_master_major
+      next_master_major
       ;;
     maint-*)
       echo "${r#maint-}"
@@ -122,7 +122,7 @@ otp_major_for_ref() {
       if [ -n "$v" ]; then
         echo "$v"
       else
-        latest_master_major
+        next_master_major
       fi
       ;;
   esac

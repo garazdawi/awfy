@@ -31,7 +31,7 @@ major="$(
 )"
 
 if [ -z "$major" ]; then
-  echo "[latest-master-major] failed to fetch erlang/otp master OTP_VERSION; cannot determine current major" >&2
+  echo "[next-master-major] failed to fetch erlang/otp master OTP_VERSION; cannot determine current major" >&2
   exit 1
 fi
 
