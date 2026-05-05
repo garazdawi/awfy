@@ -33,3 +33,16 @@ path = "apps/awfy/priv/rap_benchmark.json"
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Stefan Marr"
 SPDX-License-Identifier = "MIT"
+
+# OTP build patches: a prose header explaining the failure and an
+# inline unified diff against erlang/otp source. The diff content
+# follows OTP's Apache-2.0 licence and the prose was written here,
+# so Apache-2.0 covers both. Bulk annotation avoids needing
+# `# SPDX-…` lines on every patch (which would also confuse some
+# `patch` implementations that get strict about leading `#` outside
+# the diff body).
+[[annotations]]
+path = "patches/OTP-*/*.patch"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
+SPDX-License-Identifier = "Apache-2.0"
