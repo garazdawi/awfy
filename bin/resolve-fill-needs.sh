@@ -302,12 +302,15 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   # otp_label is what the dashboard plots on its x axis. We carry the
   # full resolved version ("28.5.4", "29.0-rc3") for tagged refs so
   # the snapshot legend is unambiguous — the dashboard buckets by
-  # major for grouping. "master" / "maint-*" pass through verbatim so
-  # they land at the right edge of the trend chart.
+  # major for grouping. "master" / "maint" / "maint-*" pass through
+  # verbatim so they land at the right edge of the trend chart;
+  # without bare `maint` here it falls into the catch-all and gets
+  # relabelled as its resolved major (28), folding into the 28.x
+  # lineage instead of getting its own dashboard slot.
   case "$ref" in
-    master|main|maint-*) otp_label="$ref" ;;
-    OTP-*)               otp_label="${ref#OTP-}" ;;
-    *)                   otp_label="$major" ;;
+    master|main|maint|maint-*) otp_label="$ref" ;;
+    OTP-*)                     otp_label="${ref#OTP-}" ;;
+    *)                         otp_label="$major" ;;
   esac
 
   # Windows installer ref. measure-windows for OTP ≥ 24 hits patch-
