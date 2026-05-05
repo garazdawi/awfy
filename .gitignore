@@ -8,6 +8,7 @@ erl_crash.dump
 .elixir_ls/
 results/
 tmp/
+node_modules/
 # mix awfy.fill working dirs:
 _pages/
 _fill_results/

@@ -39,7 +39,8 @@ defmodule AwfyRunner.MixProject do
       # it's a real source of measurement noise. Force consolidation in
       # every env so the numbers are comparable to a release build.
       consolidate_protocols: true,
-      deps: deps()
+      deps: deps(),
+      aliases: aliases()
     ]
   end
 
@@ -58,6 +59,27 @@ defmodule AwfyRunner.MixProject do
       # don't pick up unwanted runtime libs.
       {:benchee, "~> 1.5", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.4"}
+    ]
+  end
+
+  # `mix precommit` runs locally everything CI runs — compiler as
+  # error, REUSE, shellcheck, and ESLint/stylelint on
+  # priv/dashboard.{js,css}. Faster than waiting for the GHA
+  # round-trip and catches the same issues. Requires:
+  #   * `reuse` on $PATH         — pip install reuse
+  #   * `shellcheck` on $PATH    — brew install shellcheck
+  #   * `npm install` once       — populates node_modules/ for the
+  #                                JS/CSS linters
+  defp aliases do
+    [
+      precommit: [
+        "compile --warnings-as-errors",
+        "cmd reuse lint --quiet",
+        # mix `cmd` runs execvp without a shell — wrap in `sh -c` so
+        # the bin/*.sh glob expands.
+        ~s|cmd sh -c 'shellcheck bin/*.sh'|,
+        "cmd npm run lint --silent"
+      ]
     ]
   end
 end

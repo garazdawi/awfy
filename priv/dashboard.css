@@ -1,0 +1,112 @@
+/* SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+   SPDX-License-Identifier: Apache-2.0
+
+   Palette pulled from erlang.org: brand red #a2003e, body #202020,
+   border #dee2e6, link blue #0d6efd, Montserrat as the headline
+   sans. Layout stays content-first — generous whitespace, no
+   heavy chrome. */
+:root {
+  --er-red: #a2003e;
+  --er-red-soft: #fbeef2;
+  --er-text: #202020;
+  --er-muted: #6c757d;
+  --er-border: #dee2e6;
+  --er-bg: #ffffff;
+  --er-tint: #f8f9fa;
+  --er-link: #0d6efd;
+  --er-good: #1f6f33;
+  --er-bad: #b03030;
+  --sans: "Montserrat", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+  color: var(--er-text);
+  background: var(--er-bg);
+  line-height: 1.55;
+}
+a { color: var(--er-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.site-header {
+  display: flex; align-items: baseline; gap: 0.75rem;
+  padding-bottom: 1rem; margin-bottom: 1.5rem;
+  border-bottom: 4px solid var(--er-red);
+}
+.site-header .brand { font-weight: 700; font-size: 1.05rem; color: var(--er-red); letter-spacing: 0.02em; text-transform: uppercase; }
+.site-header .brand a { color: inherit; }
+.site-header .breadcrumb { color: var(--er-muted); font-size: 0.9rem; }
+.site-header .breadcrumb a { color: var(--er-muted); }
+h1 { font-weight: 700; font-size: 1.75rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+h1 + .sub { color: var(--er-muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+h3 { font-weight: 600; font-size: 1.15rem; margin-top: 2.5rem; margin-bottom: 0.25rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--er-border); }
+h3 + .sub { color: var(--er-muted); margin-top: 0.4rem; font-size: 0.9rem; }
+.warnings { background: #fff8e1; border-left: 4px solid #f6b73c; padding: 0.6rem 1rem; margin: 1rem 0; border-radius: 4px; }
+.warnings ul { margin: 0.25rem 0 0 1.25rem; padding: 0; }
+.headline {
+  font-size: 1rem; line-height: 1.55;
+  padding: 0.85rem 1.1rem; margin: 0 0 1.5rem;
+  background: var(--er-red-soft);
+  border-left: 4px solid var(--er-red);
+  border-radius: 4px;
+}
+.headline .num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.headline .speedup { color: var(--er-good); }
+.headline .slowdown { color: var(--er-bad); }
+.headline .empty { color: var(--er-muted); font-style: italic; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 2px solid var(--er-border); margin-bottom: 1rem; }
+.tab { background: none; border: none; padding: 0.55rem 1.1rem; cursor: pointer; font: inherit; font-size: 0.95rem; color: var(--er-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.1s, border-color 0.1s; }
+.tab:hover { color: var(--er-red); }
+.tab.active { color: var(--er-red); border-bottom-color: var(--er-red); font-weight: 600; }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 1.25rem;
+  align-items: center; margin-bottom: 1rem; font-size: 0.9rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--er-tint);
+  border: 1px solid var(--er-border);
+  border-radius: 4px;
+}
+.controls .group { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+.controls .group b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.controls label { cursor: pointer; user-select: none; }
+.controls select { font: inherit; padding: 0.15rem 0.35rem; border: 1px solid var(--er-border); border-radius: 3px; background: white; }
+.reset-btn {
+  margin-left: auto; font: inherit; font-size: 0.85rem;
+  padding: 0.3rem 0.7rem; cursor: pointer;
+  background: white; color: var(--er-muted);
+  border: 1px solid var(--er-border); border-radius: 3px;
+}
+.reset-btn:hover { color: var(--er-red); border-color: var(--er-red); }
+/* Chart.js responsive sizing (with maintainAspectRatio:false)
+   reads the canvas's parent for dimensions and writes inline
+   width/height back onto the canvas. Wrap each canvas in a
+   .chart-wrap that owns the size, and *don't* style the
+   canvas itself — Chart.js needs the freedom to set its CSS
+   and bitmap dimensions in lock-step. */
+.chart-wrap { position: relative; width: 100%; height: 360px; margin: 1rem 0; }
+.chart-wrap.snapshot { height: 600px; }
+h3.snapshot-heading { margin-top: 1rem; }
+.snapshot-majors {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 0.85rem; font-size: 0.9rem; margin: 0.6rem 0;
+}
+.snapshot-majors b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.snapshot-majors label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
+.bench-links { columns: 3; padding-left: 1.25rem; }
+.bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
+details { margin-top: 1.5rem; }
+summary { cursor: pointer; color: var(--er-muted); font-size: 0.9rem; }
+summary:hover { color: var(--er-text); }
+pre { background: var(--er-tint); padding: 0.6rem 0.8rem; overflow-x: auto; font-size: 0.82rem; font-family: var(--mono); border: 1px solid var(--er-border); border-radius: 4px; }
+code { font-family: var(--mono); background: var(--er-tint); padding: 0.05em 0.3em; border-radius: 3px; font-size: 0.9em; }
+@media (max-width: 600px) {
+  body { padding: 1rem 0.75rem 2rem; }
+  h1 { font-size: 1.4rem; }
+  .chart-wrap { height: 300px; }
+  .chart-wrap.snapshot { height: 520px; }
+  .bench-links { columns: 2; }
+  .tab { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
+}

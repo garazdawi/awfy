@@ -1,0 +1,18 @@
+{
+  "name": "awfy-dashboard-lint",
+  "private": true,
+  "type": "module",
+  "description": "JS/CSS lint config for the static dashboard in priv/dashboard.{js,css}. Embedded into the generated HTML by lib/mix/tasks/awfy.compare.ex at compile time. Not shipped as an npm package.",
+  "scripts": {
+    "lint": "npm run lint:js && npm run lint:css",
+    "lint:js": "eslint priv/dashboard.js",
+    "lint:css": "stylelint priv/dashboard.css"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "globals": "^15.14.0",
+    "stylelint": "^16.13.2",
+    "stylelint-config-standard": "^37.0.0"
+  }
+}
