@@ -77,18 +77,34 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # Two separate matrices: targets_modern (OTP ≥ 24, runs through
-      # the existing same-OTP peer flow with a per-target Docker image)
-      # and targets_target_mode (OTP < 24, runs through the cross-OTP
-      # target-runner — host orchestrator on modern Elixir/OTP, target
-      # `erl` from a source build, no Docker). The split lets each path
-      # keep the matrix shape that fits its build pipeline; the
-      # has_* flags gate the corresponding measure jobs so an empty
-      # array doesn't break matrix expansion.
-      targets_modern: ${{ steps.r.outputs.targets_modern }}
-      targets_target_mode: ${{ steps.r.outputs.targets_target_mode }}
-      has_modern: ${{ steps.r.outputs.has_modern }}
-      has_target_mode: ${{ steps.r.outputs.has_target_mode }}
+      # Six per-(major, platform) target lists. Two majors:
+      #   * modern_*  — OTP ≥ 24, runs through the same-OTP peer flow
+      #                 with a per-target Docker image on Linux,
+      #                 setup-beam on Windows, source build on macOS.
+      #   * legacy_*  — OTP < 24, runs through the cross-OTP
+      #                 target-runner: host orchestrator on modern
+      #                 Elixir/OTP shells out to a target `erl` built
+      #                 from source via install-otp-source.sh.
+      # Three platforms (linux / macos / windows) for each. Splitting
+      # along both axes lets `fill` route a partially-published ref
+      # only to the legs that are missing — adding a new platform
+      # later doesn't force a re-run of refs that already have all
+      # the older platforms.
+      #
+      # The has_* booleans gate the corresponding measure job's `if:`
+      # so an empty array doesn't break matrix expansion downstream.
+      targets_modern_linux:   ${{ steps.r.outputs.targets_modern_linux }}
+      targets_modern_macos:   ${{ steps.r.outputs.targets_modern_macos }}
+      targets_modern_windows: ${{ steps.r.outputs.targets_modern_windows }}
+      targets_legacy_linux:   ${{ steps.r.outputs.targets_legacy_linux }}
+      targets_legacy_macos:   ${{ steps.r.outputs.targets_legacy_macos }}
+      targets_legacy_windows: ${{ steps.r.outputs.targets_legacy_windows }}
+      has_modern_linux:   ${{ steps.r.outputs.has_modern_linux }}
+      has_modern_macos:   ${{ steps.r.outputs.has_modern_macos }}
+      has_modern_windows: ${{ steps.r.outputs.has_modern_windows }}
+      has_legacy_linux:   ${{ steps.r.outputs.has_legacy_linux }}
+      has_legacy_macos:   ${{ steps.r.outputs.has_legacy_macos }}
+      has_legacy_windows: ${{ steps.r.outputs.has_legacy_windows }}
       # Pass-through for the workflow input. Empty = full suite.
       # Threaded into every measure-* job's awfy.measure invocation
       # as `--benchmarks <list>` when non-empty.
@@ -362,10 +378,24 @@ jobs:
             esac
           }
 
-          modern="["
-          legacy="["
-          sep_m=""
-          sep_l=""
+          # Per-(major, platform) target lists. Splitting `modern` /
+          # `legacy` into three each lets fill skip individual
+          # platforms when only some of them are missing for a ref —
+          # e.g. backfilling measure-macos-target after the leg landed
+          # doesn't re-run linux-target / windows-target on refs that
+          # already have those.
+          modern_linux="["
+          modern_macos="["
+          modern_windows="["
+          legacy_linux="["
+          legacy_macos="["
+          legacy_windows="["
+          sep_m_linux=""
+          sep_m_macos=""
+          sep_m_windows=""
+          sep_l_linux=""
+          sep_l_macos=""
+          sep_l_windows=""
           for raw in $(echo "$INPUT_REFS" | tr ',' ' '); do
             raw="$(echo "$raw" | xargs)" # trim whitespace
             ref="$(expand_ref "$raw")"
@@ -391,73 +421,75 @@ jobs:
             label="${short}-test"
             major="$(otp_major_for_ref "$ref" "$sha")"
 
-            # Fill-mode coverage check.
+            # Fill-mode coverage check, per (ref, platform).
             #
-            # Default (no benchmarks input): skip the ref if every
-            # expected platform already has at least one run-dir on
-            # gh-pages. Coarse — partial coverage (e.g. missing only
-            # Windows) re-runs all platforms for the ref and relies
-            # on publish's per-rundir dedupe to avoid double-uploads.
+            # Default (no benchmarks input): for each platform, the
+            # ref needs that platform's measurement run iff there's
+            # no `_<sha10>-test-<plat>-` run-dir on gh-pages.
             #
-            # benchmarks input set: skip only if every (platform,
-            # benchmark) pair is already covered. This is what makes
-            # `fill` + `benchmarks=Bounce` cheap — refs whose existing
-            # run-dirs already include Bounce.benchee for every
-            # platform are skipped; the rest re-run, but the workflow
-            # also passes `--benchmarks Bounce` to mix awfy.measure so
-            # only Bounce executes. The new run-dir is timestamped
-            # separately (publish doesn't merge into existing dirs);
-            # the dashboard already groups multiple run-dirs per
-            # (sha, platform), so the new datapoint just adds to the
+            # benchmarks input set: for each platform, the ref needs
+            # that platform's run iff any requested benchmark lacks a
+            # matching `<Bench>.benchee` blob under that platform's
+            # run-dirs. The workflow passes `--benchmarks <list>` to
+            # mix awfy.measure so only those benchmarks actually
+            # execute. The new run-dir is timestamped separately
+            # (publish doesn't merge into existing dirs); the
+            # dashboard already groups multiple run-dirs per
+            # (sha, platform), so the new datapoint just joins the
             # series rather than replacing it.
+            #
+            # Per-platform tracking lets fill route the ref to only
+            # the legs that are missing. If a pre-24 ref has linux +
+            # windows already and only macos is missing, only
+            # measure-macos-target runs for it.
+            #
+            # Why herestring (`<<<`) feeding grep, not `printf|grep`:
+            # the pipe form trips on SIGPIPE under `set -o pipefail`.
+            # When grep matches and exits early, printf's next write
+            # fails with EPIPE (exit 141), pipefail surfaces that as
+            # the pipeline's exit, the outer `if ! …` flips, and we
+            # conclude "platform missing" exactly when it's present.
+            # Herestring avoids the process pipe entirely — bash
+            # writes the variable to a temp file fed as grep's stdin,
+            # so grep's early exit doesn't propagate backwards.
+            need_linux=1
+            need_macos=1
+            need_windows=1
             if [ "$FILL_MODE" = "1" ]; then
-              # Every ref covers all three platforms: modern (≥24)
-              # via measure-{linux,macos,windows}, legacy (<24) via
-              # the matching *-target jobs. Legacy is emu-only —
-              # BEAM JIT didn't exist yet, HiPE-as-jit isn't wired
-              # through the harness.
-              expected_platforms="linux macos windows"
-              # Use a herestring (`<<<`) feeding grep, NOT
-              # `printf | grep`. The pipe form trips on SIGPIPE under
-              # `set -o pipefail`: when grep matches and exits early,
-              # printf's next write fails with EPIPE (exit 141),
-              # pipefail surfaces that as the pipeline's exit, the
-              # outer `if ! …` flips, and we conclude "platform
-              # missing" exactly when the platform is in fact present.
-              # Herestring avoids the process pipe entirely — bash
-              # writes the variable to a temp file fed as grep's
-              # stdin, so grep's early exit doesn't propagate
-              # backwards.
-              all_present=1
-              if [ -n "$INPUT_BENCHMARKS" ] && [ -n "$EXISTING_BENCHEES" ]; then
-                # Per-(platform, benchmark) presence check.
-                IFS=',' read -ra benches <<<"$INPUT_BENCHMARKS"
-                for plat in $expected_platforms; do
+              for plat in linux macos windows; do
+                plat_missing=1
+                if [ -n "$INPUT_BENCHMARKS" ] && [ -n "$EXISTING_BENCHEES" ]; then
+                  # All requested benchmarks present for this platform?
+                  plat_missing=0
+                  IFS=',' read -ra benches <<<"$INPUT_BENCHMARKS"
                   for b in "${benches[@]}"; do
                     if ! grep -qE "_${short}-test-${plat}-[^/]+/${b}\.benchee$" \
                           <<<"$EXISTING_BENCHEES"; then
-                      all_present=0
-                      break 2
+                      plat_missing=1
+                      break
                     fi
                   done
-                done
-                if [ "$all_present" = "1" ]; then
-                  echo "[fill] $ref ($short) already has all requested benchmarks for every platform — skipping"
-                  continue
-                fi
-              else
-                # Default: any-platform-missing → re-run.
-                for plat in $expected_platforms; do
-                  if ! grep -q "_${short}-test-${plat}-" <<<"$EXISTING_RUNDIRS"; then
-                    all_present=0
-                    break
+                else
+                  # Any run-dir present for this platform?
+                  if grep -q "_${short}-test-${plat}-" <<<"$EXISTING_RUNDIRS"; then
+                    plat_missing=0
                   fi
-                done
-                if [ "$all_present" = "1" ]; then
-                  echo "[fill] $ref ($short) already complete on gh-pages — skipping"
-                  continue
                 fi
+                case "$plat" in
+                  linux)   need_linux=$plat_missing ;;
+                  macos)   need_macos=$plat_missing ;;
+                  windows) need_windows=$plat_missing ;;
+                esac
+              done
+              if [ "$need_linux" = "0" ] && [ "$need_macos" = "0" ] && [ "$need_windows" = "0" ]; then
+                echo "[fill] $ref ($short) already complete on gh-pages — skipping"
+                continue
               fi
+              missing=""
+              [ "$need_linux"   = "1" ] && missing="${missing} linux"
+              [ "$need_macos"   = "1" ] && missing="${missing} macos"
+              [ "$need_windows" = "1" ] && missing="${missing} windows"
+              echo "[fill] $ref ($short) needs:${missing}"
             fi
 
             elixir="$(elixir_version_for_major "$major")"
@@ -534,43 +566,61 @@ jobs:
             # target-runner path: build target OTP from source, run
             # the orchestrator on a pinned modern Elixir, shell out to
             # the target erl per benchmark.
+            #
+            # The need_<plat> flags decide which per-platform list
+            # this ref lands in. In FILL_MODE the flags reflect what's
+            # missing on gh-pages; outside fill they default to 1 so
+            # every leg runs.
             if [ "$major" -lt 24 ] 2>/dev/null; then
-              legacy="${legacy}${sep_l}${entry}"
-              sep_l=","
+              [ "$need_linux"   = "1" ] && { legacy_linux="${legacy_linux}${sep_l_linux}${entry}";    sep_l_linux=","; }
+              [ "$need_macos"   = "1" ] && { legacy_macos="${legacy_macos}${sep_l_macos}${entry}";    sep_l_macos=","; }
+              [ "$need_windows" = "1" ] && { legacy_windows="${legacy_windows}${sep_l_windows}${entry}"; sep_l_windows=","; }
               echo "Resolved $raw → $ref → $sha (OTP $major, target-runner mode)"
             else
-              modern="${modern}${sep_m}${entry}"
-              sep_m=","
+              [ "$need_linux"   = "1" ] && { modern_linux="${modern_linux}${sep_m_linux}${entry}";    sep_m_linux=","; }
+              [ "$need_macos"   = "1" ] && { modern_macos="${modern_macos}${sep_m_macos}${entry}";    sep_m_macos=","; }
+              [ "$need_windows" = "1" ] && { modern_windows="${modern_windows}${sep_m_windows}${entry}"; sep_m_windows=","; }
               echo "Resolved $raw → $ref → $sha (OTP $major, Elixir $elixir)"
             fi
           done
-          modern="${modern}]"
-          legacy="${legacy}]"
+          modern_linux="${modern_linux}]"
+          modern_macos="${modern_macos}]"
+          modern_windows="${modern_windows}]"
+          legacy_linux="${legacy_linux}]"
+          legacy_macos="${legacy_macos}]"
+          legacy_windows="${legacy_windows}]"
 
           # has_* drive `if:` on the dependent measure jobs so an empty
           # array doesn't break matrix expansion downstream.
-          [ "$modern" = "[]" ] && has_modern=false || has_modern=true
-          [ "$legacy" = "[]" ] && has_target_mode=false || has_target_mode=true
-
           {
-            echo "targets_modern=$modern"
-            echo "targets_target_mode=$legacy"
-            echo "has_modern=$has_modern"
-            echo "has_target_mode=$has_target_mode"
+            for var in modern_linux modern_macos modern_windows \
+                       legacy_linux legacy_macos legacy_windows; do
+              val=$(eval echo "\${$var}")
+              echo "targets_${var}=${val}"
+              if [ "$val" = "[]" ]; then
+                echo "has_${var}=false"
+              else
+                echo "has_${var}=true"
+              fi
+            done
           } >> "$GITHUB_OUTPUT"
-          echo "Modern targets:      $modern"
-          echo "Target-mode targets: $legacy"
+          echo "Modern   linux:   $modern_linux"
+          echo "Modern   macos:   $modern_macos"
+          echo "Modern   windows: $modern_windows"
+          echo "Target-mode linux:   $legacy_linux"
+          echo "Target-mode macos:   $legacy_macos"
+          echo "Target-mode windows: $legacy_windows"
 
   build-linux:
     needs: resolve
-    if: needs.resolve.outputs.has_modern == 'true'
+    if: needs.resolve.outputs.has_modern_linux == 'true'
     permissions:
       contents: read
       packages: write   # push image to GHCR
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -609,14 +659,14 @@ jobs:
 
   measure-linux:
     needs: [resolve, build-linux]
-    if: needs.resolve.outputs.has_modern == 'true'
+    if: needs.resolve.outputs.has_modern_linux == 'true'
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest }
           - { name: arm64,  runner: ubuntu-24.04-arm }
@@ -672,14 +722,14 @@ jobs:
 
   measure-windows:
     needs: resolve
-    if: needs.resolve.outputs.has_modern == 'true'
+    if: needs.resolve.outputs.has_modern_windows == 'true'
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_windows) }}
         # The upstream Windows installer ships JIT-only (no
         # beam.emu.dll). Measuring emu on Windows would require
         # building OTP from source on the runner (slow + fiddly on
@@ -816,13 +866,13 @@ jobs:
 
   measure-macos:
     needs: resolve
-    if: needs.resolve.outputs.has_modern == 'true'
+    if: needs.resolve.outputs.has_modern_macos == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_macos) }}
         flavor: [jit, emu]
     runs-on: macos-latest
     steps:
@@ -939,13 +989,13 @@ jobs:
   # ---------------------------------------------------------------
   measure-linux-target:
     needs: resolve
-    if: needs.resolve.outputs.has_target_mode == 'true'
+    if: needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest }
           - { name: arm64,  runner: ubuntu-24.04-arm }
@@ -1051,14 +1101,14 @@ jobs:
   # ---------------------------------------------------------------
   measure-windows-target:
     needs: resolve
-    if: needs.resolve.outputs.has_target_mode == 'true'
+    if: needs.resolve.outputs.has_legacy_windows == 'true'
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_windows) }}
         flavor: [emu]
     runs-on: windows-latest
     steps:
@@ -1230,13 +1280,13 @@ jobs:
   # ---------------------------------------------------------------
   measure-macos-target:
     needs: resolve
-    if: needs.resolve.outputs.has_target_mode == 'true'
+    if: needs.resolve.outputs.has_legacy_macos == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_macos) }}
         flavor: [emu]
     runs-on: macos-latest
     steps:
