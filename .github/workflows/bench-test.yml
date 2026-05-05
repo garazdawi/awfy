@@ -109,6 +109,11 @@ jobs:
       # Threaded into every measure-* job's awfy.measure invocation
       # as `--benchmarks <list>` when non-empty.
       benchmarks: ${{ inputs.benchmarks || '' }}
+      # Set when INPUT_REFS=all — tells the publish job to delete
+      # the existing gh-pages worktree's run-dirs before staging
+      # this run's results, so the dashboard ends up with only the
+      # freshly-built data (and consistent labels).
+      wipe_gh_pages: ${{ steps.r.outputs.wipe_gh_pages }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -131,11 +136,17 @@ jobs:
 
           # Stage 1: turn `all`/`fill` (or shorthand like `21`, `22.3`)
           # into a flat comma-separated list of full OTP refs. Only
-          # `fill` engages the fill-mode skip check below.
+          # `fill` engages the fill-mode skip check below; only
+          # `all` flags the publish step to wipe gh-pages first.
           if [ "$INPUT_REFS" = "fill" ]; then
             FILL_MODE=1
           else
             FILL_MODE=0
+          fi
+          if [ "$INPUT_REFS" = "all" ]; then
+            echo "wipe_gh_pages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "wipe_gh_pages=false" >> "$GITHUB_OUTPUT"
           fi
           EXPANDED="$(./bin/expand-otp-refs.sh "$INPUT_REFS")"
           echo "[resolve] expanded \"$INPUT_REFS\" → $EXPANDED"
@@ -925,7 +936,28 @@ jobs:
             (cd _pages && git rm -rf . || true)
           fi
 
+      # `all` is the "rebuild from scratch" mode — wipe the
+      # existing run-dirs (and stale rendered HTML) so the dashboard
+      # ends up reflecting only this workflow's freshly-built data,
+      # with consistent labels (the previous mistake we hit was
+      # bare-`maint` runs being recorded as "28" before the
+      # otp_label fix in 944ba64a, then sticking around because the
+      # fill skip logic kept them). Preserves _pages/.git so the
+      # worktree stays valid.
+      - name: Wipe existing gh-pages content (`all` mode)
+        if: needs.resolve.outputs.wipe_gh_pages == 'true'
+        run: |
+          echo "[publish] wiping all existing content from gh-pages worktree"
+          find _pages -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+      # Push events run the bench-test pipeline as a smoke test of
+      # the workflow itself, but their measurement output is noise
+      # we don't want polluting the dashboard. Skip the staging
+      # step on push and let the regenerate step below re-render
+      # against whatever's already on gh-pages — so dashboard code
+      # changes show up without adding new data points.
       - name: Stage new run-dirs
+        if: github.event_name != 'push'
         run: |
           shopt -s nullglob
           for art in artifacts/*/; do
