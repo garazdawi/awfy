@@ -659,12 +659,13 @@ jobs:
   # target VM is built from source on the runner via
   # bin/install-otp-source.sh and shelled out to per benchmark.
   #
-  # Linux x86_64 only for v1. Adding linux-arm64 + macos-arm64 paths
-  # is mechanical (same script works on all three) but each adds a
-  # ~10-min cold OTP build, so we widen as patches land per major.
-  # OTP 20-23 only run the `emu` flavor — the JIT didn't exist yet,
-  # and HiPE-as-jit-equivalent (compiling sources with `+native`)
-  # isn't wired through the harness. See patches/README.md.
+  # Both x86_64 and arm64 supported (same install-otp-source.sh, same
+  # patches). Adding more platforms (macos-arm64) is mechanical but
+  # each adds a ~10-min cold OTP build, so we widen as the per-major
+  # patches land. OTP 20-23 only run the `emu` flavor — the JIT
+  # didn't exist yet, and HiPE-as-jit-equivalent (compiling sources
+  # with `+native`) isn't wired through the harness.
+  # See patches/README.md.
   # ---------------------------------------------------------------
   measure-linux-target:
     needs: resolve
@@ -677,6 +678,7 @@ jobs:
         target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest }
+          - { name: arm64,  runner: ubuntu-24.04-arm }
         flavor: [emu]
     runs-on: ${{ matrix.arch.runner }}
     steps:
