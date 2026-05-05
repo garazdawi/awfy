@@ -281,7 +281,37 @@ jobs:
               OTP-*) otp_label="${ref#OTP-}" ;;
               *) otp_label="$major" ;;
             esac
-            entry="{\"ref\":\"$ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
+
+            # Windows installer ref. measure-windows for OTP ≥ 24 hits
+            # patch-version installers directly (every OTP ≥ 24 patch
+            # publishes one). For OTP < 24 the patch installers don't
+            # exist (e.g. OTP-21.0.9 has no otp_win64_21.0.9.exe), but
+            # the function-release installer always does — both on
+            # github.com/erlang/otp/releases (≥ 21.0) and on
+            # erlang.org/download (≥ 17.0). So we map the legacy ref
+            # down to its X.Y prefix here so install-otp-windows.ps1
+            # can find a working installer.
+            case "$ref" in
+              OTP-*)
+                rest="${ref#OTP-}"
+                ;;
+              *) rest="" ;;
+            esac
+            xy="$(echo "$rest" | cut -d. -f1,2)"
+            if [ "$major" -lt 24 ] 2>/dev/null && [ -n "$xy" ]; then
+              windows_ref="OTP-$xy"
+              # windows_otp_label is what the dashboard plots for the
+              # Windows leg specifically — must match the binary that
+              # actually runs (the function release, e.g. "21.0"), not
+              # the patch label "21.0.9" we use everywhere else. Without
+              # this, OTP-21.0.9's Windows row claims it ran 21.0.9
+              # while really running 21.0.
+              windows_otp_label="$xy"
+            else
+              windows_ref="$ref"
+              windows_otp_label="$otp_label"
+            fi
+            entry="{\"ref\":\"$ref\",\"windows_ref\":\"$windows_ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"windows_otp_label\":\"$windows_otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
 
             # OTP < 24 has no compatible Elixir bundle, so the host
             # orchestrator can't compile against it. Route to the
@@ -440,7 +470,11 @@ jobs:
         shell: pwsh
         env:
           OTP_WIN_INSTALLER_URL: ${{ vars.OTP_WIN_INSTALLER_URL }}
-          OTP_REF: ${{ matrix.target.ref }}
+          # windows_ref == ref for modern (OTP ≥ 24) targets — using
+          # windows_ref keeps this step symmetric with
+          # measure-windows-target, where the legacy function-release
+          # mapping kicks in.
+          OTP_REF: ${{ matrix.target.windows_ref }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
@@ -538,7 +572,7 @@ jobs:
         env:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
-          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
         run: |
           mix awfy.measure `
             --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
@@ -766,8 +800,157 @@ jobs:
           path: results/
           retention-days: 7
 
+  # ---------------------------------------------------------------
+  # Target-runner path for OTP < 24 on Windows. Mirrors
+  # measure-linux-target: a pinned modern host runs the orchestrator,
+  # shells out per-benchmark to a target erl from the upstream
+  # Windows installer for matrix.target.windows_ref (function release
+  # — patch installers don't exist for OTP < 24 on Windows).
+  # ---------------------------------------------------------------
+  measure-windows-target:
+    needs: resolve
+    if: needs.resolve.outputs.has_target_mode == 'true'
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_target_mode) }}
+        flavor: [emu]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install target OTP
+        id: install_target_otp
+        shell: pwsh
+        env:
+          OTP_REF: ${{ matrix.target.windows_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
+          if ([string]::IsNullOrWhiteSpace($prefix)) {
+            # No installer for this ref (script set skipped=true and exit 0).
+            exit 0
+          }
+          # Don't add the target's bin to PATH — that's the host's job.
+          # Just expose the absolute paths through GITHUB_ENV so the
+          # next step can compile target beams and the measure step
+          # can shell out via TargetRunner.
+          "AWFY_TARGET_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AWFY_TARGET_ERL=$prefix\bin\erl.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Compile target beams
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        # Target erlc compiles awfy benchmark sources into a
+        # $PREFIX/awfy_target/awfy-0.1.0/{ebin,priv} layout that
+        # mirrors install-otp-source.sh's Linux/macOS step. .beam
+        # format isn't reliably forward-compatible across major OTPs,
+        # so we have to use the target's own erlc, not the host's.
+        # awfy_benchmark must be compiled first (the other modules
+        # `-behaviour(awfy_benchmark)`, and a missing behaviour spec
+        # silently falls back to "behaviour undefined" warnings).
+        run: |
+          $prefix = $env:AWFY_TARGET_PREFIX
+          $erlc = Join-Path $prefix "bin\erlc.exe"
+          $targetLib = Join-Path $prefix "awfy_target\awfy-0.1.0"
+          New-Item -ItemType Directory -Force -Path "$targetLib\ebin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$targetLib\priv" | Out-Null
+          & $erlc -o "$targetLib\ebin" `
+            apps/awfy/src/awfy_benchmark.erl `
+            apps/awfy/src/awfy_random.erl `
+            apps/awfy/src/awfy_som_vector.erl
+          if ($LASTEXITCODE -ne 0) { throw "target erlc (pass 1) failed: $LASTEXITCODE" }
+          $srcs = @(Get-ChildItem -Filter *.erl apps/awfy/src) `
+                + @(Get-ChildItem -Filter *.erl apps/awfy/src_target)
+          & $erlc -pa "$targetLib\ebin" -o "$targetLib\ebin" $srcs.FullName
+          if ($LASTEXITCODE -ne 0) { throw "target erlc (pass 2) failed: $LASTEXITCODE" }
+          if (Test-Path apps/awfy/priv) {
+            Copy-Item -Recurse -Force apps/awfy/priv\* "$targetLib\priv\"
+          }
+          "AWFY_TARGET_BEAMS=$targetLib\ebin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: erlef/setup-beam@v1
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        with:
+          # Pinned modern host. The orchestrator never touches the
+          # target erl directly — only via TargetRunner shell-out.
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: Install wmic shim
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        # See measure-windows for the full rationale; same shim, same
+        # csc.exe path. Without it Benchee's system-info probes raise
+        # :enoent and pollute the run with stack traces.
+        run: |
+          $shimDir = "$env:USERPROFILE\.local\bin"
+          New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
+          $cs = @'
+          using System;
+          using System.Diagnostics;
+          class Wmic {
+              static int Main(string[] args) {
+                  string ps = null;
+                  if (args.Length >= 3
+                      && string.Equals(args[0], "COMPUTERSYSTEM", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[1], "GET", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[2], "TOTALPHYSICALMEMORY", StringComparison.OrdinalIgnoreCase)) {
+                      ps = "Write-Output TotalPhysicalMemory; (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory";
+                  } else if (args.Length >= 3
+                      && string.Equals(args[0], "CPU", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[1], "GET", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(args[2], "NAME", StringComparison.OrdinalIgnoreCase)) {
+                      ps = "Write-Output Name; (Get-CimInstance Win32_Processor).Name";
+                  } else {
+                      return 1;
+                  }
+                  var psi = new ProcessStartInfo("powershell",
+                      "-NoProfile -Command \"" + ps + "\"");
+                  psi.UseShellExecute = false;
+                  var p = Process.Start(psi);
+                  p.WaitForExit();
+                  return p.ExitCode;
+              }
+          }
+          '@
+          $csPath = Join-Path $env:TEMP "wmic.cs"
+          $cs | Set-Content -Path $csPath -Encoding UTF8
+          $csc = "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          & $csc /nologo /out:"$shimDir\wmic.exe" $csPath
+          $shimDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Compile orchestrator
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        env:
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          # windows_otp_label, not otp_label — the upstream Windows
+          # installer for OTP < 24 only ships the function release
+          # (e.g. 21.0), so claiming "21.0.9" here would mislabel the
+          # dashboard. See windows_otp_label derivation in resolve.
+          AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
+        run: |
+          mix awfy.measure `
+            --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
+            --ignore-preflight
+      - uses: actions/upload-artifact@v7
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        with:
+          name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
+          path: results/
+          retention-days: 7
+
   publish:
-    needs: [resolve, measure-linux, measure-linux-target, measure-windows, measure-macos]
+    needs: [resolve, measure-linux, measure-linux-target, measure-windows, measure-windows-target, measure-macos]
     permissions:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
