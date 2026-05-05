@@ -391,38 +391,6 @@ function buildPlatformCheckboxes(values, persisted, fallbacks) {
   container.appendChild(group);
 }
 
-// Append a "Y axis" radio group to the .controls row at init time.
-// Per-bench only — the suite chart's geomean has only one sensible
-// y axis. Default "ms" for the absolute-timing view; "speedup" is
-// what the chart used to default to and stays available.
-function buildYAxisRadio(persisted, fallback) {
-  const controls = document.querySelector(".controls");
-  if (!controls) return;
-  const group = document.createElement("div");
-  group.className = "group";
-  group.id = "control-yaxis";
-  const heading = document.createElement("b");
-  heading.textContent = "Y axis";
-  group.appendChild(heading);
-  const initial = (persisted === "ms" || persisted === "speedup") ? persisted : fallback;
-  ["ms", "speedup"].forEach(v => {
-    const lab = document.createElement("label");
-    const inp = document.createElement("input");
-    inp.type = "radio";
-    inp.name = "yaxis";
-    inp.value = v;
-    inp.checked = (v === initial);
-    inp.addEventListener("change", onFilterChange);
-    lab.appendChild(inp);
-    lab.appendChild(document.createTextNode(" " + v));
-    group.appendChild(lab);
-  });
-  // Slot before the reset button so layout stays consistent.
-  const reset = controls.querySelector(".reset-btn");
-  if (reset) controls.insertBefore(group, reset);
-  else controls.appendChild(group);
-}
-
 function onFilterChange() {
   const state = readUIState();
   saveFilterState(state);
@@ -472,8 +440,7 @@ function readUIState() {
     return {
       machine_class: [...document.querySelectorAll('input[name="machine"]:checked')].map(c => c.value),
       emu_flavor: flavor,
-      lang,
-      y_axis: (document.querySelector('input[name="yaxis"]:checked') || {}).value || "ms"
+      lang
     };
   }
   const activeTab = document.querySelector("#machine-tabs .tab.active");
@@ -495,23 +462,16 @@ function applyFilters(rows, state) {
 }
 
 /* Build series: group rows by (lang, machine, arch, emu_flavor).
-   Per-bench page only.
-
-   yMode controls what hits the chart's y axis:
-     - "speedup" — baseline_ms / current_ms, so higher = faster
-       than the earliest run for that series. Whiskers invert as
-       baseline/(ms±2σ) so the band still represents one σ in run
-       time, not a symmetric speedup spread.
-     - "ms" — raw median_ms with whiskers at median±2σ. Useful
-       when comparing absolute timings across platforms (the
-       speedup framing collapses platforms with very different
-       baselines onto the same line).
-
-   Either way, the data point keeps median_ms / base_ms / stddev so
-   the tooltip can report both numbers regardless of axis mode.
+   Per-bench page only — y values are baseline_ms / current_ms so
+   higher = faster than the earliest run for that series, matching
+   the suite chart's "× over baseline" framing. Whisker bounds
+   map cleanly: ymin/ymax in ms invert to baseline/(ms+2σ) and
+   baseline/(ms-2σ) respectively. (Absolute ms isn't a useful
+   cross-platform y axis — different CPUs run at different speeds,
+   so platforms with slower hardware would dominate the visual
+   range and obscure the speedup trend.)
 */
-function buildSeries(rows, xAxis, yMode) {
-  yMode = yMode || "speedup";
+function buildSeries(rows, xAxis) {
   const groups = {};
   rows.forEach(row => {
     const key = seriesKey(row);
@@ -545,24 +505,15 @@ function buildSeries(rows, xAxis, yMode) {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
         const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
         const ratio = (baseMs && r.median_ms) ? baseMs / r.median_ms : null;
-        let y, yMin, yMax;
-        if (yMode === "ms") {
-          y    = (typeof r.median_ms === "number") ? r.median_ms : null;
-          yMin = (y !== null) ? Math.max(0, y - sigma) : null;
-          yMax = (y !== null) ? y + sigma : null;
-        } else {
-          y    = ratio;
-          yMax = (baseMs && r.median_ms - sigma > 0) ? baseMs / (r.median_ms - sigma) : ratio;
-          yMin = (baseMs && r.median_ms + sigma > 0) ? baseMs / (r.median_ms + sigma) : ratio;
-        }
+        const yMax = (baseMs && r.median_ms - sigma > 0) ? baseMs / (r.median_ms - sigma) : ratio;
+        const yMin = (baseMs && r.median_ms + sigma > 0) ? baseMs / (r.median_ms + sigma) : ratio;
         return {
           x,
-          y,
+          y: ratio,
           yMin,
           yMax,
           median_ms: r.median_ms,
           stddev: r.stddev_ms,
-          ratio,
           run_label: r.label,
           inner_iter: r.inner_iter,
           base_ms: baseMs
@@ -860,10 +811,9 @@ function renderChart() {
   // (filtered against the controls).
   const xAxis = "otp";
   const state = readUIState();
-  const yMode = PAGE_KIND === "bench" ? (state.y_axis || "ms") : "speedup";
   const series = PAGE_KIND === "suite"
     ? buildSuiteGeomeanSeries()
-    : buildSeries(applyFilters(DATASET.rows, state), xAxis, yMode);
+    : buildSeries(applyFilters(DATASET.rows, state), xAxis);
 
   const datasets = series.map((s, i) => {
     const baseColor = s.borderColor || colorFor(i);
@@ -888,8 +838,7 @@ function renderChart() {
 
   const yLabel = PAGE_KIND === "suite"
     ? "geomean speedup (× over earliest, higher = faster)"
-    : (yMode === "ms" ? "median run time (ms, lower = faster)"
-                      : "speedup × (over earliest run, higher = faster)");
+    : "speedup × (over earliest run, higher = faster)";
 
   const chartType = PAGE_KIND === "bench" ? "lineWithErrorBars" : "line";
 
@@ -1012,15 +961,9 @@ function renderChart() {
             },
             label: (ctx) => {
               const r = ctx.raw;
-              let line = ctx.dataset.label + ": ";
-              if (yMode === "ms" && typeof r.median_ms === "number") {
-                line += r.median_ms.toFixed(2) + " ms";
-                if (typeof r.ratio === "number") line += "  (" + r.ratio.toFixed(3) + "× over baseline)";
-              } else {
-                const v = (typeof r.y === "number") ? r.y.toFixed(3) : r.y;
-                line += v + "×";
-                if (typeof r.median_ms === "number") line += "  (" + r.median_ms.toFixed(2) + " ms)";
-              }
+              const v = (typeof r.y === "number") ? r.y.toFixed(3) : r.y;
+              let line = ctx.dataset.label + ": " + v + "×";
+              if (typeof r.median_ms === "number") line += "  (" + r.median_ms.toFixed(2) + " ms)";
               if (r.stddev !== undefined && r.stddev !== null) line += "  σ=" + r.stddev.toFixed(2) + " ms";
               if (r.n_benchmarks) line += "  (" + r.n_benchmarks + " ratios)";
               return line;
@@ -1287,16 +1230,19 @@ function renderRunsMeta() {
 }
 
 /* Init */
-(function () {
+// Guarded so the file can be required from Node (test runner) without
+// crashing on `document.getElementById` — the helpers above are pure
+// and re-exported via module.exports at the bottom of the file.
+if (typeof document !== "undefined") (function () {
   const state = loadFilterState();
   const machineClasses = uniqueValues(DATASET.rows, "machine_class");
   const flavors = uniqueValues(DATASET.rows, "emu_flavor");
   const langs = uniqueValues(DATASET.rows, "lang");
 
   // Defaults: JIT + Erlang everywhere. Per-bench gets both Linux
-  // platforms checked and an absolute-ms y axis (most informative
-  // when comparing platforms with very different baselines); suite
-  // stays single-platform on the linux-x86_64 tab.
+  // platforms checked by default so a fresh visit shows the
+  // cross-platform comparison the multi-select control was built
+  // for; suite stays single-platform on the linux-x86_64 tab.
   buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor, "jit");
   // Persisted lang state may be an array (from when suite used a
   // checkbox group) or a string. Both pages now use a single-select
@@ -1306,7 +1252,6 @@ function renderRunsMeta() {
   if (PAGE_KIND === "bench") {
     buildPlatformCheckboxes(machineClasses, state.machine_class,
       ["linux-arm64", "linux-x86_64"]);
-    buildYAxisRadio(state.y_axis, "ms");
   } else {
     buildTabs(machineClasses, state.machine_class, "linux-x86_64");
   }
@@ -1327,6 +1272,22 @@ function renderRunsMeta() {
   renderRunsMeta();
   renderAll();
 })();
+
+// Re-export the pure helpers for the Vitest test suite. Browsers
+// don't define `module`, so the typeof guard keeps this a no-op
+// in production. Eslint's browser config doesn't know about the
+// CommonJS `module` global — eslint.config.js whitelists it.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    compareOtpVersions,
+    majorOf,
+    seriesKey,
+    applyFilters,
+    buildOtpXMap,
+    buildSeries,
+    defaultMajorsSet
+  };
+}
 
   </script>
 </body>
