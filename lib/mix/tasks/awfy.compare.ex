@@ -195,7 +195,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       """,
       trend_heading_html: """
       <h3>Geomean speedup over versions</h3>
-      <p class="sub">Geometric mean of <code>baseline_median / median</code>, higher = faster. JIT only. Per-platform lines anchor at each platform's own earliest recorded run for every (lang × benchmark) — each line starts at 1× wherever its data begins. The thicker <strong>all platforms</strong> line is pinned to the earliest OTP version present on every platform, so cross-platform numbers are apples-to-apples. Chart is intentionally not configurable; toggle individual platforms via the legend.</p>
+      <p class="sub">Geometric mean of <code>baseline_median / median</code>, higher = faster. JIT only. Per-platform lines anchor at each platform's own earliest recorded run for every (lang × benchmark) — each line starts at 1× wherever its data begins. The thicker <strong>all platforms</strong> line groups by OTP function-release (e.g. <code>23.3</code>) so a coarser-grained Windows build (<code>OTP-23.3</code> installer) merges with a finer-grained linux/macos build (<code>OTP-23.3.4.20</code> patch tip) on the same OTP-23.3 line, and is only plotted at function-releases where every platform has data, so cross-platform numbers are apples-to-apples. Chart is intentionally not configurable; toggle individual platforms via the legend.</p>
       """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
@@ -878,30 +878,77 @@ defmodule Mix.Tasks.Awfy.Compare do
         }
       });
 
-      // Pin for the combined line: earliest OTP version present on
-      // every platform (intersection of per-mc OTP sets).
-      const otpsByMc = {};
+      // For the combined "all platforms" line we group by
+      // function-release bucket ("23.3" for both "23.3.4.20" and
+      // "23.3") rather than exact OTP version — older Windows builds
+      // only ship installers at the function-release granularity
+      // ("OTP-23.3"), while macos/linux build the patch tip
+      // ("OTP-23.3.4.20"). Without bucketing they'd never share an
+      // x position and the all-platforms line would be empty for the
+      // entire OTP-21/22/23 range. From OTP-24 on every platform
+      // builds the same exact patch versions, so the bucket and the
+      // exact OTP coincide and bucketing is a no-op there.
+      function bucketFor(otp) {
+        if (otp === "master" || otp === "maint") return otp;
+        const parts = String(otp).split(".");
+        // Bare-major labels like "26" canonicalise to "26.0" so they
+        // bucket with "26.0.2", "26.1.2", etc.
+        if (parts.length === 1) return parts[0] + ".0";
+        return parts[0] + "." + parts[1];
+      }
+      const compareBuckets = (a, b) => {
+        if (a === b) return 0;
+        if (a === "master") return 1; if (b === "master") return -1;
+        if (a === "maint")  return 1; if (b === "maint")  return -1;
+        return compareOtpVersions(a, b);
+      };
+
+      // Per-platform within each bucket: pick the most-specific (lex
+      // newest) OTP that platform has. Linux usually sees both "23.3"
+      // and "23.3.4.20" in the dataset right now — using only the
+      // newest keeps a single canonical row per platform per bucket
+      // so geomeans aren't double-counting.
+      const canonByMcBucket = {};
       rows.forEach(r => {
         const otp = runOtp[r.label];
         if (!otp) return;
-        if (!otpsByMc[r.machine_class]) otpsByMc[r.machine_class] = new Set();
-        otpsByMc[r.machine_class].add(otp);
+        const b = bucketFor(otp);
+        if (!canonByMcBucket[r.machine_class]) canonByMcBucket[r.machine_class] = {};
+        const cur = canonByMcBucket[r.machine_class][b];
+        if (!cur || compareOtpVersions(otp, cur) > 0) {
+          canonByMcBucket[r.machine_class][b] = otp;
+        }
       });
-      const mcs = Object.keys(otpsByMc);
-      let commonOtps = mcs.length ? [...otpsByMc[mcs[0]]] : [];
-      for (let i = 1; i < mcs.length; i++) {
-        commonOtps = commonOtps.filter(o => otpsByMc[mcs[i]].has(o));
-      }
-      commonOtps.sort(compareOtpVersions);
-      const pinnedOtp = commonOtps[0] || null;
+      const mcs = Object.keys(canonByMcBucket);
 
-      // Combined-line baseline: median at the pinned OTP per
-      // (lang, machine_class, benchmark). If multiple runs share the
-      // pinned OTP (re-runs), pick the earliest timestamp.
+      // Pin for the combined line: earliest function-release bucket
+      // present on every platform. With windows's "23.3"-style labels
+      // bucketed alongside macos/linux's "23.3.4.20" labels, this
+      // intersection picks up the OTP-21/22/23 range that the
+      // exact-OTP intersection used to skip entirely.
+      const bucketsByMc = {};
+      mcs.forEach(mc => {
+        bucketsByMc[mc] = new Set(Object.keys(canonByMcBucket[mc]));
+      });
+      let commonBuckets = mcs.length ? [...bucketsByMc[mcs[0]]] : [];
+      for (let i = 1; i < mcs.length; i++) {
+        commonBuckets = commonBuckets.filter(b => bucketsByMc[mcs[i]].has(b));
+      }
+      commonBuckets.sort(compareBuckets);
+      const pinnedBucket = commonBuckets[0] || null;
+
+      // Combined-line baseline: per (lang, machine_class, benchmark),
+      // the median at that platform's *canonical* OTP for the pinned
+      // bucket — windows uses its "23.3" row, linux/macos use their
+      // "23.3.4.20" row, all anchored to the same OTP-23.3
+      // function-release. Earliest timestamp on tiebreak (re-runs).
       const pinnedBaseIdx = {};
-      if (pinnedOtp) {
+      if (pinnedBucket) {
         rows.forEach(r => {
-          if (runOtp[r.label] !== pinnedOtp) return;
+          const otp = runOtp[r.label];
+          if (!otp) return;
+          const canon = canonByMcBucket[r.machine_class][pinnedBucket];
+          if (otp !== canon) return;
           if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
           const k = r.lang + "|" + r.machine_class + "|" + r.benchmark;
           if (!pinnedBaseIdx[k] || r.timestamp < pinnedBaseIdx[k].ts) {
@@ -925,20 +972,46 @@ defmodule Mix.Tasks.Awfy.Compare do
         archByMcOtp[r.machine_class][otp].push(ratio);
       });
 
-      // Combined line: only OTPs ≥ pin, ratios against pinnedBaseIdx.
-      const allByOtp = {};
-      if (pinnedOtp) {
+      // Combined line: bucket by function-release; per-platform we
+      // only consume that platform's canonical (most-specific) OTP
+      // for each bucket so platforms with redundant rows in the
+      // dataset don't double-contribute. Plot the resulting point at
+      // the lex-newest canonical OTP across platforms — i.e. the
+      // "23.3.4.20" tick when linux/macos are on the patch tip and
+      // windows is on the bare "23.3", so the all-platforms marker
+      // visually coincides with linux/macos's per-platform markers.
+      // Skip any bucket where not every platform contributed: a
+      // single-platform geomean masquerading as cross-platform
+      // would be misleading.
+      const allByBucket = {};
+      const allMcsAtBucket = {};
+      const xLabelByBucket = {};
+      if (pinnedBucket) {
         rows.forEach(r => {
           const otp = runOtp[r.label];
           if (!otp || !r.median_ms) return;
-          if (compareOtpVersions(otp, pinnedOtp) < 0) return;
+          const b = bucketFor(otp);
+          if (compareBuckets(b, pinnedBucket) < 0) return;
+          if (otp !== canonByMcBucket[r.machine_class][b]) return;
           const bk = r.lang + "|" + r.machine_class + "|" + r.benchmark;
           const base = pinnedBaseIdx[bk];
           if (!base || !base.ms) return;
           const ratio = base.ms / r.median_ms;
-          if (!allByOtp[otp]) allByOtp[otp] = [];
-          allByOtp[otp].push(ratio);
+          if (!allByBucket[b]) allByBucket[b] = [];
+          allByBucket[b].push(ratio);
+          if (!allMcsAtBucket[b]) allMcsAtBucket[b] = new Set();
+          allMcsAtBucket[b].add(r.machine_class);
+          if (!xLabelByBucket[b] || compareOtpVersions(otp, xLabelByBucket[b]) > 0) {
+            xLabelByBucket[b] = otp;
+          }
         });
+        const numMcs = mcs.length;
+        for (const b of Object.keys(allByBucket)) {
+          if ((allMcsAtBucket[b] && allMcsAtBucket[b].size) !== numMcs) {
+            delete allByBucket[b];
+            delete xLabelByBucket[b];
+          }
+        }
       }
 
       const geomean = (ratios) => {
@@ -956,10 +1029,15 @@ defmodule Mix.Tasks.Awfy.Compare do
             .sort((a, b) => compareOtpVersions(a.x, b.x))
         }));
 
-      const allSeries = pinnedOtp ? {
+      const allSeries = pinnedBucket ? {
         label: "all platforms",
-        data: Object.entries(allByOtp)
-          .map(([otp, ratios]) => ({ x: otp, y: geomean(ratios), n_benchmarks: ratios.length, pinnedOtp }))
+        data: Object.entries(allByBucket)
+          .map(([b, ratios]) => ({
+            x: xLabelByBucket[b],
+            y: geomean(ratios),
+            n_benchmarks: ratios.length,
+            pinnedOtp: xLabelByBucket[pinnedBucket]
+          }))
           .sort((a, b) => compareOtpVersions(a.x, b.x)),
         // Visually distinct: bold black line so the combined trend
         // doesn't blend with the per-platform palette.
@@ -1060,11 +1138,28 @@ defmodule Mix.Tasks.Awfy.Compare do
               : {
                   // Category, with labels pre-sorted by version (master
                   // last). Each tagged feature release (20.0, 20.1, …)
-                  // becomes its own tick — no aggregation across
-                  // patch-level versions.
+                  // is still its own tick so the curve stays smooth,
+                  // but the tick *label* is only printed at the first
+                  // function-release of each major (21.0, 22.0, …) so
+                  // the axis isn't a wall of "21.1 21.2 21.3 22.0 …".
+                  // master/maint always print.
                   type: "category",
                   title: { display: true, text: "OTP version", font: titleFont },
-                  ticks: { font: tickFont, autoSkip: false, maxRotation: 0 },
+                  ticks: {
+                    font: tickFont,
+                    autoSkip: false,
+                    maxRotation: 0,
+                    callback: function(value, index) {
+                      const label = this.getLabelForValue(value);
+                      if (label === "master" || label === "maint") return label;
+                      const major = String(label).split(".")[0];
+                      if (index === 0) return major;
+                      const prev = this.getLabelForValue(index - 1);
+                      if (prev === "master" || prev === "maint") return major;
+                      const prevMajor = String(prev).split(".")[0];
+                      return major !== prevMajor ? major : "";
+                    }
+                  },
                   grid: { color: "#eee" }
                 },
             y: {
