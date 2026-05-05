@@ -14,7 +14,11 @@
 
 --- a/make/configure
 +++ b/make/configure
-@@ -4661,58 +4661,0 @@
+@@ -4659,66 +4659,8 @@
+ if test X${enable_native_libs} = Xyes -a X${enable_hipe} != Xno; then
+   NATIVE_LIBS_ENABLED=yes
+ fi
+-
 -
 -if test $CROSS_COMPILING = no; then
 -   case $host_os in
@@ -60,12 +64,12 @@
 -
 -else
 -  as_fn_error $? "
--
+ 
 -  You are natively building Erlang/OTP for a later version of MacOSX
 -  than current version ($macosx_version). You either need to
 -  cross-build Erlang/OTP, or set the environment variable
 -  MACOSX_DEPLOYMENT_TARGET to $macosx_version (or a lower version).
--
+ 
 -" "$LINENO" 5
 -fi
 -rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
@@ -74,3 +78,6 @@
 -	   ;;
 -   esac
 -fi
+ 
+ ac_ext=c
+ ac_cpp='$CPP $CPPFLAGS'
