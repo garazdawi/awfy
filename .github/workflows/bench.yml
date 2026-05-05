@@ -155,22 +155,14 @@ jobs:
             esac
           }
 
-          # OTP major of erlang/otp's `master` tip — memoised so we
-          # only curl OTP_VERSION once per resolve step. Aborts if
-          # the curl fails; would rather error out loudly than
-          # silently mislabel runs with a stale hardcoded number
-          # once master rolls forward.
+          # Memoise erlang/otp's master major — bin/latest-master-
+          # major.sh always re-fetches, we only need it once per
+          # resolve. See that script for the rationale on aborting
+          # vs hardcoded fallback.
           _MASTER_MAJOR=""
           latest_master_major() {
             if [ -z "$_MASTER_MAJOR" ]; then
-              _MASTER_MAJOR="$(
-                curl -fsSL https://raw.githubusercontent.com/erlang/otp/master/OTP_VERSION 2>/dev/null \
-                  | head -1 | cut -d. -f1
-              )"
-              if [ -z "$_MASTER_MAJOR" ]; then
-                echo "[resolve] failed to fetch erlang/otp master OTP_VERSION; cannot determine current major" >&2
-                exit 1
-              fi
+              _MASTER_MAJOR="$(./bin/latest-master-major.sh)"
             fi
             echo "$_MASTER_MAJOR"
           }

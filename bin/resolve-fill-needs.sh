@@ -82,23 +82,15 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then
     | sed -E 's|^https://github.com/||')"
 fi
 
-# OTP major of erlang/otp's `master` branch tip. Memoised on first
-# call. Used by otp_major_for_ref's `master` case and as the
-# fallback when a SHA's OTP_VERSION can't be fetched. The script
-# aborts if the curl fails — we'd rather error out loudly than
-# silently mislabel runs as the wrong major (which is what a
-# stale hardcoded number would do once master rolls forward).
+# Memoise erlang/otp's master major across the script — bin/latest-
+# master-major.sh always re-fetches, but we only need it once per
+# resolve step. See that script for the rationale on why we abort
+# on curl failure rather than fall back to a hardcoded number.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 _MASTER_MAJOR=""
 latest_master_major() {
   if [ -z "$_MASTER_MAJOR" ]; then
-    _MASTER_MAJOR="$(
-      curl -fsSL https://raw.githubusercontent.com/erlang/otp/master/OTP_VERSION 2>/dev/null \
-        | head -1 | cut -d. -f1
-    )"
-    if [ -z "$_MASTER_MAJOR" ]; then
-      echo "[resolve] failed to fetch erlang/otp master OTP_VERSION; cannot determine current major" >&2
-      exit 1
-    fi
+    _MASTER_MAJOR="$("$SCRIPT_DIR/latest-master-major.sh")"
   fi
   echo "$_MASTER_MAJOR"
 }
@@ -127,7 +119,11 @@ otp_major_for_ref() {
       local v
       v="$(curl -fsSL "https://raw.githubusercontent.com/erlang/otp/$sha/OTP_VERSION" 2>/dev/null \
            | head -1 | cut -d. -f1)"
-      [ -n "$v" ] && echo "$v" || latest_master_major
+      if [ -n "$v" ]; then
+        echo "$v"
+      else
+        latest_master_major
+      fi
       ;;
   esac
 }
