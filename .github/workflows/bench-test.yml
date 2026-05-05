@@ -10,12 +10,13 @@
 # run, gh-pages publish succeeds.
 #
 # Three triggers, three default scopes for `otp_refs`:
-#   * push            → "22.3,24.0,24.1,24.2,master"  (versions whose
-#     measure-linux-target / measure-macos legs are currently failing
-#     — push gives us a fast V=1 build log to diagnose against)
-#   * schedule        → "20,21,23,24,28,master"  (weekly cross-version
-#     data accumulation across the legacy + modern paths)
-#   * workflow_dispatch → user-provided, same default as schedule
+#   * push            → "21,28,master" — minimal smoke test covering
+#     both code paths (legacy target-runner via 21, modern peer-flow
+#     via 28, source archive via master). Fast on warm cache; one
+#     ref per code path so a wiring break shows up.
+#   * schedule        → "fill" (weekly catch-up: rebuilds anything
+#     missing from gh-pages but skips refs already published).
+#   * workflow_dispatch → user-provided, defaults to "fill".
 #
 # Special tokens:
 #   * "all"  — expand to one entry per OTP-21+ minor's latest patch
@@ -40,9 +41,10 @@ on:
       otp_refs:
         description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…), or 'fill' / 'all'"
         required: false
-        # Current testing set: a wide spread to validate both the
-        # legacy target-runner path (20-23) and the modern flow (24+).
-        default: "20,21,23,24,28,master"
+        # "fill" is the friendly default — runs whatever's missing
+        # from gh-pages and no more. Pass "all" for a full rebuild,
+        # or a comma list to target specific refs.
+        default: "fill"
 
 permissions:
   contents: read
@@ -76,8 +78,8 @@ jobs:
         env:
           INPUT_REFS: >-
             ${{ inputs.otp_refs ||
-                (github.event_name == 'schedule' && '20,21,23,24,28,master' ||
-                 '22.3,24.0,24.1,24.2,master') }}
+                (github.event_name == 'schedule' && 'fill' ||
+                 '21,28,master') }}
           # Needed for the per-target commit-timestamp lookup; the
           # default GHA token is fine since erlang/otp is public.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
