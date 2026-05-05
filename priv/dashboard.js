@@ -112,12 +112,17 @@ function saveFilterState(state) {
 }
 
 /* ---- Filter state (tabs + radio + checkboxes) ----------------------
-   Machine class becomes a tab strip — exclusive selection — because
-   overlaying linux-x86_64, linux-arm64, macos-arm64, windows-x86_64
-   on one chart drowns the trend. Flavor becomes a radio for the same
-   reason (jit/emu run different code paths; comparing them on one
-   axis is rarely what you want). Languages stay as multi-select
-   checkboxes since seeing erlang and elixir together is the point.
+   The control shapes differ by page:
+   - Suite page: machine class is a tab strip (single-select) so the
+     headline geomean stays one platform at a time; language is a
+     checkbox group because seeing erlang and elixir together on the
+     snapshot bars is the point.
+   - Per-bench page: machine class is a checkbox group so a single
+     benchmark can be compared across platforms on one chart;
+     language is a radio because mixing erlang+elixir lines for
+     multiple platforms on one canvas turns into a thicket.
+   Flavor stays as a radio everywhere (jit vs emu run different code
+   paths; overlaying them is rarely what you want).
 */
 
 function buildTabs(values, persisted, fallback) {
@@ -179,6 +184,37 @@ function buildCheckboxGroup(controlId, name, values, persisted, defaultPredicate
   });
 }
 
+// Per-bench machine_class control: same DOM slot as the suite page's
+// tab strip but rendered as a Platform checkbox group so a single
+// benchmark can show multiple platforms on one chart. Sheds the
+// .tabs styling so it lays out like the rest of the controls row.
+function buildPlatformCheckboxes(values, persisted, fallback) {
+  const container = document.getElementById("machine-tabs");
+  container.classList.remove("tabs");
+  container.classList.add("controls", "platform-controls");
+  const group = document.createElement("div");
+  group.className = "group";
+  const heading = document.createElement("b");
+  heading.textContent = "Platform";
+  group.appendChild(heading);
+  // Tolerate stale persisted state from before this control was a
+  // multi-select — fall back to the default platform if so.
+  const persistedArr = Array.isArray(persisted) ? persisted : null;
+  values.forEach(v => {
+    const lab = document.createElement("label");
+    const inp = document.createElement("input");
+    inp.type = "checkbox";
+    inp.name = "machine";
+    inp.value = v;
+    inp.checked = persistedArr ? persistedArr.includes(v) : (v === fallback);
+    inp.addEventListener("change", onFilterChange);
+    lab.appendChild(inp);
+    lab.appendChild(document.createTextNode(" " + v));
+    group.appendChild(lab);
+  });
+  container.appendChild(group);
+}
+
 function onFilterChange() {
   const state = readUIState();
   saveFilterState(state);
@@ -222,20 +258,30 @@ function buildSnapshotMajorCheckboxes() {
 }
 
 function readUIState() {
+  const flavor = (document.querySelector('input[name="flavor"]:checked') || {}).value;
+  if (PAGE_KIND === "bench") {
+    return {
+      machine_class: [...document.querySelectorAll('input[name="machine"]:checked')].map(c => c.value),
+      emu_flavor: flavor,
+      lang: (document.querySelector('input[name="lang"]:checked') || {}).value
+    };
+  }
   const activeTab = document.querySelector("#machine-tabs .tab.active");
   return {
     machine_class: activeTab ? activeTab.dataset.value : null,
-    emu_flavor: (document.querySelector('input[name="flavor"]:checked') || {}).value,
+    emu_flavor: flavor,
     lang: [...document.querySelectorAll('input[name="lang"]:checked')].map(c => c.value)
   };
 }
 
 function applyFilters(rows, state) {
-  return rows.filter(r =>
-    (state.lang || []).includes(r.lang) &&
-    r.machine_class === state.machine_class &&
-    r.emu_flavor === state.emu_flavor
-  );
+  const langOK = Array.isArray(state.lang)
+    ? (r) => state.lang.includes(r.lang)
+    : (r) => r.lang === state.lang;
+  const mcOK = Array.isArray(state.machine_class)
+    ? (r) => state.machine_class.includes(r.machine_class)
+    : (r) => r.machine_class === state.machine_class;
+  return rows.filter(r => langOK(r) && mcOK(r) && r.emu_flavor === state.emu_flavor);
 }
 
 /* Build series: group rows by (lang, machine, arch, emu_flavor).
@@ -269,10 +315,12 @@ function buildSeries(rows, xAxis) {
     const base = sorted.find(r => typeof r.median_ms === "number" && r.median_ms > 0);
     const baseMs = base ? base.median_ms : null;
     return {
-      // Display label is just the language; machine class + flavor
-      // are already encoded in the active tab + radio so repeating
-      // them on every legend entry is noise.
-      label: items[0].lang,
+      // Suite page has a single machine_class via the tab strip, so
+      // the only thing that varies between series is the language
+      // — label by lang. Per-bench page picks the language with a
+      // radio and the platforms with checkboxes, so machine_class
+      // is what varies — label by that instead.
+      label: PAGE_KIND === "bench" ? items[0].machine_class : items[0].lang,
       data: sorted.map(r => {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
         const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
@@ -1008,16 +1056,25 @@ function renderRunsMeta() {
   const flavors = uniqueValues(DATASET.rows, "emu_flavor");
   const langs = uniqueValues(DATASET.rows, "lang");
 
-  // Defaults: Linux x86_64 + JIT — the cheapest, most-representative
-  // combo. The tab + radio fall back here on a fresh visit; persisted
-  // selections override.
-  buildTabs(machineClasses, state.machine_class, "linux-x86_64");
+  // Defaults: Linux x86_64 + JIT + Erlang — the cheapest, most-
+  // representative combo. The fallbacks below kick in on a fresh
+  // visit; persisted selections override (with a shape-tolerant
+  // fallback for users coming from the previous suite-style state).
   buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor, "jit");
-  // Default: Erlang only. Elixir is opt-in via the checkbox so the
-  // snapshot's bar count starts manageable; toggle it on to layer
-  // the second language alongside.
-  buildCheckboxGroup("control-lang", "lang", langs, state.lang,
-    (v) => v === "erlang");
+  if (PAGE_KIND === "bench") {
+    buildPlatformCheckboxes(machineClasses, state.machine_class, "linux-x86_64");
+    // Lang is a radio on per-bench: with multiple platforms on one
+    // chart, layering erlang+elixir per platform makes the canvas
+    // unreadable. Default Erlang.
+    const persistedLang = Array.isArray(state.lang) ? state.lang[0] : state.lang;
+    buildRadioGroup("control-lang", "lang", langs, persistedLang, "erlang");
+  } else {
+    buildTabs(machineClasses, state.machine_class, "linux-x86_64");
+    // Suite: lang stays multi-select so the snapshot can show both
+    // languages. Default Erlang only — Elixir is opt-in.
+    buildCheckboxGroup("control-lang", "lang", langs, state.lang,
+      (v) => v === "erlang");
+  }
   // The major-checkboxes container is only on the suite page;
   // skip on per-bench pages where the snapshot doesn't render.
   if (PAGE_KIND === "suite") {
