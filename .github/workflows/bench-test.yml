@@ -244,7 +244,7 @@ jobs:
               "repos/${GITHUB_REPOSITORY}/contents?ref=gh-pages" \
               --paginate --jq '.[].name' 2>/dev/null \
               | grep -E '_[0-9a-f]{10}-test-' || true)"
-            count="$(printf '%s\n' "$EXISTING_RUNDIRS" | grep -c . || true)"
+            count="$(grep -c . <<<"$EXISTING_RUNDIRS" || true)"
             echo "[fill] gh-pages has $count existing run-dirs"
 
             if [ -n "$INPUT_BENCHMARKS" ]; then
@@ -257,7 +257,7 @@ jobs:
                 EXISTING_BENCHEES="$(printf '%s' "$tree_json" \
                   | jq -r '.tree[]? | select(.type == "blob") | .path' \
                   | grep -E '\.benchee$' || true)"
-                bcount="$(printf '%s\n' "$EXISTING_BENCHEES" | grep -c . || true)"
+                bcount="$(grep -c . <<<"$EXISTING_BENCHEES" || true)"
                 echo "[fill] gh-pages has $bcount .benchee blobs"
               fi
             fi
@@ -417,14 +417,25 @@ jobs:
               # BEAM JIT didn't exist yet, HiPE-as-jit isn't wired
               # through the harness.
               expected_platforms="linux macos windows"
+              # Use a herestring (`<<<`) feeding grep, NOT
+              # `printf | grep`. The pipe form trips on SIGPIPE under
+              # `set -o pipefail`: when grep matches and exits early,
+              # printf's next write fails with EPIPE (exit 141),
+              # pipefail surfaces that as the pipeline's exit, the
+              # outer `if ! …` flips, and we conclude "platform
+              # missing" exactly when the platform is in fact present.
+              # Herestring avoids the process pipe entirely — bash
+              # writes the variable to a temp file fed as grep's
+              # stdin, so grep's early exit doesn't propagate
+              # backwards.
               all_present=1
               if [ -n "$INPUT_BENCHMARKS" ] && [ -n "$EXISTING_BENCHEES" ]; then
                 # Per-(platform, benchmark) presence check.
                 IFS=',' read -ra benches <<<"$INPUT_BENCHMARKS"
                 for plat in $expected_platforms; do
                   for b in "${benches[@]}"; do
-                    if ! printf '%s\n' "$EXISTING_BENCHEES" \
-                        | grep -qE "_${short}-test-${plat}-[^/]+/${b}\.benchee$"; then
+                    if ! grep -qE "_${short}-test-${plat}-[^/]+/${b}\.benchee$" \
+                          <<<"$EXISTING_BENCHEES"; then
                       all_present=0
                       break 2
                     fi
@@ -437,8 +448,7 @@ jobs:
               else
                 # Default: any-platform-missing → re-run.
                 for plat in $expected_platforms; do
-                  if ! printf '%s\n' "$EXISTING_RUNDIRS" \
-                      | grep -q "_${short}-test-${plat}-"; then
+                  if ! grep -q "_${short}-test-${plat}-" <<<"$EXISTING_RUNDIRS"; then
                     all_present=0
                     break
                   fi
