@@ -63,13 +63,13 @@ defmodule AwfyRunner.MixProject do
   end
 
   # `mix precommit` runs locally everything CI runs — compiler as
-  # error, REUSE, shellcheck, and ESLint/stylelint on
+  # error, REUSE, shellcheck, ESLint/stylelint and Vitest on
   # priv/dashboard.{js,css}. Faster than waiting for the GHA
   # round-trip and catches the same issues. Requires:
   #   * `reuse` on $PATH         — pip install reuse
   #   * `shellcheck` on $PATH    — brew install shellcheck
   #   * `npm install` once       — populates node_modules/ for the
-  #                                JS/CSS linters
+  #                                JS/CSS linters and Vitest
   defp aliases do
     [
       precommit: [
@@ -78,7 +78,8 @@ defmodule AwfyRunner.MixProject do
         # mix `cmd` runs execvp without a shell — wrap in `sh -c` so
         # the bin/*.sh glob expands.
         ~s|cmd sh -c 'shellcheck bin/*.sh'|,
-        "cmd npm run lint --silent"
+        "cmd npm run lint --silent",
+        "cmd npm test --silent"
       ]
     ]
   end

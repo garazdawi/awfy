@@ -1037,7 +1037,10 @@ function renderRunsMeta() {
 }
 
 /* Init */
-(function () {
+// Guarded so the file can be required from Node (test runner) without
+// crashing on `document.getElementById` — the helpers above are pure
+// and re-exported via module.exports at the bottom of the file.
+if (typeof document !== "undefined") (function () {
   const state = loadFilterState();
   const machineClasses = uniqueValues(DATASET.rows, "machine_class");
   const flavors = uniqueValues(DATASET.rows, "emu_flavor");
@@ -1076,3 +1079,19 @@ function renderRunsMeta() {
   renderRunsMeta();
   renderAll();
 })();
+
+// Re-export the pure helpers for the Vitest test suite. Browsers
+// don't define `module`, so the typeof guard keeps this a no-op
+// in production. Eslint's browser config doesn't know about the
+// CommonJS `module` global — eslint.config.js whitelists it.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    compareOtpVersions,
+    majorOf,
+    seriesKey,
+    applyFilters,
+    buildOtpXMap,
+    buildSeries,
+    defaultMajorsSet
+  };
+}

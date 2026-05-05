@@ -21,7 +21,11 @@ export default [
         DATASET: "readonly",
         MAX_RELEASED_MAJOR: "readonly",
         // Chart.js loaded from CDN.
-        Chart: "readonly"
+        Chart: "readonly",
+        // Typeof-guarded `module` reference at the bottom of the
+        // file: a no-op in browsers, lets Vitest pull pure helpers
+        // out via require(). See test/dashboard.test.cjs.
+        module: "readonly"
       }
     },
     rules: {

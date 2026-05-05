@@ -6,13 +6,15 @@
   "scripts": {
     "lint": "npm run lint:js && npm run lint:css",
     "lint:js": "eslint priv/dashboard.js",
-    "lint:css": "stylelint priv/dashboard.css"
+    "lint:css": "stylelint priv/dashboard.css",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "eslint": "^9.18.0",
     "globals": "^15.14.0",
     "stylelint": "^16.13.2",
-    "stylelint-config-standard": "^37.0.0"
+    "stylelint-config-standard": "^37.0.0",
+    "vitest": "^3.0.0"
   }
 }
