@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
 # Fixes: top-level ./configure aborts on modern macOS with
 #        "You are natively building Erlang/OTP for a later version of
 #         MacOSX than current version (26.4.1)".

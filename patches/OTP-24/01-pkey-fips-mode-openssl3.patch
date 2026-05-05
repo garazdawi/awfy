@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
 # Fixes: OTP-24.0 / OTP-24.1 crypto build against OpenSSL 3 fails with
 #        "call to undeclared function 'FIPS_mode'" in lib/crypto/c_src/pkey.c.
 #        OpenSSL 3 removed FIPS_mode(); the OTP-24.0/.1 crypto NIF still

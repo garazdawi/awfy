@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Terraform — ephemeral GitHub Actions runners
 
 This module provisions three ephemeral self-hosted GitHub Actions

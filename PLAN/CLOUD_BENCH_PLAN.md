@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Cloud Bench Plan — daily AWFY sweeps across 4 (OS, arch) targets
 
 A continuous-benchmarking setup that runs the AWFY suite against

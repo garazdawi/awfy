@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Fill Task Plan — `mix awfy.fill`, cross-platform backfill
 
 Replaces the GHA-self-hosted-runner pattern (currently `bin/m5-drain.sh`)

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
 # Fixes: erts/configure on arm64 macOS picks ARCH=noarch, then matches
 #        the *-darwin* clause that forces "-m32" into LDFLAGS, then the
 #        next conftest emits "-arch armv4t" and the linker gives up

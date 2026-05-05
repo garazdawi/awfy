@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Licensing Policy — REUSE-compliant attribution
 
 Cross-cuts every benchmark plan in this repo. When porting code from
@@ -27,15 +32,25 @@ be verified with `reuse lint` (Python tool, `pip install reuse`).
 
 ## Per-file requirements
 
-Every source file (`.erl`, `.ex`, `.exs`, `.sh`, `.ps1`, `.yml`,
-`Dockerfile`, etc.) carries:
+**Rule: every file carries its own SPDX header inline.** If a file
+moves out of the repo — copied into another project, pasted into a
+gist, attached to a bug report — the copyright and licence travel
+with it. Bulk annotations in `REUSE.toml` are reserved for files
+that *cannot* carry inline comments (binary blobs, JSON, generated
+files that get rewritten by tooling). Markdown, shell, dotfiles,
+patches, etc. — all use inline headers.
+
+Required:
 
 1. One or more **`SPDX-FileCopyrightText`** lines naming copyright
    holders (year + name + optional email).
 2. One **`SPDX-License-Identifier`** line naming the SPDX license
    expression.
 
-Comment-syntax matches the file (`%%`, `#`, `//`, `<!--`).
+Comment-syntax matches the file (`%%`, `#`, `//`, `<!--`). For
+patch files the headers go above the unified-diff body, in the
+prose comment block — `patch -p1` ignores everything before the
+first `--- ` line, so SPDX lines there are safe.
 
 ### Original code (no upstream)
 
@@ -79,17 +94,19 @@ Repo-level LICENSE remains Apache-2.0 for original framework code;
 AWFY ports are MIT per-file. REUSE supports per-file licensing —
 this is exactly the pattern it's designed for.
 
-### Files that can't carry comments (binaries, etc.)
+### Files that can't carry comments (binaries, JSON, generated)
 
-Use a `.license` sidecar file alongside the binary. REUSE picks it
-up automatically. Format:
+Add an `[[annotations]]` block to `REUSE.toml` instead. The toml
+file is the one place to look when asking "where's the licence
+for this binary?", which is more discoverable than a `.license`
+sidecar scattered next to each file.
 
-```
-SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
-SPDX-License-Identifier: Apache-2.0
-```
-
-Currently we have no such files; documented for completeness.
+In this repo, the `REUSE.toml` list is intentionally short —
+`mix.lock` (Elixir mix rewrites the file wholesale, so a leading
+comment wouldn't survive `mix deps.get`) and
+`apps/awfy/priv/rap_benchmark.json` (JSON has no comment syntax).
+Adding a new entry there should answer "what comment syntax does
+this file have?" with "none" before it lands.
 
 ## Generated / vendored artefacts
 

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # AWFY Port — Progress Tracker
 
 Live progress for the AWFY port. Updated as work proceeds. When all

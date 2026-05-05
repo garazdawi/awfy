@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 ruby 3.3.0
 elixir 1.19.5
 erlang 28.4.1

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # OTP build patches
 
 Patches in `patches/OTP-<major>/*.patch` are applied to the OTP source

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # AWFY Port Plan: Erlang + Elixir
 
 This document is the detailed plan for porting [Are We Fast Yet (AWFY)](https://github.com/smarr/are-we-fast-yet) to Erlang and Elixir. Quick context lives in [`../README.md`](../README.md); the wider motivation lives in [`../../IDEAS/32-jit-benchmarks.md`](../../IDEAS/32-jit-benchmarks.md).

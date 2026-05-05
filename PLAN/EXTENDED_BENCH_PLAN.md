@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Extended Bench Plan — non-network OTP benchmarks
 
 Companion to `BENCH_VERSIONS_PLAN.md`, `CLOUD_BENCH_PLAN.md`, and

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
 # Pin line endings for sources whose hash is checked at runtime —
 # `awfy.measure` records sha256 of each benchmark's `.ex`/`.erl`
 # source. Without this, Windows checkouts get CRLF and produce

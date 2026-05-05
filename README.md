@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Are We Fast Yet — BEAM continuous benchmarking
 
 Mix project porting [Are We Fast Yet (AWFY)](https://github.com/smarr/are-we-fast-yet)

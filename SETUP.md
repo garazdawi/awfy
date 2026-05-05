@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Setup — `bench.yml` workflow
 
 The `.github/workflows/bench.yml` workflow runs the AWFY suite against

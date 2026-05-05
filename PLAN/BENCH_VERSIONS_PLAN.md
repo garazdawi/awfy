@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Versioned Bench Plan — `mix awfy.measure` + `mix awfy.compare`
 
 A versioned-benchmark harness for comparing AWFY numbers across

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Isolation Policy — every benchmark gets a fresh BEAM
 
 **Cross-cuts**: `PLAN/BENCH_VERSIONS_PLAN.md`, `PLAN/CLOUD_BENCH_PLAN.md`,

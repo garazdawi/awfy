@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
 # Fixes: BEAM emulator segfaults at startup on arm64 Apple Silicon
 #        ("Segmentation fault: 11" running any erlc / erl invocation,
 #         even for a trivial -eval) — visible during the bootstrap
