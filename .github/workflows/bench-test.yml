@@ -26,6 +26,17 @@
 #              run-dirs are already on gh-pages. Cheap idempotent
 #              backfill; safe to run on a cron.
 #
+# Optional `benchmarks` input (workflow_dispatch only): comma list
+# like `Bounce,CD`. When set, every measure-* job passes
+# `--benchmarks <list>` to mix awfy.measure so only those benchmarks
+# run. Combined with `fill`, the per-ref skip check tightens to
+# "skip if every requested benchmark already has a `.benchee` for
+# every platform" — so adding a new benchmark to the suite, then
+# triggering `fill` + `benchmarks=NewOne`, only runs that benchmark
+# on refs that don't yet have its data. The new run-dir is
+# timestamped separately rather than merging into the existing one;
+# the dashboard handles multiple run-dirs per (sha, platform).
+#
 # `22.3` / `24.0` / `28` etc. are shorthand — resolved to the latest
 # patch tag (e.g. `OTP-22.3.4` / `OTP-24.0.6`) by the resolve job at
 # run time.
@@ -46,6 +57,10 @@ on:
         # from gh-pages and no more. Pass "all" for a full rebuild,
         # or a comma list to target specific refs.
         default: "fill"
+      benchmarks:
+        description: "Comma-separated benchmark names (Bounce,CD,…) — empty = full suite. Pair with 'fill' to backfill a single benchmark across refs that don't yet have its data."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -74,6 +89,10 @@ jobs:
       targets_target_mode: ${{ steps.r.outputs.targets_target_mode }}
       has_modern: ${{ steps.r.outputs.has_modern }}
       has_target_mode: ${{ steps.r.outputs.has_target_mode }}
+      # Pass-through for the workflow input. Empty = full suite.
+      # Threaded into every measure-* job's awfy.measure invocation
+      # as `--benchmarks <list>` when non-empty.
+      benchmarks: ${{ inputs.benchmarks || '' }}
     steps:
       - id: r
         env:
@@ -81,6 +100,7 @@ jobs:
             ${{ inputs.otp_refs ||
                 (github.event_name == 'schedule' && 'fill' ||
                  '21,28,master') }}
+          INPUT_BENCHMARKS: ${{ inputs.benchmarks || '' }}
           # Needed for the per-target commit-timestamp lookup; the
           # default GHA token is fine since erlang/otp is public.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -198,23 +218,49 @@ jobs:
           # In fill mode, list run-dir names already on gh-pages so
           # the per-ref loop can skip refs that have all expected
           # platforms covered. Run-dirs are named
-          # `<sha10>-test-<platform>-<arch>-<flavor>` (see the
-          # `--label` arg threaded into mix awfy.measure across the
-          # measure-* jobs). Filtering by that prefix keeps dashboard
-          # HTML/JS in the repo root from being mistaken for runs.
+          # `<ts>_otp<release>_elixir<version>_<sha10>-test-<platform>-<arch>-<flavor>`
+          # — see Awfy.Measure.Helpers.run_dir/5. We grep for
+          # `_<sha10>-test-` so dashboard HTML/JS in the repo root
+          # doesn't get mistaken for run-dirs.
+          #
+          # When the workflow_dispatch `benchmarks` input is set, we
+          # also fetch every `*.benchee` blob path on gh-pages in one
+          # `git/trees?recursive=1` call. The per-ref skip below uses
+          # that to skip refs whose run-dir already contains every
+          # requested benchmark — so `fill` + `benchmarks=Bounce`
+          # only re-runs refs missing Bounce data, and only runs
+          # Bounce when it does. (The recursive tree API returns
+          # `truncated: true` if the repo has too many blobs to fit
+          # in one page; we check and bail to a safe fallback.)
           #
           # `gh api ... --paginate` follows Link-header pagination so
           # this works past the API's default 100-entry page. 2>/dev/null
           # + `|| true` makes a missing gh-pages branch (first run, no
           # publish yet) a no-op rather than a hard failure.
           EXISTING_RUNDIRS=""
+          EXISTING_BENCHEES=""
           if [ "$FILL_MODE" = "1" ]; then
             EXISTING_RUNDIRS="$(gh api \
               "repos/${GITHUB_REPOSITORY}/contents?ref=gh-pages" \
               --paginate --jq '.[].name' 2>/dev/null \
-              | grep -E '^[0-9a-f]+-test-' || true)"
+              | grep -E '_[0-9a-f]{10}-test-' || true)"
             count="$(printf '%s\n' "$EXISTING_RUNDIRS" | grep -c . || true)"
             echo "[fill] gh-pages has $count existing run-dirs"
+
+            if [ -n "$INPUT_BENCHMARKS" ]; then
+              tree_json="$(gh api \
+                "repos/${GITHUB_REPOSITORY}/git/trees/gh-pages?recursive=1" \
+                2>/dev/null || echo '{}')"
+              if [ "$(printf '%s' "$tree_json" | jq -r '.truncated // false')" = "true" ]; then
+                echo "::warning::gh-pages tree exceeds API page limit; benchmark-targeted skip disabled"
+              else
+                EXISTING_BENCHEES="$(printf '%s' "$tree_json" \
+                  | jq -r '.tree[]? | select(.type == "blob") | .path' \
+                  | grep -E '\.benchee$' || true)"
+                bcount="$(printf '%s\n' "$EXISTING_BENCHEES" | grep -c . || true)"
+                echo "[fill] gh-pages has $bcount .benchee blobs"
+              fi
+            fi
           fi
 
           # Expand shorthand:
@@ -344,14 +390,25 @@ jobs:
             label="${short}-test"
             major="$(otp_major_for_ref "$ref" "$sha")"
 
-            # Fill-mode coverage check: if every expected platform for
-            # this ref already has at least one run-dir on gh-pages,
-            # skip resolving an entry. Coarse — partial coverage (e.g.
-            # missing only Windows) re-runs all platforms for the ref
-            # and relies on publish's existing per-rundir dedupe to
-            # avoid double-uploads. The simpler "any leg missing"
-            # heuristic is fine because the matrix can't gate
-            # individual cells without a far more invasive rewrite.
+            # Fill-mode coverage check.
+            #
+            # Default (no benchmarks input): skip the ref if every
+            # expected platform already has at least one run-dir on
+            # gh-pages. Coarse — partial coverage (e.g. missing only
+            # Windows) re-runs all platforms for the ref and relies
+            # on publish's per-rundir dedupe to avoid double-uploads.
+            #
+            # benchmarks input set: skip only if every (platform,
+            # benchmark) pair is already covered. This is what makes
+            # `fill` + `benchmarks=Bounce` cheap — refs whose existing
+            # run-dirs already include Bounce.benchee for every
+            # platform are skipped; the rest re-run, but the workflow
+            # also passes `--benchmarks Bounce` to mix awfy.measure so
+            # only Bounce executes. The new run-dir is timestamped
+            # separately (publish doesn't merge into existing dirs);
+            # the dashboard already groups multiple run-dirs per
+            # (sha, platform), so the new datapoint just adds to the
+            # series rather than replacing it.
             if [ "$FILL_MODE" = "1" ]; then
               if [ "$major" -lt 24 ] 2>/dev/null; then
                 # Legacy refs run on linux-target + windows-target
@@ -361,16 +418,35 @@ jobs:
                 expected_platforms="linux macos windows"
               fi
               all_present=1
-              for plat in $expected_platforms; do
-                if ! printf '%s\n' "$EXISTING_RUNDIRS" \
-                    | grep -q "^${short}-test-${plat}-"; then
-                  all_present=0
-                  break
+              if [ -n "$INPUT_BENCHMARKS" ] && [ -n "$EXISTING_BENCHEES" ]; then
+                # Per-(platform, benchmark) presence check.
+                IFS=',' read -ra benches <<<"$INPUT_BENCHMARKS"
+                for plat in $expected_platforms; do
+                  for b in "${benches[@]}"; do
+                    if ! printf '%s\n' "$EXISTING_BENCHEES" \
+                        | grep -qE "_${short}-test-${plat}-[^/]+/${b}\.benchee$"; then
+                      all_present=0
+                      break 2
+                    fi
+                  done
+                done
+                if [ "$all_present" = "1" ]; then
+                  echo "[fill] $ref ($short) already has all requested benchmarks for every platform — skipping"
+                  continue
                 fi
-              done
-              if [ "$all_present" = "1" ]; then
-                echo "[fill] $ref ($short) already complete on gh-pages — skipping"
-                continue
+              else
+                # Default: any-platform-missing → re-run.
+                for plat in $expected_platforms; do
+                  if ! printf '%s\n' "$EXISTING_RUNDIRS" \
+                      | grep -q "_${short}-test-${plat}-"; then
+                    all_present=0
+                    break
+                  fi
+                done
+                if [ "$all_present" = "1" ]; then
+                  echo "[fill] $ref ($short) already complete on gh-pages — skipping"
+                  continue
+                fi
               fi
             fi
 
@@ -557,8 +633,17 @@ jobs:
           ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
         run: |
           mkdir -p "$PWD/results"
+          # `--benchmarks` is optional: empty string from resolve →
+          # full suite; comma list (Bounce,CD,…) → just those. Bash
+          # word-splitting on the unquoted ${BENCH_ARG} drops the
+          # flag entirely when BENCHMARKS is empty.
+          BENCH_ARG=""
+          if [ -n "$BENCHMARKS" ]; then
+            BENCH_ARG="--benchmarks $BENCHMARKS"
+          fi
           docker run --rm \
             -e ERL_FLAGS="$ERL_FLAGS_VAL" \
             -e AWFY_OTP_COMMIT_TIMESTAMP="$AWFY_OTP_COMMIT_TIMESTAMP" \
@@ -567,7 +652,8 @@ jobs:
             "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}-test" \
             awfy.measure \
               --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
-              --ignore-preflight
+              --ignore-preflight \
+              $BENCH_ARG
       - uses: actions/upload-artifact@v7
         with:
           name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
@@ -703,10 +789,14 @@ jobs:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
         run: |
-          mix awfy.measure `
-            --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
-            --ignore-preflight
+          $args = @(
+            "--label", "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}",
+            "--ignore-preflight"
+          )
+          if ($env:BENCHMARKS) { $args += @("--benchmarks", $env:BENCHMARKS) }
+          mix awfy.measure @args
       - if: steps.install_otp.outputs.skipped != 'true'
         uses: actions/upload-artifact@v7
         with:
@@ -807,10 +897,16 @@ jobs:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
         run: |
+          BENCH_ARG=""
+          if [ -n "$BENCHMARKS" ]; then
+            BENCH_ARG="--benchmarks $BENCHMARKS"
+          fi
           mix awfy.measure \
             --label "${{ matrix.target.label }}-macos-arm64-${{ matrix.flavor }}" \
-            --ignore-preflight
+            --ignore-preflight \
+            $BENCH_ARG
       - uses: actions/upload-artifact@v7
         with:
           name: results-${{ matrix.target.short }}-macos-arm64-${{ matrix.flavor }}
@@ -920,10 +1016,16 @@ jobs:
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
         run: |
+          BENCH_ARG=""
+          if [ -n "$BENCHMARKS" ]; then
+            BENCH_ARG="--benchmarks $BENCHMARKS"
+          fi
           mix awfy.measure \
             --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
-            --ignore-preflight
+            --ignore-preflight \
+            $BENCH_ARG
       - uses: actions/upload-artifact@v7
         with:
           name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
@@ -1092,10 +1194,14 @@ jobs:
           # (e.g. 21.0), so claiming "21.0.9" here would mislabel the
           # dashboard. See windows_otp_label derivation in resolve.
           AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
         run: |
-          mix awfy.measure `
-            --label "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}" `
-            --ignore-preflight
+          $args = @(
+            "--label", "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}",
+            "--ignore-preflight"
+          )
+          if ($env:BENCHMARKS) { $args += @("--benchmarks", $env:BENCHMARKS) }
+          mix awfy.measure @args
       - uses: actions/upload-artifact@v7
         if: steps.install_target_otp.outputs.skipped != 'true'
         with:
