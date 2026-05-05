@@ -528,6 +528,53 @@ const PALETTE = [
 
 function colorFor(i) { return PALETTE[i % PALETTE.length]; }
 
+// Map every OTP label in the visible series to a numeric x position
+// where each OTP major occupies a width of 1 on the axis. See
+// renderChart() for the pixel-spacing rationale. Also returns the
+// list of numeric majors and master/maint flags so the scale config
+// can pick min/max and tick labels.
+function buildOtpXMap(otpLabels) {
+  const labelsByMajor = {};
+  otpLabels.forEach(l => {
+    const m = (l === "master" || l === "maint") ? l : String(l).split(".")[0];
+    if (!labelsByMajor[m]) labelsByMajor[m] = [];
+    labelsByMajor[m].push(l);
+  });
+  Object.values(labelsByMajor).forEach(arr => arr.sort(compareOtpVersions));
+
+  const numericMajors = Object.keys(labelsByMajor)
+    .filter(m => m !== "master" && m !== "maint")
+    .map(s => parseInt(s, 10))
+    .filter(n => !Number.isNaN(n))
+    .sort((a, b) => a - b);
+
+  const map = {};
+  numericMajors.forEach(m => {
+    const arr = labelsByMajor[String(m)];
+    arr.forEach((l, i) => { map[l] = m + (i / arr.length); });
+  });
+
+  const maxNumeric = numericMajors.length ? numericMajors[numericMajors.length - 1] : 0;
+  const hasMaint = !!labelsByMajor.maint;
+  const hasMaster = !!labelsByMajor.master;
+  // maint and master each occupy the next integer slot after the
+  // highest released major — consecutively, no gaps. So with master
+  // and no maint, master is at maxNumeric+1 (right next to 29);
+  // with both, maint is at +1 and master at +2.
+  const maintX = maxNumeric + 1;
+  const masterX = maxNumeric + (hasMaint ? 2 : 1);
+  if (hasMaint) {
+    const arr = labelsByMajor.maint;
+    arr.forEach((l, i) => { map[l] = maintX + (i / arr.length); });
+  }
+  if (hasMaster) {
+    const arr = labelsByMajor.master;
+    arr.forEach((l, i) => { map[l] = masterX + (i / arr.length); });
+  }
+
+  return { map, numericMajors, maxNumeric, hasMaint, hasMaster, maintX, masterX };
+}
+
 function renderChart() {
   // X axis is always OTP version. Suite uses the configurable-free
   // geomean builder; per-bench uses the standard series builder
@@ -571,17 +618,39 @@ function renderChart() {
   const titleFont = { family: "Montserrat, sans-serif", size: 13, weight: "600" };
 
   // Pre-compute the sorted set of OTP versions present in the
-  // visible series; passing them as data.labels pins the
-  // category-axis order so 20.0 < 20.1 < ... < master no matter
-  // what order rows happen to arrive in.
+  // visible series, then remap each datum's `x` from a string
+  // version label ("21.0.9") to a numeric position so the chart's
+  // x scale can be linear. Each OTP major occupies a width of 1 on
+  // the axis: data points within a major are subdivided as
+  // `major + rank/count`, where rank is the within-major index
+  // under compareOtpVersions ordering. Without this remap the
+  // category scale gives every label equal pixel width — so a
+  // major with 1 point ("20.3") visibly squeezes against a major
+  // with 9 points ("21.0.9, 21.1.4, ..."), which makes the OTP-21
+  // → OTP-22 jump look proportionally larger than the OTP-20 →
+  // OTP-21 jump even though they're each one major. master/maint
+  // get their own integer slots past the highest released major.
   const otpLabels = xAxis === "otp"
     ? [...new Set(series.flatMap(s => s.data.map(d => d.x)))].sort(compareOtpVersions)
     : null;
+  const otpXInfo = otpLabels ? buildOtpXMap(otpLabels) : null;
+  if (otpXInfo) {
+    series.forEach(s => {
+      s.data.forEach(d => {
+        d.otpLabel = d.x;
+        d.x = otpXInfo.map[d.x];
+      });
+      // The series builders sort by compareOtpVersions on the raw
+      // labels — that ordering is monotonic in our numeric x too
+      // (within-major rank is preserved, majors increment cleanly),
+      // so we don't need to re-sort here.
+    });
+  }
 
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById("chart"), {
     type: chartType,
-    data: otpLabels ? { labels: otpLabels, datasets } : { datasets },
+    data: { datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -602,28 +671,33 @@ function renderChart() {
               grid: { color: "#eee" }
             }
           : {
-              // Category, with labels pre-sorted by version (master
-              // last). Each tagged feature release (20.0, 20.1, …)
-              // is still its own tick so the curve stays smooth,
-              // but the tick *label* is only printed at the first
-              // function-release of each major (21.0, 22.0, …) so
-              // the axis isn't a wall of "21.1 21.2 21.3 22.0 …".
-              // master/maint always print.
-              type: "category",
+              // Linear axis where each OTP major is one unit wide,
+              // so 20→21 and 27→28 take the same horizontal space
+              // regardless of how many sub-versions populate each.
+              // Sub-versions within a major (20.3, 21.0, 21.0.9,
+              // 21.1, …) get fractional positions inside [major,
+              // major+1) via the rank/count formula in
+              // buildOtpXMap. master sits at maxMajor+2, maint at
+              // maxMajor+1; we put a labelled tick at each
+              // numeric-major position plus master/maint when
+              // present.
+              type: "linear",
+              min: otpXInfo.numericMajors.length ? otpXInfo.numericMajors[0] : 0,
+              max: otpXInfo.hasMaster ? otpXInfo.masterX
+                  : otpXInfo.hasMaint  ? otpXInfo.maintX
+                  : otpXInfo.maxNumeric,
               title: { display: true, text: "OTP version", font: titleFont },
               ticks: {
                 font: tickFont,
+                stepSize: 1,
                 autoSkip: false,
                 maxRotation: 0,
-                callback: function(value, index) {
-                  const label = this.getLabelForValue(value);
-                  if (label === "master" || label === "maint") return label;
-                  const major = String(label).split(".")[0];
-                  if (index === 0) return major;
-                  const prev = this.getLabelForValue(index - 1);
-                  if (prev === "master" || prev === "maint") return major;
-                  const prevMajor = String(prev).split(".")[0];
-                  return major !== prevMajor ? major : "";
+                callback: function(value) {
+                  const v = Math.round(value);
+                  if (otpXInfo.hasMaster && v === otpXInfo.masterX) return "master";
+                  if (otpXInfo.hasMaint  && v === otpXInfo.maintX)  return "maint";
+                  if (otpXInfo.numericMajors.indexOf(v) !== -1) return String(v);
+                  return "";
                 }
               },
               grid: { color: "#eee" }
@@ -652,7 +726,7 @@ function renderChart() {
             title: (items) => {
               if (!items.length) return "";
               const r = items[0].raw;
-              if (xAxis === "otp") return "OTP " + r.x;
+              if (xAxis === "otp") return "OTP " + (r.otpLabel || r.x);
               return new Date(r.x).toLocaleString();
             },
             label: (ctx) => {
