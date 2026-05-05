@@ -109,7 +109,7 @@ trap 'rm -rf "$WORK"' EXIT
             REF_VER="${REF#OTP-}"
             MAJOR_MINOR="$(echo "$REF_VER" | cut -d. -f1-2)"
             ;;
-        master|main) MAJOR_MINOR="master" ;;
+        master) MAJOR_MINOR="master" ;;
         maint-*)
             # `maint-23` tracks the highest minor in OTP-23; we don't
             # know which one without resolving, so look at the source.

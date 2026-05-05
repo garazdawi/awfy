@@ -159,7 +159,7 @@ jobs:
             local r="$1"
             case "$r" in
               OTP-*) echo "$r" | sed 's|^OTP-||' | cut -d. -f1 ;;
-              master|main) echo "29" ;;
+              master) echo "29" ;;
               maint-*) echo "$r" | sed 's|^maint-||' ;;
               *)
                 local sha="$2" v
@@ -235,9 +235,13 @@ jobs:
             # Carry the full resolved version ("28.5.4", "29.0-rc3")
             # so the snapshot legend is unambiguous; the dashboard
             # buckets to major-only for grouping logic. "master" /
-            # "maint-*" pass through verbatim.
+            # "maint" / "maint-*" pass through verbatim — bare `maint`
+            # without the literal here would fall into the catch-all
+            # and get relabelled as the resolved major (e.g. "28"),
+            # folding into the 28.x lineage instead of getting its
+            # own dashboard slot.
             case "$ref" in
-              master|main|maint-*) otp_label="$ref" ;;
+              master|maint|maint-*) otp_label="$ref" ;;
               OTP-*) otp_label="${ref#OTP-}" ;;
               *) otp_label="$major" ;;
             esac

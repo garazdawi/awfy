@@ -91,7 +91,7 @@ otp_major_for_ref() {
     OTP-*)
       echo "${r#OTP-}" | cut -d. -f1
       ;;
-    master|main)
+    master)
       # Bumps when erlang/otp's master moves to the next major.
       echo "29"
       ;;
@@ -308,9 +308,9 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   # relabelled as its resolved major (28), folding into the 28.x
   # lineage instead of getting its own dashboard slot.
   case "$ref" in
-    master|main|maint|maint-*) otp_label="$ref" ;;
-    OTP-*)                     otp_label="${ref#OTP-}" ;;
-    *)                         otp_label="$major" ;;
+    master|maint|maint-*) otp_label="$ref" ;;
+    OTP-*)                otp_label="${ref#OTP-}" ;;
+    *)                    otp_label="$major" ;;
   esac
 
   # Windows installer ref. measure-windows for OTP ≥ 24 hits patch-
