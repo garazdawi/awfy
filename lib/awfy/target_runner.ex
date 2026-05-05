@@ -88,7 +88,7 @@ defmodule Awfy.TargetRunner do
     eval =
       "awfy_target_runner:run_iters_io(#{erlang_atom(module)}, #{inner_iter}, #{iter_count})"
 
-    pa_args = beams |> String.split(":", trim: true) |> Enum.flat_map(&["-pa", &1])
+    pa_args = beams |> String.split(path_separator(), trim: true) |> Enum.flat_map(&["-pa", &1])
 
     args = ["-noshell"] ++ pa_args ++ ["-eval", eval, "-s", "init", "stop"]
 
@@ -205,12 +205,25 @@ defmodule Awfy.TargetRunner do
 
     target_beams()
     |> to_string()
-    |> String.split(":", trim: true)
+    |> String.split(path_separator(), trim: true)
     |> Enum.any?(fn dir -> File.exists?(Path.join(dir, name)) end)
   end
 
   defp target_erl, do: System.get_env("AWFY_TARGET_ERL")
   defp target_beams, do: System.get_env("AWFY_TARGET_BEAMS")
+
+  # `:` is the multi-path separator on Unix; on Windows it collides
+  # with drive-letter prefixes (`C:\…`) and `;` is used instead.
+  # Following the same convention as $PATH / ERL_LIBS — the runner sets
+  # AWFY_TARGET_BEAMS directly to a single dir today, but staying
+  # OS-correct now means a future caller can pass multiple dirs without
+  # silently breaking on Windows.
+  defp path_separator do
+    case :os.type() do
+      {:win32, _} -> ";"
+      _ -> ":"
+    end
+  end
 
   # Render a module atom in Erlang's externally-typeable form. The
   # benchmark modules are either `:awfy_bounce` style (no quoting
