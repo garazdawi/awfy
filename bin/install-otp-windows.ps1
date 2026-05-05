@@ -59,28 +59,44 @@ function Fetch-FromTag {
     param([string]$Ref)
     $tag = $Ref -replace "^v", "OTP-"
     $version = $tag -replace "^OTP-", ""
-    $url = "https://github.com/erlang/otp/releases/download/$tag/otp_win64_$version.exe"
 
-    # Some patch releases (typically emergency security backports —
-    # OTP-25.1.2.1 is the canonical example) ship source-only on
-    # GitHub Releases with no Windows installer. Probe with a HEAD
-    # first; on 404 emit a `skipped=true` GH Actions output and
-    # exit 0 so the workflow can gate downstream steps on that
-    # output and leave a clean hole in the dashboard rather than
-    # substituting a different patch's binary.
-    try {
-        Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing -ErrorAction Stop | Out-Null
-    } catch {
-        $code = $null
-        try { $code = $_.Exception.Response.StatusCode.value__ } catch { }
-        if ($code -eq 404) {
-            Write-Host "::warning::No Windows installer published for $tag — skipping measure-windows leg"
-            if ($env:GITHUB_OUTPUT) {
-                "skipped=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-            }
-            exit 0
+    # Two upstream homes for Windows installers, with disjoint coverage:
+    #   * github.com/erlang/otp/releases/download/<tag>/...
+    #     — every release from OTP-21.0 onwards.
+    #   * erlang.org/download/...
+    #     — every function release back to OTP-17.0, including all of
+    #       OTP-20.x (which github releases is missing entirely).
+    # Probe both before declaring an installer missing. Some patch
+    # releases (e.g. OTP-25.1.2.1, an emergency security backport)
+    # don't have an installer on either host — emit a `skipped=true`
+    # GH Actions output and exit 0 so the workflow leaves a clean
+    # hole in the dashboard instead of substituting a different
+    # patch's binary.
+    $urls = @(
+        "https://github.com/erlang/otp/releases/download/$tag/otp_win64_$version.exe"
+        "https://erlang.org/download/otp_win64_$version.exe"
+    )
+
+    $url = $null
+    foreach ($candidate in $urls) {
+        try {
+            Invoke-WebRequest -Uri $candidate -Method Head -UseBasicParsing -ErrorAction Stop | Out-Null
+            $url = $candidate
+            break
+        } catch {
+            $code = $null
+            try { $code = $_.Exception.Response.StatusCode.value__ } catch { }
+            if ($code -ne 404) { throw }
+            # 404 → fall through to the next candidate.
         }
-        throw
+    }
+
+    if (-not $url) {
+        Write-Host "::warning::No Windows installer published for $tag — skipping measure-windows leg"
+        if ($env:GITHUB_OUTPUT) {
+            "skipped=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        }
+        exit 0
     }
 
     Fetch-FromUrl $url
