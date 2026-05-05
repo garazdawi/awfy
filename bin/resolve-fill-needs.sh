@@ -82,6 +82,27 @@ if [ -z "${GITHUB_REPOSITORY:-}" ]; then
     | sed -E 's|^https://github.com/||')"
 fi
 
+# OTP major of erlang/otp's `master` branch tip. Memoised on first
+# call. Used by otp_major_for_ref's `master` case and as the
+# fallback when a SHA's OTP_VERSION can't be fetched. The script
+# aborts if the curl fails — we'd rather error out loudly than
+# silently mislabel runs as the wrong major (which is what a
+# stale hardcoded number would do once master rolls forward).
+_MASTER_MAJOR=""
+latest_master_major() {
+  if [ -z "$_MASTER_MAJOR" ]; then
+    _MASTER_MAJOR="$(
+      curl -fsSL https://raw.githubusercontent.com/erlang/otp/master/OTP_VERSION 2>/dev/null \
+        | head -1 | cut -d. -f1
+    )"
+    if [ -z "$_MASTER_MAJOR" ]; then
+      echo "[resolve] failed to fetch erlang/otp master OTP_VERSION; cannot determine current major" >&2
+      exit 1
+    fi
+  fi
+  echo "$_MASTER_MAJOR"
+}
+
 # Determine the OTP major from the (possibly expanded) ref. Used
 # downstream to pick the right elixir-otp-XX.zip bundle and to route
 # legacy vs modern.
@@ -92,19 +113,21 @@ otp_major_for_ref() {
       echo "${r#OTP-}" | cut -d. -f1
       ;;
     master)
-      # Bumps when erlang/otp's master moves to the next major.
-      echo "29"
+      latest_master_major
       ;;
     maint-*)
       echo "${r#maint-}"
       ;;
     *)
-      # Fall back to fetching OTP_VERSION from the resolved SHA.
+      # Fall back to fetching OTP_VERSION from the resolved SHA;
+      # if even that fails (network blip mid-run), use the master
+      # major as a final fallback rather than crashing the whole
+      # resolve step.
       local sha="$2"
       local v
       v="$(curl -fsSL "https://raw.githubusercontent.com/erlang/otp/$sha/OTP_VERSION" 2>/dev/null \
            | head -1 | cut -d. -f1)"
-      [ -n "$v" ] && echo "$v" || echo "29"
+      [ -n "$v" ] && echo "$v" || latest_master_major
       ;;
   esac
 }
