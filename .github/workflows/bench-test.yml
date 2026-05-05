@@ -19,8 +19,9 @@
 #   * workflow_dispatch → user-provided, defaults to "fill".
 #
 # Special tokens:
-#   * "all"  — expand to one entry per OTP-21+ minor's latest patch
-#              + OTP-20.3 + master, regardless of what's published.
+#   * "all"  — expand to the maint-tip of every major from OTP-20
+#              onwards (the active maint branch only — grey
+#              sub-branches like maint-23.2 are skipped) + master.
 #   * "fill" — same candidate set as "all", then drop refs whose
 #              run-dirs are already on gh-pages. Cheap idempotent
 #              backfill; safe to run on a cron.
@@ -98,23 +99,33 @@ jobs:
             > "$TABLE"
 
           # Tokens "all" and "fill" both expand to the same backfill
-          # candidate set: latest patch of every OTP-21+ minor (skip
-          # RCs and 4-component "branched" patches), plus OTP-20.3
-          # (the only OTP-20 minor with a buildable source archive —
-          # the .0/.1/.2 tarballs are missing on erlang.org and miss
-          # config.guess/sub), plus master. Table is newest-first so
-          # the first hit per (major.minor) that survives the filter
-          # is the latest non-branched patch; tac reverses to
-          # oldest-first so the trend chart's category axis populates
-          # left-to-right.
+          # candidate set: the maintenance tip of every function-
+          # release line (OTP-X.Y) from OTP-20 onwards, plus master.
           #
-          # 4-component versions (OTP-X.Y.Z.P, e.g. OTP-25.1.2.1) are
-          # emergency security backports off a specific 3-component
-          # patch. They typically don't ship Windows installers, often
-          # skip the upstream CI artifact path, and the perf delta
-          # against the parent OTP-X.Y.Z is by design near-zero. The
-          # backfill picks the latest 3-component patch of each minor
-          # instead — that's the meaningful trend datapoint.
+          # For each X.Y entry in otp_versions.table:
+          #   * The newest version with that X.Y prefix is the
+          #     line's maintenance tip.
+          #   * If X.Y is the major's *active* maint branch (i.e.
+          #     the latest released minor of major X — recognised
+          #     here as the first X.Y prefix encountered for that
+          #     major in newest-first order), take whatever the
+          #     tip is, including 4-component security backports
+          #     (e.g. OTP-21.3 → OTP-21.3.8.24).
+          #   * If X.Y is a grey/superseded line, stop at the last
+          #     3-component patch (e.g. OTP-23.2 → OTP-23.2.7,
+          #     skipping the OTP-23.2.7.x sub-branch which is on
+          #     a deeper branch off OTP-23.2.7 specifically rather
+          #     than continuing maint-23.2).
+          #
+          # See https://erlang.org/download/otp_versions_tree.html
+          # for the branch structure. This rule is what visually
+          # corresponds to "Maintenance branches of old releases"
+          # plus "the main track including the maintenance branch
+          # of the current release", excluding "Other branches".
+          #
+          # `sort -V` orders the output by version (oldest first)
+          # so the trend chart's category axis populates
+          # left-to-right.
           #
           # "fill" additionally drops candidates already published to
           # gh-pages (see EXISTING_RUNDIRS below + the per-ref check
@@ -123,19 +134,61 @@ jobs:
           FILL_MODE=0
           if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
             TOKEN="$INPUT_REFS"
-            PER_MINOR="$(awk '
-              /^OTP-[0-9]/ {
+            CANDIDATES="$(awk '
+              # Stage 1 (first pass): collect 2-component OTP-X.Y
+              # function-release entries with X >= 20.
+              FNR == NR {
+                if ($1 ~ /^OTP-[0-9]+\.[0-9]+$/) {
+                  rest = $1; sub(/^OTP-/, "", rest)
+                  split(rest, parts, ".")
+                  if (parts[1] >= 20) prefixes[$1] = 1
+                }
+                next
+              }
+              # Stage 2 (second pass, also newest-first): for each
+              # tag find its X.Y prefix; track per-major active
+              # prefix (first one seen); accept the first match per
+              # prefix, with the 4-component-only-on-active rule.
+              {
                 tag = $1
                 if (tag ~ /-rc[0-9]/) next
                 rest = tag; sub(/^OTP-/, "", rest)
-                n = split(rest, p, ".")
-                if (n >= 4) next                  # skip branched patches
-                if (p[1] < 21) next
-                key = p[1] "." p[2]
-                if (!(key in seen)) { seen[key] = 1; print tag }
+                n = split(rest, parts, ".")
+                if (parts[1] < 20) next
+                major = parts[1]
+                tag_prefix = ""
+                for (pre in prefixes) {
+                  if (tag == pre || index(tag, pre ".") == 1) {
+                    tag_prefix = pre
+                    break
+                  }
+                }
+                if (tag_prefix == "") next
+                if (!(major in active_for)) active_for[major] = tag_prefix
+                if (tag_prefix in done) next
+                # Grey lines: skip 4-component sub-branch tips.
+                if (tag_prefix != active_for[major] && n >= 4) next
+                done[tag_prefix] = tag
               }
-            ' "$TABLE" | tac | tr "\n" "," )"
-            INPUT_REFS="OTP-20.3,${PER_MINOR}master"
+              END {
+                # OTP-20 override: source-dist tarballs only exist
+                # for OTP-20.3 itself; the .0/.1/.2 release tarballs
+                # have broken config.guess and the .X.Y security
+                # backports were never published as src dists. Drop
+                # the unbuildable OTP-20.x entries and pin OTP-20.3
+                # to its bare function-release tag.
+                delete done["OTP-20.0"]
+                delete done["OTP-20.1"]
+                delete done["OTP-20.2"]
+                done["OTP-20.3"] = "OTP-20.3"
+                for (p in done) print done[p]
+              }
+            ' "$TABLE" "$TABLE" | sort -V | tr "\n" "," )"
+            # `maint` is upstream's pre-release branch for the next
+            # function release of the current major; pairing it with
+            # `master` (next major) gives two forward-looking trend
+            # points alongside the released maint tips.
+            INPUT_REFS="${CANDIDATES}maint,master"
             echo "[resolve] expanded \"$TOKEN\" → $INPUT_REFS"
             if [ "$TOKEN" = "fill" ]; then
               FILL_MODE=1
@@ -165,9 +218,14 @@ jobs:
           fi
 
           # Expand shorthand:
-          #   - "20"            → OTP-20.3 (only buildable OTP-20).
-          #   - "21".."29"/"30" → latest patch of that major.
-          #   - "X.Y"           → latest patch of that minor.
+          #   - "21".."29"/"30" → newest entry with that major
+          #                       prefix in otp_versions.table.
+          #                       For old majors this resolves to a
+          #                       4-component maint-X.Y tip (e.g.
+          #                       21 → OTP-21.3.8.24); for the
+          #                       current major a 3-component patch.
+          #   - "X.Y"           → newest entry with that exact
+          #                       minor prefix (the maint-X.Y tip).
           # Anything else (full tag, "master", "maint-*", SHA) passes
           # through verbatim.
           # `grep -m1` stops grep itself at the first match, so the
@@ -180,7 +238,6 @@ jobs:
           expand_ref() {
             local r="$1"
             case "$r" in
-              20) echo "OTP-20.3" ;;
               2[0-9]|3[0-9])
                 grep -m1 -E "^OTP-$r\\.[0-9.]+ " "$TABLE" | awk '{print $1}'
                 ;;
