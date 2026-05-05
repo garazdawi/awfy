@@ -17,6 +17,13 @@
 #     data accumulation across the legacy + modern paths)
 #   * workflow_dispatch → user-provided, same default as schedule
 #
+# Special tokens:
+#   * "all"  — expand to one entry per OTP-21+ minor's latest patch
+#              + OTP-20.3 + master, regardless of what's published.
+#   * "fill" — same candidate set as "all", then drop refs whose
+#              run-dirs are already on gh-pages. Cheap idempotent
+#              backfill; safe to run on a cron.
+#
 # `22.3` / `24.0` / `28` etc. are shorthand — resolved to the latest
 # patch tag (e.g. `OTP-22.3.4` / `OTP-24.0.6`) by the resolve job at
 # run time.
@@ -31,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       otp_refs:
-        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…)"
+        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…), or 'fill' / 'all'"
         required: false
         # Current testing set: a wide spread to validate both the
         # legacy target-runner path (20-23) and the modern flow (24+).
@@ -80,23 +87,24 @@ jobs:
           # Cached upstream version index. otp_versions.table lists
           # every released OTP version, newest-first, one per line:
           #   `OTP-X.Y[.Z[.P]] : <component versions> : ...`
-          # Used for both shorthand expansion and the "all" backfill
-          # token. One curl per workflow run; all lookups grep the
-          # cached file.
+          # Used for both shorthand expansion and the "all" / "fill"
+          # backfill tokens. One curl per workflow run; all lookups
+          # grep the cached file.
           TABLE="$(mktemp)"
           curl -fsSL --max-time 15 \
             https://raw.githubusercontent.com/erlang/otp/master/otp_versions.table \
             > "$TABLE"
 
-          # Token "all" → full backfill list: latest patch of every
-          # OTP-21+ minor (skip RCs and 4-component "branched"
-          # patches), plus OTP-20.3 (the only OTP-20 minor with a
-          # buildable source archive — the .0/.1/.2 tarballs are
-          # missing on erlang.org and miss config.guess/sub), plus
-          # master. Table is newest-first so the first hit per
-          # (major.minor) that survives the filter is the latest
-          # non-branched patch; tac reverses to oldest-first so the
-          # trend chart's category axis populates left-to-right.
+          # Tokens "all" and "fill" both expand to the same backfill
+          # candidate set: latest patch of every OTP-21+ minor (skip
+          # RCs and 4-component "branched" patches), plus OTP-20.3
+          # (the only OTP-20 minor with a buildable source archive —
+          # the .0/.1/.2 tarballs are missing on erlang.org and miss
+          # config.guess/sub), plus master. Table is newest-first so
+          # the first hit per (major.minor) that survives the filter
+          # is the latest non-branched patch; tac reverses to
+          # oldest-first so the trend chart's category axis populates
+          # left-to-right.
           #
           # 4-component versions (OTP-X.Y.Z.P, e.g. OTP-25.1.2.1) are
           # emergency security backports off a specific 3-component
@@ -105,7 +113,14 @@ jobs:
           # against the parent OTP-X.Y.Z is by design near-zero. The
           # backfill picks the latest 3-component patch of each minor
           # instead — that's the meaningful trend datapoint.
-          if [ "$INPUT_REFS" = "all" ]; then
+          #
+          # "fill" additionally drops candidates already published to
+          # gh-pages (see EXISTING_RUNDIRS below + the per-ref check
+          # in the resolution loop). Idempotent — re-running "fill"
+          # only does what's missing.
+          FILL_MODE=0
+          if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
+            TOKEN="$INPUT_REFS"
             PER_MINOR="$(awk '
               /^OTP-[0-9]/ {
                 tag = $1
@@ -119,7 +134,32 @@ jobs:
               }
             ' "$TABLE" | tac | tr "\n" "," )"
             INPUT_REFS="OTP-20.3,${PER_MINOR}master"
-            echo "[resolve] expanded \"all\" → $INPUT_REFS"
+            echo "[resolve] expanded \"$TOKEN\" → $INPUT_REFS"
+            if [ "$TOKEN" = "fill" ]; then
+              FILL_MODE=1
+            fi
+          fi
+
+          # In fill mode, list run-dir names already on gh-pages so
+          # the per-ref loop can skip refs that have all expected
+          # platforms covered. Run-dirs are named
+          # `<sha10>-test-<platform>-<arch>-<flavor>` (see the
+          # `--label` arg threaded into mix awfy.measure across the
+          # measure-* jobs). Filtering by that prefix keeps dashboard
+          # HTML/JS in the repo root from being mistaken for runs.
+          #
+          # `gh api ... --paginate` follows Link-header pagination so
+          # this works past the API's default 100-entry page. 2>/dev/null
+          # + `|| true` makes a missing gh-pages branch (first run, no
+          # publish yet) a no-op rather than a hard failure.
+          EXISTING_RUNDIRS=""
+          if [ "$FILL_MODE" = "1" ]; then
+            EXISTING_RUNDIRS="$(gh api \
+              "repos/${GITHUB_REPOSITORY}/contents?ref=gh-pages" \
+              --paginate --jq '.[].name' 2>/dev/null \
+              | grep -E '^[0-9a-f]+-test-' || true)"
+            count="$(printf '%s\n' "$EXISTING_RUNDIRS" | grep -c . || true)"
+            echo "[fill] gh-pages has $count existing run-dirs"
           fi
 
           # Expand shorthand:
@@ -244,6 +284,37 @@ jobs:
             short="${sha:0:10}"
             label="${short}-test"
             major="$(otp_major_for_ref "$ref" "$sha")"
+
+            # Fill-mode coverage check: if every expected platform for
+            # this ref already has at least one run-dir on gh-pages,
+            # skip resolving an entry. Coarse — partial coverage (e.g.
+            # missing only Windows) re-runs all platforms for the ref
+            # and relies on publish's existing per-rundir dedupe to
+            # avoid double-uploads. The simpler "any leg missing"
+            # heuristic is fine because the matrix can't gate
+            # individual cells without a far more invasive rewrite.
+            if [ "$FILL_MODE" = "1" ]; then
+              if [ "$major" -lt 24 ] 2>/dev/null; then
+                # Legacy refs run on linux-target + windows-target
+                # (no measure-macos, no jit flavor).
+                expected_platforms="linux windows"
+              else
+                expected_platforms="linux macos windows"
+              fi
+              all_present=1
+              for plat in $expected_platforms; do
+                if ! printf '%s\n' "$EXISTING_RUNDIRS" \
+                    | grep -q "^${short}-test-${plat}-"; then
+                  all_present=0
+                  break
+                fi
+              done
+              if [ "$all_present" = "1" ]; then
+                echo "[fill] $ref ($short) already complete on gh-pages — skipping"
+                continue
+              fi
+            fi
+
             elixir="$(elixir_version_for_major "$major")"
             elixir_bundle="$(elixir_bundle_major_for_major "$major")"
             # The dashboard plots each run against this timestamp, so
