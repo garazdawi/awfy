@@ -1,0 +1,54 @@
+# Fixes: erts/configure on arm64 macOS picks ARCH=noarch, then matches
+#        the *-darwin* clause that forces "-m32" into LDFLAGS, then the
+#        next conftest emits "-arch armv4t" and the linker gives up
+#        with "unknown/unsupported architecture name". Configure aborts
+#        with "no thread library found".
+#        Separately: the in6addr_any / in6addr_loopback configure tests
+#        link a tiny printf() program without including <stdio.h>; clang
+#        on the modern macOS SDK (-Wimplicit-function-declaration as an
+#        error) rejects it, so the cache says "not declared" and the
+#        emulator redefines the symbols as `static const`. libc actually
+#        declares them as `extern` and the build fails with "static
+#        declaration of 'in6addr_loopback' follows non-static declaration".
+# Upstream: ARCH/darwin LDFLAGS — Mark Peek b93b9f9543, "Update config
+#           scripts to compile for Apple Silicon (arm64)" (in OTP-24.0).
+#           in6addr stdio — Tyler Stromberg f32b878cfb, "Add missing
+#           include statements in in6addr tests" (in OTP-23.2).
+# Drop this once we no longer build OTP < 23.2 from source on arm64 macOS.
+
+--- a/erts/configure
++++ b/erts/configure
+@@ -6311,6 +6311,8 @@
+     armv6hl)	ARCH=arm;;
+     armv7l)	ARCH=arm;;
+     armv7hl)	ARCH=arm;;
++    aarch64)	ARCH=arm64;;
++    arm64)	ARCH=arm64;;
+     tile)	ARCH=tile;;
+     e2k)        ARCH=e2k;;
+     *)	 	ARCH=noarch;;
+@@ -6369,7 +6371,7 @@
+
+
+ case $ARCH-$OPSYS in
+-	amd64-darwin*)
++	amd64-darwin*|arm64-darwin*)
+ 		{ $as_echo "$as_me:${as_lineno-$LINENO}: Adjusting LDFLAGS to cope with 64bit Darwin" >&5
+ $as_echo "$as_me: Adjusting LDFLAGS to cope with 64bit Darwin" >&6;}
+ 		case $LDFLAGS in
+@@ -17551,6 +17553,7 @@
+ 		#include <sys/types.h>
+ 		#include <sys/socket.h>
+ 		#include <netinet/in.h>
++		#include <stdio.h>
+
+ int
+ main ()
+@@ -17592,6 +17595,7 @@
+ 		#include <sys/types.h>
+ 		#include <sys/socket.h>
+ 		#include <netinet/in.h>
++		#include <stdio.h>
+
+ int
+ main ()

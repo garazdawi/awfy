@@ -1,0 +1,76 @@
+# Fixes: BEAM emulator segfaults at startup on arm64 Apple Silicon
+#        ("Segmentation fault: 11" running any erlc / erl invocation,
+#         even for a trivial -eval) — visible during the bootstrap
+#         beam compile (hipe is just the first .erl in line; same crash
+#         on any earlier compilation).
+#        Root cause: erts/emulator/beam/erl_db_util.c casts a
+#        fixed-arity BIF function pointer to a variadic
+#        `Eterm (*)(Process*, ...)` and calls it. Under the AArch64
+#        (Apple ARM64) ABI fixed-arity and variadic calls use different
+#        argument-passing conventions — fixed args go in registers,
+#        variadic args spill to the stack — so the cast misroutes
+#        every parameter and the BIF dereferences garbage.
+# Upstream: tehprofessor + mjc daaf5e32cf, "Fix segfault(s) from
+#           variadic args on ARM64". Landed in OTP-23.2 / OTP-24.0.
+# Drop this once we no longer build OTP < 23.2 from source on arm64.
+
+--- a/erts/emulator/beam/erl_db_util.c
++++ b/erts/emulator/beam/erl_db_util.c
+@@ -1996,7 +1996,7 @@
+     Process *tmpp;
+     Process *current_scheduled;
+     ErtsSchedulerData *esdp;
+-    Eterm (*bif)(Process*, ...);
++    BIF_RETTYPE (*bif)(BIF_ALIST);
+     Eterm bif_args[3];
+     int fail_label;
+ #ifdef DMC_DEBUG
+@@ -2303,8 +2303,8 @@
+             *esp++ = t;
+             break;
+ 	case matchCall0:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
+-	    t = (*bif)(build_proc, bif_args);
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
++	    t = (*bif)(build_proc, bif_args, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;
+@@ -2314,8 +2314,8 @@
+ 	    *esp++ = t;
+ 	    break;
+ 	case matchCall1:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
+-	    t = (*bif)(build_proc, esp-1);
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
++	    t = (*bif)(build_proc, esp-1, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;
+@@ -2325,10 +2325,10 @@
+ 	    esp[-1] = t;
+ 	    break;
+ 	case matchCall2:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
+ 	    bif_args[0] = esp[-1];
+ 	    bif_args[1] = esp[-2];
+-	    t = (*bif)(build_proc, bif_args);
++	    t = (*bif)(build_proc, bif_args, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;
+@@ -2339,11 +2339,11 @@
+ 	    esp[-1] = t;
+ 	    break;
+ 	case matchCall3:
+-	    bif = (Eterm (*)(Process*, ...)) *pc++;
++	    bif = (BIF_RETTYPE (*)(BIF_ALIST)) *pc++;
+ 	    bif_args[0] = esp[-1];
+ 	    bif_args[1] = esp[-2];
+ 	    bif_args[2] = esp[-3];
+-	    t = (*bif)(build_proc, bif_args);
++	    t = (*bif)(build_proc, bif_args, NULL);
+ 	    if (is_non_value(t)) {
+ 		if (do_catch)
+ 		    t = FAIL_TERM;

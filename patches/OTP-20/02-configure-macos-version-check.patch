@@ -1,0 +1,129 @@
+# Fixes: top-level ./configure aborts on modern macOS with
+#        "You are natively building Erlang/OTP for a later version of
+#         MacOSX than current version (26.4.1)".
+#        Same bug as the OTP-21 variant — regex-based version parsing
+#        assumes the old "10.X.Y" macOS format. OTP-20's autoconf
+#        generates a slightly older error-handling style (raw `echo` /
+#        `(exit 1); exit 1` rather than `as_fn_error`), so the surrounding
+#        text differs from OTP-21+ and a separate patch is needed.
+# Upstream: removed in OTP-23.2 (Björn Gustavsson f1044ef9e3, "macOS:
+#           Remove version check in configure script"). Modern Xcode
+#           handles deployment-target gating via -mmacosx-version-min.
+# Drop this once we no longer build OTP < 23.2 from source on macOS.
+
+--- a/configure
++++ b/configure
+@@ -3584,107 +3584,14 @@
+ if test X${enable_native_libs} = Xyes -a X${enable_hipe} != Xno; then
+   NATIVE_LIBS_ENABLED=yes
+ fi
+-
+-
+-if test $CROSS_COMPILING = no; then
+-   case $host_os in
+-   	darwin*)
+-	   macosx_version=`sw_vers -productVersion`
+-	   test $? -eq 0 || {
+-	   	{ { echo "$as_me:$LINENO: error: Failed to execute 'sw_vers'; please provide it in PATH" >&5
+-echo "$as_me: error: Failed to execute 'sw_vers'; please provide it in PATH" >&2;}
+-   { (exit 1); exit 1; }; }
+-	   }
+-	   case "$macosx_version" in
+-	       [1-9][0-9].[0-9])
+-	          int_macosx_version=`echo $macosx_version | sed 's|\([^\.]*\)\.\([^\.]*\)|\1\2|'`;;
+-	       [1-9][0-9].[0-9].[0-9])
+-	          int_macosx_version=`echo $macosx_version | sed 's|\([^\.]*\)\.\([^\.]*\)\.\([^\.]*\)|\1\2\3|'`;;
+-	       [1-9][0-9].[1-9][0-9])
+-	          int_macosx_version=`echo $macosx_version | sed 's|\([^\.]*\)\.\([^\.]*\)|\1\200|'`;;
+-	       [1-9][0-9].[1-9][0-9].[0-9])
+-	          int_macosx_version=`echo $macosx_version | sed 's|\([^\.]*\)\.\([^\.]*\)\.\([^\.]*\)|\1\20\3|'`;;
+-	       [1-9][0-9].[1-9][0-9].[1-9][0-9])
+-	          int_macosx_version=`echo $macosx_version | sed 's|\([^\.]*\)\.\([^\.]*\)\.\([^\.]*\)|\1\2\3|'`;;
+-	       *)
+-		  int_macosx_version=unexpected;;
+-	   esac
+-	   test $int_macosx_version != unexpected || {
+-	   	{ { echo "$as_me:$LINENO: error: Unexpected MacOSX version ($macosx_version) returned by 'sw_vers -productVersion'; this configure script probably needs to be updated" >&5
+-echo "$as_me: error: Unexpected MacOSX version ($macosx_version) returned by 'sw_vers -productVersion'; this configure script probably needs to be updated" >&2;}
+-   { (exit 1); exit 1; }; }
+-	   }
+
+-cat >conftest.$ac_ext <<_ACEOF
+-/* confdefs.h.  */
+-_ACEOF
+-cat confdefs.h >>conftest.$ac_ext
+-cat >>conftest.$ac_ext <<_ACEOF
+-/* end confdefs.h.  */
+
+-#if __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ > $int_macosx_version
+-#error Compiling for a newer MacOSX version...
+-#endif
+-
+-int
+-main ()
+-{
+-;
+-  ;
+-  return 0;
+-}
+-_ACEOF
+-rm -f conftest.$ac_objext
+-if { (eval echo "$as_me:$LINENO: \"$ac_compile\"") >&5
+-  (eval $ac_compile) 2>conftest.er1
+-  ac_status=$?
+-  grep -v '^ *+' conftest.er1 >conftest.err
+-  rm -f conftest.er1
+-  cat conftest.err >&5
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); } &&
+-	 { ac_try='test -z "$ac_c_werror_flag"
+-			 || test ! -s conftest.err'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; } &&
+-	 { ac_try='test -s conftest.$ac_objext'
+-  { (eval echo "$as_me:$LINENO: \"$ac_try\"") >&5
+-  (eval $ac_try) 2>&5
+-  ac_status=$?
+-  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+-  (exit $ac_status); }; }; then
+-  :
+-else
+-  echo "$as_me: failed program was:" >&5
+-sed 's/^/| /' conftest.$ac_ext >&5
+-
+-{ { echo "$as_me:$LINENO: error:
+-
+-  You are natively building Erlang/OTP for a later version of MacOSX
+-  than current version ($macosx_version). You either need to
+-  cross-build Erlang/OTP, or set the environment variable
+-  MACOSX_DEPLOYMENT_TARGET to $macosx_version (or a lower version).
+-
+-" >&5
+-echo "$as_me: error:
+-
+-  You are natively building Erlang/OTP for a later version of MacOSX
+-  than current version ($macosx_version). You either need to
+-  cross-build Erlang/OTP, or set the environment variable
+-  MACOSX_DEPLOYMENT_TARGET to $macosx_version (or a lower version).
+-
+-" >&2;}
+-   { (exit 1); exit 1; }; }
+-fi
+-rm -f conftest.err conftest.$ac_objext conftest.$ac_ext
+-	   ;;
+-	*)
+-	   ;;
+-   esac
+-fi
++# macOS version check removed (upstream f1044ef9e3 in OTP-23.2):
++# the regex parsing breaks for macOS 11+ (single-digit minor padded
++# wrong), and the underlying compile-time check rejects any modern
++# build host. The check was about ensuring built binaries can run on
++# the same host that built them; modern Xcode handles this implicitly
++# via -mmacosx-version-min, so the explicit gate is dead weight.
+
+ rm -f $ERL_TOP/lib/SKIP-APPLICATIONS
+ for app in `cd lib && ls -d *`; do
