@@ -94,6 +94,18 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     fi && \
     # shellcheck disable=SC2086 # EXTRA_CONFIGURE is intentionally
     # word-split so multiple flags can be passed as a single arg.
+    #
+    # CFLAGS=-fcommon restores the pre-GCC-10 lenient behavior for
+    # tentative definitions (variables declared in a header without
+    # `extern`). OTP < 23 source has several such declarations
+    # (e.g. `erts_allctr_wrappers` in erts/emulator/beam/erl_alloc.h
+    # for OTP 20, `ei_default_socket_callbacks` in
+    # lib/erl_interface/src/misc/ei_portio.h for OTP 22) that fail
+    # to link under Bullseye's GCC 10's default `-fno-common`. The
+    # flag is a no-op for OTP ≥ 23 source where the declarations
+    # are properly `extern`-qualified, so we apply it globally
+    # rather than gating per-version through another build-arg.
+    CFLAGS="-fcommon ${CFLAGS:-}" \
     ./configure \
         --prefix=/usr/local \
         --disable-debug \

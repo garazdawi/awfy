@@ -163,7 +163,16 @@ trap 'rm -rf "$WORK"' EXIT
     # (e.g. "--without-ssl --without-ssh"), and we want bash word-
     # splitting to turn that into separate configure args. Quoting
     # would pass the whole string as a single argument.
+    #
+    # CFLAGS=-fcommon: same fix as the Linux Dockerfile — OTP < 23
+    # has tentative definitions (declared in headers without
+    # `extern`) that fail to link under modern toolchains where
+    # `-fno-common` is the default (GCC ≥ 10, Apple Clang since
+    # Xcode 12). No-op for OTP ≥ 23 where the declarations are
+    # properly `extern`-qualified, so we apply globally rather
+    # than gating per-version.
     # shellcheck disable=SC2086
+    CFLAGS="-fcommon ${CFLAGS:-}" \
     ./configure \
         --prefix="$PREFIX" \
         --disable-debug \
