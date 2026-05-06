@@ -323,6 +323,34 @@ These were open questions during plan drafting; recording the answers here so th
 
 Total: ~3 days of focused work, with natural review/merge points after each phase.
 
+## Follow-ups
+
+Phases 0-3 landed (commits `2de710c6` plan resolutions, `55e5c99c` Phase 0, `b6332220` Phase 1, `cb1cd87e` Phase 2, `2d3bbdb4` Phase 3). Items below are deliberate deferrals or unverified-in-this-pass acceptance steps:
+
+### Validation we still owe
+
+1. **Phase 1 acceptance — local end-to-end smoke.** `bin/install-otp-source.sh OTP-20.3` → `bin/build-target-bundle.sh "$prefix" 1.9.4` → extract bundle → run a one-line benchmark via `erl -s 'Elixir.Awfy.TargetRunner' main` → load the resulting `.benchee` via `binary_to_term/1`. Highest-risk untested surface; everything later assumes this works. ~30-40 min cold-cache.
+
+2. **Phase 2/3 acceptance — first CI dispatch.** `workflow_dispatch` of `bench.yml` with a tight scope (e.g. `otp_refs=21`, `runner_pool=gha`) to shake out:
+   - `prep-target-bundle`'s `docker pull` + `bin/extract-otp-from-image.sh` pipeline (the pipeline's never been exercised in CI — it merges `/usr/local` and `/opt/awfy_target` into one tree).
+   - Artifact name handshake between `prep-target-bundle` and the measure jobs.
+   - The new env-var wiring (`AWFY_TARGET_BUNDLE`, AWFY_TARGET_BEAMS path expectations).
+   First successful run is the real Phase 3 acceptance.
+
+### Plan items we deferred during implementation
+
+3. **`bin/resolve-fill-needs.sh` simplification (plan §197).** Collapse the 6 per-`(major, platform)` arrays into 3 per-platform `targets_*` arrays carrying `(otp_ref, elixir_version, …)` per entry. Pure cleanup post-Phase-3 — dispatch is unified, the per-major arrays exist only as a workflow-routing artefact. No behaviour change; smaller resolve script, smaller workflow.
+
+4. **`bin/install-otp-source.sh` rename to `install-otp-source-mac.sh`** (plan §198). After Phase 3, Linux goes through `Dockerfile.linux` for both modern and legacy; this script is macOS-only in practice. Rename is cosmetic but makes the layout self-documenting. Header comment updated as the in-place alternative if rename feels too invasive.
+
+5. **AWS runner-label scheme migration (resolved decision #7).** Move from `awfy-bench-linux-{x86_64,arm64}` / `awfy-bench-windows` to the structured `["self-hosted","aws","linux","<arch>"]` form. Touches Terraform AMIs, `bench.yml` `runs-on:` expressions, and `terraform/README.md`. Best done together when next adjusting the runner pool.
+
+### Quality-of-life
+
+6. **Add root `mix test` to `precommit`.** Currently `precommit` runs sub-app tests via the `Path.wildcard("apps/*/test")` loop but skips root `test/`. Now that the pre-existing `versioned_bench_test` failure is fixed, root is green. Adds ~13s but catches `BencheeRunner` regressions locally instead of in CI.
+
+7. **Bundle distribution to AWS — exercise the S3 path.** The `aws s3 cp` step in `prep-target-bundle` is gated on `runner_pool=aws` *and* `vars.AWFY_TARGET_BUNDLE_S3_BUCKET != ''`. Wired but never run. When the AWS runner pool is committed, set the bucket var and validate the end-to-end fetch on the AWS side.
+
 ## Appendix — Prototype findings & gotchas
 
 These are facts established by the OTP-20.3 + Elixir-1.9.4 + Benchee-1.5 prototype that proved the proposition. Documented here so the implementing agent doesn't re-discover each one painfully (each took 5–30 min of detour during the prototype).
