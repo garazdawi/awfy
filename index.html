@@ -219,6 +219,52 @@ function seriesKey(row) {
   return [seriesAxis(row), row.machine_class, row.emu_flavor].join(" / ");
 }
 
+// Collapse OtpBenchmarks-shape rows (`input != null`) into a single
+// synthetic row per (label, lang, machine_class, emu_flavor,
+// benchmark, otp) whose `median_ms` is the geomean of the family's
+// per-input medians. AWFY rows pass through unchanged. Used at the
+// entry of suite-wide aggregations (trend chart geomean) so each
+// multi-input family contributes one weighted-equally cell — without
+// the fold, phash2's 13 cells would dominate the suite ratio against
+// every AWFY benchmark's 1.
+function foldMultiInputFamilies(rows) {
+  const passthrough = [];
+  const groups = {};
+
+  rows.forEach(r => {
+    if (!r.input) {
+      passthrough.push(r);
+      return;
+    }
+    const k = [r.label, r.lang, r.machine_class, r.emu_flavor, r.benchmark, r.otp].join("|");
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(r);
+  });
+
+  const synthetic = Object.values(groups).map(rs => {
+    // Geomean in log space — phash2 spans 12 ns to 6 µs, so
+    // arithmetic mean would skew toward the slow inputs and lose
+    // the boundary effects we want to track.
+    const positive = rs.filter(r => typeof r.median_ms === "number" && r.median_ms > 0);
+    if (positive.length === 0) return null;
+    const sumLog = positive.reduce((s, r) => s + Math.log(r.median_ms), 0);
+    const median = Math.exp(sumLog / positive.length);
+
+    // Family-level synthetic row: clear input so downstream code
+    // treats it like an AWFY single-cell row, override median,
+    // zero stddev (per-input variance doesn't aggregate cleanly
+    // into a per-family number — error bars on the suite chart
+    // would lie about the family's confidence interval).
+    return Object.assign({}, rs[0], {
+      input: null,
+      median_ms: median,
+      stddev_ms: 0
+    });
+  }).filter(Boolean);
+
+  return passthrough.concat(synthetic);
+}
+
 // Order OTP version strings: "20.0" < "20.1" < ... < "21.0" <
 // ... < "28.5" < "maint" < "master". Compares dotted-numeric
 // components pairwise; "maint" and "master" sort after everything
@@ -624,14 +670,16 @@ function buildSeries(rows, xAxis) {
    chart is always the headline view.
 */
 function buildSuiteGeomeanSeries() {
-  // AWFY-only: multi-input families (OtpBenchmarks scenarios where
-  // `input` is populated) carry a different aggregation semantics
-  // than single-cell AWFY benchmarks. Rolling them into the
-  // suite-wide geomean would over-weight whichever family has the
-  // most input variants — phash2 alone has 13 cells vs every AWFY
-  // benchmark's 1. Their own per-input geomean is available on
-  // each family's per-bench page.
-  const rows = DATASET.rows.filter(r => r.emu_flavor === "jit" && !r.input);
+  // Multi-input families (OtpBenchmarks scenarios where `input` is
+  // populated) collapse into one synthetic per-family cell whose
+  // median is the geomean across the family's input cells —
+  // weighted equally with each AWFY benchmark in the suite-wide
+  // ratio. Without the fold, phash2's 13 cells would dominate the
+  // geomean against any AWFY 1-cell benchmark; mirrors the Elixir
+  // `Awfy.Compare.Data.geomean_ratio/2` policy.
+  const rows = foldMultiInputFamilies(
+    DATASET.rows.filter(r => r.emu_flavor === "jit")
+  );
 
   const runOtp = {};
   DATASET.runs.forEach(r => { runOtp[r.label] = r.otp; });
@@ -1382,6 +1430,7 @@ if (typeof module !== "undefined" && module.exports) {
     majorOf,
     seriesAxis,
     seriesKey,
+    foldMultiInputFamilies,
     applyFilters,
     buildOtpXMap,
     buildSeries,
