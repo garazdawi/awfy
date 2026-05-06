@@ -3,19 +3,23 @@
 
 defmodule OtpBenchmarks.Benchmarks.BinaryMatch do
   @moduledoc """
-  `:binary.match/2` against a 64 KB haystack in three regimes:
+  `:binary.match/2` (singular) and `:binary.matches/2` (plural)
+  against a 64 KB haystack across the BM-skip-table BIF's three
+  production-relevant regimes:
 
-    * `no_match`  — pattern doesn't appear; the BIF scans the
-      whole haystack with the Boyer-Moore skip table, paying full
-      O(n) cost.
-    * `eventual`  — pattern appears once near the end of the
-      haystack (~90% in); measures the steady-state scan with
-      one final positional return.
-    * `frequent`  — pattern appears every 256 bytes; the BIF
-      returns on the first hit so this measures the early-out
-      path's startup cost.
+    * `first_no_match`  — pattern absent; full O(n) scan with the
+                          skip table active
+    * `first_eventual`  — single hit at ~90% of the haystack
+    * `first_frequent`  — pattern every 256 B; first-hit early-out
+                          cost
+    * `all_no_match`    — plural variant, zero hits → indistin-
+                          guishable from `first_no_match` since
+                          the early-out path doesn't trigger
+    * `all_frequent`    — plural variant, 256 hits in 64 KB; hot
+                          path for log scanners and tokenisers
 
-  Inputs are static binaries built once per scenario.
+  Pattern is a static 11-byte string so BM-skip preprocessing
+  cost stays equal across inputs.
   """
 
   use OtpBenchmarks.Benchmark
@@ -27,13 +31,18 @@ defmodule OtpBenchmarks.Benchmarks.BinaryMatch do
 
   def inputs do
     %{
-      "no_match_64k" => {haystack(:no_match), @pattern},
-      "eventual_64k" => {haystack(:eventual), @pattern},
-      "frequent_64k" => {haystack(:frequent), @pattern}
+      "first_no_match_64k" => {:first, :no_match},
+      "first_eventual_64k" => {:first, :eventual},
+      "first_frequent_64k" => {:first, :frequent},
+      "all_no_match_64k" => {:all, :no_match},
+      "all_frequent_64k" => {:all, :frequent}
     }
   end
 
-  def run({haystack, pattern}), do: :binary.match(haystack, pattern)
+  def setup({op, distribution}), do: {op, haystack(distribution), @pattern}
+
+  def run({:first, haystack, pattern}), do: :binary.match(haystack, pattern)
+  def run({:all, haystack, pattern}), do: :binary.matches(haystack, pattern)
 
   defp haystack(:no_match), do: :binary.copy(<<"a">>, @haystack_size)
 
