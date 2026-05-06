@@ -154,10 +154,11 @@ Each phase is independently mergeable and reversible. Phase boundaries are the n
 - `SETUP.md` gains a section on building target Elixir locally (for running pre-24 measurements on a workstation).
 
 **Deliverables:**
-- New umbrella sub-app at `apps/awfy_target_runner/` with its own `mix.exs` and one Elixir module: `Awfy.TargetRunner` (the `main/1` script with arg parsing and `Benchee.run/2` invocation).
+- New sibling app at `apps/awfy_target_runner/` (under `apps/` but NOT path-depended-on by the root `mix.exs` — see resolved decision #10) with its own `mix.exs` and one Elixir module: `Awfy.TargetRunner` (the `main/1` script with arg parsing and `Benchee.run/2` invocation).
 - Vendored deps under `apps/awfy_target_runner/deps/{benchee,deep_merge,statistex}/` with `mix.exs` files stripped of dev/test deps. The strip is a one-time edit; subsequent dep upgrades go through a small `bin/refresh-target-deps.sh` script that re-fetches and re-strips.
-- `bin/build-target-bundle.sh <otp_major> <elixir_version>`. Idempotent: builds OTP from source (if not cached) → builds Elixir against it → mix-compiles vendored deps → mix-compiles the runner module → tars `bin/`, `lib/elixir/ebin`, `_build/prod/lib/*` into `target_bundle.tar.gz`.
+- `bin/build-target-bundle.sh <otp_install_dir> <elixir_version>`. Consumes a pre-built OTP install directory (built by `build-linux`'s Docker image on CI, or `bin/install-otp-source.sh` locally — see resolved decision #12). Idempotent: builds Elixir against the supplied OTP → mix-compiles vendored deps → mix-compiles the runner module → tars `bin/`, `lib/elixir/ebin`, `_build/prod/lib/*` into `target_bundle.tar.gz`.
 - `bin/install-elixir-source.sh <elixir_version> <otp_prefix>`. Clones the elixir tag, makes against the target OTP, no install.
+- `bin/extract-otp-from-image.sh <image>`. `docker create` + `docker cp /opt/otp` + `docker rm` to pull an OTP install out of a per-OTP-SHA `build-linux` image — used by `prep-target-bundle` to feed `bin/build-target-bundle.sh` without a redundant source build.
 
 **Tests:**
 - Unit tests for the runner module's argv parsing and `.benchee` output shape.
@@ -169,7 +170,7 @@ Each phase is independently mergeable and reversible. Phase boundaries are the n
 
 **Deliverables:**
 - New `lib/awfy/runner.ex` (~80 LOC). Single function: `run(target_dir, module, inner_iter, opts)` shells out to the target Elixir bundle, blocks, returns the `.benchee` path. Replaces `Awfy.TargetRunner` in spirit but doesn't yet activate.
-- `prep-target-bundle` workflow job (matrix over four OTP/Elixir pairs) on `ubuntu-latest`. Uses `actions/cache` keyed by `(elixir_version, otp_major, mix.lock_hash, patches/OTP-MAJOR.MINOR/_hash)`. Outputs the bundle as a workflow artifact.
+- `prep-target-bundle` workflow job (matrix over four OTP/Elixir pairs) on `ubuntu-latest`. Pulls the per-OTP-SHA `build-linux` image from GHCR, calls `bin/extract-otp-from-image.sh` to lift `/opt/otp` out, and feeds the path to `bin/build-target-bundle.sh`. Uses `actions/cache` keyed by `(elixir_version, otp_sha, sub-app source hash, vendored-deps hash)` — *no* OTP source-build cost on prep, because the OTP install is reused from `build-linux`. Outputs the bundle as a workflow artifact (and S3 when `runner_pool=aws`).
 - **Extend `build-linux` to cover pre-24 OTPs.** `Dockerfile.linux` is already parametric on `OTP_SHA` (header comment explicitly says "OTP 20 → master with the same toolchain"); only the matrix needs to grow to include the legacy SHAs × `[x86_64, arm64]`. Output: per-OTP-SHA Docker image pushed to GHCR, just like the modern path. Same image-build mechanics, same caching, same hermetic-userspace guarantee.
 - New parallel measure jobs: `measure-{linux,windows,macos}-target-v2`. Same matrix as the existing `-target` jobs.
   - `measure-linux-target-v2`: `docker pull` the per-OTP-SHA image (from the extended `build-linux`), `docker run` with the bundle artifact mounted in. No source build at job time.
@@ -270,11 +271,24 @@ These were open questions during plan drafting; recording the answers here so th
 
 9. **Parity-check methodology in Phase 2.** `bin/compare-target-paths.sh` (small new helper) takes two run-directories produced by the same OTP ref — one from `-target` (current), one from `-target-v2` (new) — and emits a per-benchmark median delta (`(new - old) / old`). Acceptance: aggregate geomean delta within ±5% across all benchmarks; no individual benchmark's |delta| exceeds 15%. Larger deltas mean the two paths are measuring different things and need investigation before Phase 3 lands.
 
+10. **Sibling app under `apps/`, NOT a path-dep of the root `mix.exs`.** The root project (`mix.exs:19-25`) is deliberately not a Mix umbrella; `apps/<name>/` already houses standalone apps that are individually compilable, including under a different OTP/Elixir than the runner. `apps/awfy_target_runner/` follows the same shape: its presence under `apps/` is convention, not a dependency relationship. Concrete consequences:
+    - The root `mix compile` does not descend into the sub-app. Vendored target-pinned deps with stripped dev/test trees never enter the host `_build`.
+    - The duplicate `Awfy.TargetRunner` module name (host `lib/awfy/target_runner.ex` until Phase 3 deletes it; sub-app `apps/awfy_target_runner/lib/awfy/target_runner.ex` from Phase 1 onward) does not collide — they compile into separate `_build` trees and are loaded by different VMs (host vs target-erl-via-`System.cmd`).
+    - The plan's earlier "umbrella sub-app" wording is loose; "sibling app under `apps/`" is the precise description.
+
+11. **`mix precommit` runs the sub-app's tests + every benchmark app's tests.** Since the sub-app isn't a path-dep, `mix test` at the root won't reach it. The root `aliases/0` in `mix.exs` gains `mix cmd --cd apps/awfy_target_runner mix test` (added in Phase 1) plus equivalent invocations for any `apps/<bench>/` that ships its own `test/` tree. This keeps local pre-commit checks symmetric with what CI exercises and catches sub-app regressions before they ship.
+
+12. **`bin/build-target-bundle.sh` consumes a pre-built OTP install directory.** Signature is `build-target-bundle.sh <otp_install_dir> <elixir_version> [<output_path>]`. The script does not source-build OTP itself.
+    - On CI, `prep-target-bundle` (Phase 2) extracts `/opt/otp` from the per-OTP-SHA Docker image produced by the (extended-to-pre-24) `build-linux` matrix via `bin/extract-otp-from-image.sh`, then passes that directory to the bundle script. OTP is built once per SHA across the whole workflow.
+    - Locally on macOS, the developer pre-builds OTP via the existing `bin/install-otp-source.sh` and points the bundle script at the resulting prefix. No Docker required for local dev.
+    - Eliminates the duplicate ~7-min OTP source-build that the plan's earlier "Idempotent: builds OTP from source (if not cached)" wording implied.
+
 ## Files affected
 
 **New:**
-- `apps/awfy_target_runner/{mix.exs,lib/awfy/target_runner.ex,deps/...}`
-- `bin/{build-target-bundle.sh,install-elixir-source.sh,refresh-target-deps.sh}`
+- `apps/awfy_target_runner/{mix.exs,lib/awfy/target_runner.ex,test/...,deps/...}`
+- `apps/awfy_target_runner/README.md`
+- `bin/{build-target-bundle.sh,install-elixir-source.sh,refresh-target-deps.sh,extract-otp-from-image.sh,compare-target-paths.sh}`
 - `lib/awfy/runner.ex`
 
 **Modified:**
@@ -282,7 +296,7 @@ These were open questions during plan drafting; recording the answers here so th
 - `bin/install-otp-source.sh` (drop the target-beam erlc block in Phase 3; effectively becomes macOS-only)
 - `bin/resolve-fill-needs.sh` (drop modern/legacy split in Phase 3)
 - `.github/workflows/bench.yml` (Phase 0: absorbs `bench-test.yml` and gains the `runner_pool` input; Phase 2: add `prep-target-bundle`, extend `build-linux` matrix to pre-24 OTPs, update the `-target` install steps to pull Docker image + bundle)
-- `mix.exs` (add `awfy_target_runner` umbrella sub-app)
+- `mix.exs` (Phase 1 — extend the `precommit` alias to run `mix test` in `apps/awfy_target_runner/` and in any benchmark app under `apps/<bench>/` that ships a `test/` tree; the sub-app itself is **not** added to the root `deps/0` — see resolved decision #10)
 - `ARCHITECTURE.md` (Phase 0 + Phase 2 + Phase 3 incremental updates as runner story changes; Phase 3 owns the rationale-rich rewrite per Goal 5)
 - `SETUP.md` (Phase 0 + Phase 1 + Phase 2 + Phase 3 — workflow naming, target-Elixir local builds, AWS pool prerequisites, post-Phase-3 cleanup)
 - `ISOLATION_POLICY.md` (Phase 3 — legacy-path isolation paragraph)
