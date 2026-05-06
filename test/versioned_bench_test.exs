@@ -43,7 +43,20 @@ defmodule AwfyTest.VersionedBench do
 
     assert meta["format_version"] == 1
     assert meta["label"] == "test1"
-    assert meta["otp"] == to_string(System.otp_release())
+
+    # `meta["otp"]` prefers the OTP_VERSION file (full "X.Y.Z[.P]"
+    # string) over System.otp_release/0 (just the major). On a
+    # normal OTP install the file is present, so locally this is
+    # "28.4.1"-shaped; on a stripped install it falls back to "28".
+    # See `Mix.Tasks.Awfy.Measure.otp_version_label/0`. CI sets
+    # AWFY_OTP_VERSION explicitly to the dashboard-bucketed form
+    # (e.g. "21.3"); we allow either shape here.
+    release = to_string(System.otp_release())
+
+    assert meta["otp"] == release or
+             String.starts_with?(meta["otp"], release <> "."),
+           "meta[\"otp\"]=#{inspect(meta["otp"])} expected to start with #{release}"
+
     assert meta["elixir"] == System.version()
     assert meta["machine"]["hostname"]
     assert meta["machine"]["cpu"]

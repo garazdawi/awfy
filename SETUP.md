@@ -247,6 +247,38 @@ behind these numbers.
 macOS isn't part of the cloud cost — runs locally via
 `mix awfy.fill` on your M5; see section 3.
 
+## 2.4.5. AWS pool prerequisites for the target-Elixir bundle path
+
+Phase 2 of `PLAN/TARGET_ELIXIR_RUNNER_PLAN.md` adds two steps the
+AWS pool needs before `runner_pool=aws` runs the legacy measure
+jobs:
+
+1. **Ubuntu LTS AMIs**, version-pinned in `terraform/main.tf`. The
+   Dockerfile.linux base is `debian:bullseye-slim` and Ubuntu LTS
+   shares its glibc/OpenSSL 1.1 userspace, so the OTP build
+   produced today runs on the AWS host unchanged. Amazon Linux
+   would force a Dockerfile rewrite and divergent kernel tuning
+   between the GHA and AWS pools — both deal-breakers for
+   apples-to-apples comparisons. See
+   [`terraform/README.md`](terraform/README.md) § AMI selection.
+
+2. **S3 bucket for bundle distribution**, optional. Set the
+   workflow var `AWFY_TARGET_BUNDLE_S3_BUCKET` under Repository
+   Settings → Variables to enable; leave empty to skip the S3
+   step entirely. Sizing: ~600 MB across the 4 pinned Elixir
+   bundles, ~$0.014/month at us-east-1 standard pricing. The
+   `prep-target-bundle` job uploads to S3 conditionally; AWS
+   measure jobs always also have access to the same artifact via
+   `actions/download-artifact`, so the S3 step is a redundancy
+   layer for now (defense in depth — GHA's artifact retention is
+   30 days, S3 is whatever lifecycle the operator configures).
+
+The runner labels stay as today (`awfy-bench-linux-x86_64`,
+`awfy-bench-linux-arm64`, `awfy-bench-windows`); Phase 2 doesn't
+relabel them. Resolved decision #7 in the plan calls for a future
+schema (`["self-hosted","aws","linux","<arch>"]`); rolling that
+out is a separate Terraform exercise.
+
 ## 2.5. Building target Elixir bundles locally
 
 For pre-OTP-24 measurements, the `bench.yml` legacy path needs an

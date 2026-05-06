@@ -250,6 +250,162 @@ jobs:
           cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
           cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
 
+  # Same Dockerfile, same toolchain — pre-OTP-24 SHAs go through the
+  # build-linux pipeline too. Phase 2 of
+  # PLAN/TARGET_ELIXIR_RUNNER_PLAN.md: a single source-of-truth for
+  # Linux OTP builds across modern + legacy. Two consumers:
+  #   * prep-target-bundle: extracts /opt/otp from the resulting
+  #     image and feeds bin/build-target-bundle.sh — no duplicate
+  #     OTP source build.
+  #   * measure-linux-target-v2: docker pull the image (GHA) or
+  #     extract + bare-metal exec (AWS) — same dual-mode consumption
+  #     as the modern measure-linux job.
+  build-linux-target:
+    needs: resolve
+    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
+        arch:
+          - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
+          - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
+    runs-on: ${{ matrix.arch.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.linux
+          platforms: ${{ matrix.arch.platform }}
+          push: true
+          build-args: |
+            OTP_SHA=${{ matrix.target.sha }}
+            OTP_REF=${{ matrix.target.ref }}
+            ELIXIR_OTP_MAJOR=${{ matrix.target.elixir_bundle }}
+            ELIXIR_VERSION=${{ matrix.target.elixir }}
+          secrets: |
+            gh_token=${{ secrets.GITHUB_TOKEN }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}
+          # Same gha cache scope as build-linux — modern and legacy
+          # OTPs share most of the layer cache (toolchain, base
+          # image, autotools), so they should warm each other.
+          cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
+          cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
+
+  # Build the per-Elixir target-Elixir bundle. Always runs on GHA
+  # ubuntu-latest regardless of `runner_pool` — bundle assembly
+  # doesn't need bare-metal accuracy. Per PLAN decision #12, this
+  # job consumes a pre-built OTP install dir (extracted from the
+  # legacy build-linux-target image) rather than source-building
+  # OTP itself. Eliminates the ~7-min duplicate build that an
+  # independent source-build would impose.
+  #
+  # Matrix is a fixed 4 entries, one per pre-24 OTP major × pinned
+  # Elixir. The `find_sha` step skips the entry if the resolve
+  # output didn't include any SHA for that major (e.g. a smoke run
+  # only covering OTP 21 leaves OTP 20/22/23 entries skipped). When
+  # the run includes multiple SHAs for the same major, we pick the
+  # first (any will do — Elixir BEAM bytecode is forward-compatible
+  # within an OTP major).
+  prep-target-bundle:
+    needs: [resolve, build-linux-target]
+    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    permissions:
+      contents: read
+      packages: read
+      # `aws s3 cp` needs OIDC creds when runner_pool=aws. The step
+      # is gated on the pool input but the permission has to be
+      # declared up-front.
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { otp_major: "20", elixir_version: "1.9.4" }
+          - { otp_major: "21", elixir_version: "1.11.4" }
+          - { otp_major: "22", elixir_version: "1.13.4" }
+          - { otp_major: "23", elixir_version: "1.14.5" }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Find SHA for OTP ${{ matrix.otp_major }}
+        id: find_sha
+        env:
+          TARGETS: ${{ needs.resolve.outputs.targets_legacy_linux }}
+        run: |
+          SHA="$(echo "$TARGETS" \
+            | jq -r --arg M "${{ matrix.otp_major }}" \
+                '[.[] | select(.major == $M)] | .[0].sha // empty')"
+          if [ -z "$SHA" ]; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "[prep] no OTP-${{ matrix.otp_major }} entry in this run, skipping"
+            exit 0
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "[prep] OTP ${{ matrix.otp_major }} → $SHA"
+      - name: Cache target bundle
+        if: steps.find_sha.outputs.skipped != 'true'
+        id: bundle_cache
+        uses: actions/cache@v4
+        with:
+          # Cache key: Elixir version + OTP SHA + sub-app + vendored
+          # deps. Bumping the sub-app source or vendored Benchee
+          # busts the cache; same OTP SHA + same Elixir + same
+          # sources hits.
+          path: target_bundle_${{ matrix.elixir_version }}.tar.gz
+          key: target-bundle-${{ matrix.elixir_version }}-${{ steps.find_sha.outputs.sha }}-${{ hashFiles('apps/awfy_target_runner/**', 'bin/build-target-bundle.sh', 'bin/install-elixir-source.sh') }}
+      - name: Login to GHCR
+        if: steps.find_sha.outputs.skipped != 'true' && steps.bundle_cache.outputs.cache-hit != 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Extract OTP from build-linux-target image
+        if: steps.find_sha.outputs.skipped != 'true' && steps.bundle_cache.outputs.cache-hit != 'true'
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:${{ steps.find_sha.outputs.sha }}-x86_64"
+          docker pull "$IMAGE"
+          ./bin/extract-otp-from-image.sh "$IMAGE" "$PWD/otp"
+      - name: Build target bundle
+        if: steps.find_sha.outputs.skipped != 'true' && steps.bundle_cache.outputs.cache-hit != 'true'
+        run: |
+          ./bin/build-target-bundle.sh "$PWD/otp" "${{ matrix.elixir_version }}" \
+            "target_bundle_${{ matrix.elixir_version }}.tar.gz"
+      - name: Upload bundle artifact
+        if: steps.find_sha.outputs.skipped != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: target-bundle-${{ matrix.elixir_version }}
+          path: target_bundle_${{ matrix.elixir_version }}.tar.gz
+          retention-days: 30
+      # AWS bundle distribution: gated on runner_pool=aws so it's a
+      # no-op while the default is gha (PLAN decision #3 — wired
+      # now so flipping the default later is one-line). The bucket
+      # name comes from a workflow var so the operator can rotate
+      # buckets without touching the workflow.
+      - name: Upload bundle to S3 (AWS pool only)
+        if: steps.find_sha.outputs.skipped != 'true' && needs.resolve.outputs.runner_pool == 'aws' && vars.AWFY_TARGET_BUNDLE_S3_BUCKET != ''
+        env:
+          BUCKET: ${{ vars.AWFY_TARGET_BUNDLE_S3_BUCKET }}
+        run: |
+          aws s3 cp \
+            "target_bundle_${{ matrix.elixir_version }}.tar.gz" \
+            "s3://$BUCKET/target_bundle_${{ matrix.elixir_version }}.tar.gz"
+
   # Linux modern measurements. runs-on routes to GHA-hosted or AWS
   # self-hosted via the resolved runner_pool output. CPU pinning
   # (`--cpuset-cpus=0`) only fires on AWS — GHA runners share
@@ -990,12 +1146,315 @@ jobs:
           path: results/
           retention-days: 30
 
+  # ---------------------------------------------------------------
+  # Phase-2 parallel `-target-v2` measure jobs. Run alongside the
+  # legacy `-target` jobs (which they don't replace until Phase 3
+  # of PLAN/TARGET_ELIXIR_RUNNER_PLAN.md). Both paths produce
+  # `.benchee` files for the same OTP refs into separate run-dirs
+  # so `bin/compare-target-paths.sh` can validate parity.
+  #
+  # Common shape per platform:
+  #   1. Acquire target OTP (docker pull on Linux, install-otp-* on
+  #      macOS/Windows — same as the legacy -target jobs).
+  #   2. Download the matching target_bundle_<version>.tar.gz from
+  #      prep-target-bundle (always via actions/download-artifact —
+  #      no S3 fallback in v1; AWS fetches the same artifact).
+  #   3. Extract the bundle, set AWFY_TARGET_ERL / AWFY_TARGET_BUNDLE
+  #      / AWFY_TARGET_BEAMS, invoke `mix awfy.measure --runner=bundle`.
+  #   4. Upload results into a `*-v2` artifact name so the legacy
+  #      and bundle paths don't clobber each other on staging.
+  # ---------------------------------------------------------------
+  measure-linux-target-v2:
+    needs: [resolve, build-linux-target, prep-target-bundle]
+    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
+        arch:
+          - { name: x86_64, gha_runner: ubuntu-latest,    aws_label: awfy-bench-linux-x86_64 }
+          - { name: arm64,  gha_runner: ubuntu-24.04-arm, aws_label: awfy-bench-linux-arm64 }
+        flavor: [emu]
+    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","{0}"]', matrix.arch.aws_label)) || matrix.arch.gha_runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Pick Elixir version for OTP ${{ matrix.target.major }}
+        id: elixir
+        # Same pinned matrix as prep-target-bundle. Hardcoded here
+        # rather than threaded through resolve to keep the Phase 2
+        # surgery contained.
+        run: |
+          case "${{ matrix.target.major }}" in
+            20) echo "version=1.9.4"  >> "$GITHUB_OUTPUT" ;;
+            21) echo "version=1.11.4" >> "$GITHUB_OUTPUT" ;;
+            22) echo "version=1.13.4" >> "$GITHUB_OUTPUT" ;;
+            23) echo "version=1.14.5" >> "$GITHUB_OUTPUT" ;;
+            *)  echo "::error::no Elixir pin for OTP ${{ matrix.target.major }}"; exit 1 ;;
+          esac
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Extract OTP from per-OTP-SHA image
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}"
+          docker pull "$IMAGE"
+          ./bin/extract-otp-from-image.sh "$IMAGE" "$PWD/otp"
+          echo "AWFY_TARGET_ERL=$PWD/otp/bin/erl" >> "$GITHUB_ENV"
+          echo "AWFY_TARGET_BEAMS=$PWD/otp/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
+      - name: Download target bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: target-bundle-${{ steps.elixir.outputs.version }}
+          path: bundle-tar/
+      - name: Extract bundle
+        run: |
+          mkdir -p bundle
+          tar xzf "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" -C bundle --strip-components=1
+          echo "AWFY_TARGET_BUNDLE=$PWD/bundle" >> "$GITHUB_ENV"
+      - uses: erlef/setup-beam@v1
+        with:
+          # Pinned modern host. The orchestrator never touches the
+          # target erl directly — only via Awfy.Runner shell-out.
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: Compile orchestrator
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }}, --runner=bundle)
+        env:
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          CPU_PIN: ${{ needs.resolve.outputs.runner_pool == 'aws' && 'taskset -c 0' || '' }}
+        run: |
+          BENCH_ARG=""
+          if [ -n "$BENCHMARKS" ]; then
+            BENCH_ARG="--benchmarks $BENCHMARKS"
+          fi
+          # shellcheck disable=SC2086 # CPU_PIN intentionally word-splits.
+          $CPU_PIN mix awfy.measure \
+            --runner=bundle \
+            --label "${{ matrix.target.label }}-v2-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
+            --ignore-preflight \
+            $BENCH_ARG
+      - uses: actions/upload-artifact@v7
+        with:
+          name: results-v2-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
+          path: results/
+          retention-days: 30
+
+  measure-windows-target-v2:
+    needs: [resolve, prep-target-bundle]
+    if: needs.resolve.outputs.has_legacy_windows == 'true'
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_windows) }}
+        flavor: [emu]
+    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","awfy-bench-windows"]') || 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Pick Elixir version for OTP ${{ matrix.target.major }}
+        id: elixir
+        shell: pwsh
+        run: |
+          $version = switch ("${{ matrix.target.major }}") {
+            "20" { "1.9.4"  }
+            "21" { "1.11.4" }
+            "22" { "1.13.4" }
+            "23" { "1.14.5" }
+            default { Write-Error "no Elixir pin for OTP ${{ matrix.target.major }}"; exit 1 }
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Install target OTP
+        id: install_target_otp
+        shell: pwsh
+        env:
+          OTP_REF: ${{ matrix.target.windows_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
+          if ([string]::IsNullOrWhiteSpace($prefix)) {
+            exit 0
+          }
+          "AWFY_TARGET_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "AWFY_TARGET_ERL=$prefix\bin\erl.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Download target bundle
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: target-bundle-${{ steps.elixir.outputs.version }}
+          path: bundle-tar
+      - name: Extract bundle
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        run: |
+          $tar = "bundle-tar\target_bundle_${{ steps.elixir.outputs.version }}.tar.gz"
+          New-Item -ItemType Directory -Force -Path bundle-stage | Out-Null
+          # tar.exe ships in modern Windows; --strip-components flattens
+          # `bundle/` so the bundle dir we point AWFY_TARGET_BUNDLE at is
+          # the top-level we extracted into.
+          tar -xzf $tar -C bundle-stage --strip-components 1
+          $bundle = (Resolve-Path bundle-stage).Path
+          "AWFY_TARGET_BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: erlef/setup-beam@v1
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: Compile orchestrator
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }}, --runner=bundle)
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        shell: pwsh
+        env:
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          RUNNER_POOL: ${{ needs.resolve.outputs.runner_pool }}
+        run: |
+          if ($env:RUNNER_POOL -eq 'aws') {
+            [System.Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity = [IntPtr]1
+          }
+          $args = @(
+            "--runner=bundle",
+            "--label", "${{ matrix.target.label }}-v2-windows-x86_64-${{ matrix.flavor }}",
+            "--ignore-preflight"
+          )
+          if ($env:BENCHMARKS) { $args += @("--benchmarks", $env:BENCHMARKS) }
+          mix awfy.measure @args
+      - uses: actions/upload-artifact@v7
+        if: steps.install_target_otp.outputs.skipped != 'true'
+        with:
+          name: results-v2-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
+          path: results/
+          retention-days: 30
+
+  measure-macos-target-v2:
+    needs: [resolve, prep-target-bundle]
+    if: needs.resolve.outputs.has_legacy_macos == 'true'
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_macos) }}
+        flavor: [emu]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Pick Elixir version for OTP ${{ matrix.target.major }}
+        id: elixir
+        run: |
+          case "${{ matrix.target.major }}" in
+            20) echo "version=1.9.4"  >> "$GITHUB_OUTPUT" ;;
+            21) echo "version=1.11.4" >> "$GITHUB_OUTPUT" ;;
+            22) echo "version=1.13.4" >> "$GITHUB_OUTPUT" ;;
+            23) echo "version=1.14.5" >> "$GITHUB_OUTPUT" ;;
+            *)  echo "::error::no Elixir pin for OTP ${{ matrix.target.major }}"; exit 1 ;;
+          esac
+      - name: Install build deps for target OTP
+        run: brew install autoconf ncurses
+      - name: Cache target OTP build
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/otp/${{ matrix.target.sha }}
+          key: otp-target-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
+      - name: Build target OTP
+        env:
+          OTP_REF: ${{ matrix.target.ref }}
+          AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
+          CFLAGS: -O2 -g -fcommon
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
+          echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
+          echo "AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
+      - name: Download target bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: target-bundle-${{ steps.elixir.outputs.version }}
+          path: bundle-tar/
+      - name: Extract bundle
+        run: |
+          mkdir -p bundle
+          tar xzf "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" -C bundle --strip-components=1
+          echo "AWFY_TARGET_BUNDLE=$PWD/bundle" >> "$GITHUB_ENV"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: Compile orchestrator
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }}, --runner=bundle)
+        env:
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+        run: |
+          BENCH_ARG=""
+          if [ -n "$BENCHMARKS" ]; then
+            BENCH_ARG="--benchmarks $BENCHMARKS"
+          fi
+          mix awfy.measure \
+            --runner=bundle \
+            --label "${{ matrix.target.label }}-v2-macos-arm64-${{ matrix.flavor }}" \
+            --ignore-preflight \
+            $BENCH_ARG
+      - uses: actions/upload-artifact@v7
+        with:
+          name: results-v2-${{ matrix.target.short }}-macos-arm64-${{ matrix.flavor }}
+          path: results/
+          retention-days: 30
+
   # Aggregate every uploaded results/ dir onto gh-pages and
   # regenerate the dashboard. Always GHA-hosted (no benchmark
   # accuracy needed). Runs even if some measure jobs fail —
-  # partial sweeps still produce a useful update.
+  # partial sweeps still produce a useful update. Phase 2's
+  # `-target-v2` jobs upload to a separate artifact namespace
+  # (`results-v2-*`) so the dashboard's own pattern (`results-*`)
+  # picks them up only if we explicitly stage them — for v2 we
+  # leave them off the dashboard until parity is confirmed.
   publish:
-    needs: [resolve, measure-linux, measure-linux-target, measure-windows, measure-windows-target, measure-macos, measure-macos-target]
+    needs:
+      - resolve
+      - measure-linux
+      - measure-linux-target
+      - measure-linux-target-v2
+      - measure-windows
+      - measure-windows-target
+      - measure-windows-target-v2
+      - measure-macos
+      - measure-macos-target
+      - measure-macos-target-v2
     permissions:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}

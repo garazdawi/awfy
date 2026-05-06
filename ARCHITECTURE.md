@@ -436,6 +436,62 @@ the project's REUSE compliance. The benchmark sources are MIT
 Static analysis for `bin/*.sh` on every push. Same checks `mix
 precommit` runs locally.
 
+## Bundle distribution — Phase 2 of `TARGET_ELIXIR_RUNNER_PLAN`
+
+For the legacy (pre-OTP-24) measurement path, the workflow ships a
+self-contained target-Elixir bundle in addition to the target OTP
+build:
+
+```
+prep-target-bundle (GHA-hosted ubuntu-latest, runs once per Elixir
+                    pin per OTP major in the run)
+        │
+        ├── pulls per-OTP-SHA image from build-linux-target (GHCR)
+        ├── docker create + docker cp /opt/otp → host fs
+        ├── bin/build-target-bundle.sh <otp-prefix> <elixir-version>
+        │       └── builds Elixir from source against that OTP,
+        │           mix-compiles vendored Benchee + the runner module,
+        │           tars bin/ + lib/elixir/ebin + lib/<sub>/ebin
+        │           into target_bundle_<elixir-version>.tar.gz
+        ├── actions/upload-artifact (always)
+        └── aws s3 cp target_bundle_*.tar.gz \
+                       s3://AWFY_TARGET_BUNDLE_S3_BUCKET/...   (only
+                                                                when
+                                                                runner_pool=aws)
+                                                                ↓
+measure-{linux,windows,macos}-target-v2
+        │
+        ├── docker pull / install target OTP (existing path)
+        ├── actions/download-artifact target-bundle-<elixir-version>
+        ├── tar xzf … → ./bundle/{bin,lib/...}
+        ├── exports AWFY_TARGET_ERL / AWFY_TARGET_BUNDLE / AWFY_TARGET_BEAMS
+        └── mix awfy.measure --runner=bundle …
+                            (BencheeRunner dispatches to Awfy.Runner,
+                             which shells out to the bundle's pre-
+                             compiled Awfy.TargetRunner via erl -s)
+```
+
+One Linux Docker image, two consumption modes:
+
+* **GHA**: `docker run` for measurement (hermetic userspace inside
+  the container — same as today's modern path).
+* **AWS**: `docker create` + `docker cp /opt/otp` + bare-metal
+  `./otp/bin/erl` execution (no container around the benchmark, so
+  no cgroup/namespace overhead in the timed window).
+
+The `-target-v2` jobs run **in parallel** with the legacy
+`-target` jobs in Phase 2; `bin/compare-target-paths.sh` validates
+parity (geomean ±5%, no individual benchmark drift > 15%) before
+Phase 3 deletes the legacy path.
+
+The bundle is built on GHA-hosted Linux and consumed on every
+target platform — Windows and macOS too. Works because Elixir BEAM
+bytecode is platform-independent, the vendored deps
+(Benchee/deep_merge/statistex) are pure Elixir, and the
+platform-dependent NIFs come from the per-platform target OTP
+install supplied separately. Phase 2 acceptance includes
+cross-platform parity.
+
 ## Adding things
 
 ### A new benchmark group

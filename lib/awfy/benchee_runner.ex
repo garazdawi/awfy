@@ -157,17 +157,26 @@ defmodule Awfy.BencheeRunner do
 
     IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
 
-    # Three execution modes, in priority order:
+    runner_mode = Keyword.get(opts, :runner, :peer_or_target)
+
+    # Four execution modes, in priority order:
     #
-    #   1. Target mode (`AWFY_TARGET_ERL` set) — measure under a
-    #      different OTP than the host orchestrator. The benchee Suite
-    #      is built by Awfy.TargetRunner from raw timings collected
-    #      via shell-out to the target erl.
-    #   2. In-process (`AWFY_NO_ISOLATION=1`) — for debugging and
+    #   1. Bundle target mode (`runner: :bundle` and AWFY_TARGET_ERL
+    #      set) — Phase 2 target-Elixir bundle path. Host shells out
+    #      to the bundle's pre-compiled `Awfy.TargetRunner` script;
+    #      the bundle writes a `.benchee` file directly.
+    #   2. Legacy target mode (`AWFY_TARGET_ERL` set, default runner) —
+    #      measure under a different OTP via the Erlang-only harness
+    #      in `apps/awfy/src_target/`. Phase 3 of
+    #      `PLAN/TARGET_ELIXIR_RUNNER_PLAN.md` deletes this branch.
+    #   3. In-process (`AWFY_NO_ISOLATION=1`) — for debugging and
     #      doctests, where wrapping in a peer adds nothing.
-    #   3. Isolated peer (default) — every benchmark runs in a fresh
+    #   4. Isolated peer (default) — every benchmark runs in a fresh
     #      same-OTP peer per ISOLATION_POLICY.md.
     cond do
+      runner_mode == :bundle and Awfy.TargetRunner.enabled?() ->
+        run_bundle(name, entries, inner_iter, benchee_opts)
+
       Awfy.TargetRunner.enabled?() ->
         run_target(name, entries, inner_iter, benchee_opts)
 
@@ -180,6 +189,86 @@ defmodule Awfy.BencheeRunner do
 
     :ok
   end
+
+  defp run_bundle(name, entries, inner_iter, benchee_opts) do
+    bundle_dir = System.get_env("AWFY_TARGET_BUNDLE")
+
+    if bundle_dir in [nil, ""] do
+      Mix.raise(
+        "AWFY_TARGET_BUNDLE must be set to the extracted target-Elixir " <>
+          "bundle when --runner=bundle"
+      )
+    end
+
+    save_opts = Keyword.get(benchee_opts, :save)
+
+    # Bundle path runs one Awfy.Runner.run/4 per language entry — the
+    # target VM only knows how to invoke `module.benchmark(inner)`,
+    # so each `{lang, mod}` is a separate target invocation. Merge
+    # the resulting suites under one save path so the on-disk shape
+    # matches the peer flow's "one .benchee per benchmark name".
+    extra_paths =
+      case System.get_env("AWFY_TARGET_BEAMS") do
+        nil -> []
+        "" -> []
+        v -> String.split(v, [":", ";"], trim: true)
+      end
+
+    time = Keyword.get(benchee_opts, :time)
+    warmup = Keyword.get(benchee_opts, :warmup, 2)
+
+    suites =
+      Enum.flat_map(entries, fn {_lang, _mod} = entry ->
+        case Awfy.Runner.run(bundle_dir, target_module(entry), inner_iter,
+               time: time,
+               warmup: warmup,
+               extra_paths: extra_paths
+             ) do
+          {:ok, suite} ->
+            [suite]
+
+          {:error, reason} ->
+            IO.puts(
+              :stderr,
+              "[bundle] #{inspect(entry)} failed: #{inspect(reason)} — skipping scenario"
+            )
+
+            []
+        end
+      end)
+
+    case suites do
+      [] ->
+        IO.puts(:stderr, "[bundle] no compatible scenarios for #{name}, skipping")
+
+      [_ | _] ->
+        merged = merge_bundle_suites(name, suites)
+        print_target_summary(merged)
+
+        case save_opts do
+          nil ->
+            :ok
+
+          opts ->
+            path = opts |> Keyword.fetch!(:path) |> to_string()
+            File.mkdir_p!(Path.dirname(path))
+            File.write!(path, :erlang.term_to_binary(merged))
+        end
+    end
+  end
+
+  # Awfy.Runner returns a `%Benchee.Suite{}` per `{lang, mod}` entry;
+  # combine the scenarios under one suite (taking the first suite's
+  # configuration as canonical — they all came from the same target
+  # invocation profile).
+  defp merge_bundle_suites(_name, [first | _] = suites) do
+    %{first | scenarios: Enum.flat_map(suites, & &1.scenarios)}
+  end
+
+  # Bundle-path target invocation expects a single module atom per
+  # call. Erlang entries are `{:erlang, :bounce}`; Elixir are
+  # `{:elixir, Bounce}`. Both map to a single benchmark module.
+  defp target_module({_lang, mod}), do: mod
 
   defp run_target(name, entries, inner_iter, benchee_opts) do
     case Awfy.TargetRunner.run_benchmark(name, entries, inner_iter, benchee_opts) do
