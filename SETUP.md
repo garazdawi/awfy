@@ -247,6 +247,40 @@ behind these numbers.
 macOS isn't part of the cloud cost — runs locally via
 `mix awfy.fill` on your M5; see section 3.
 
+## 2.5. Building target Elixir bundles locally
+
+For pre-OTP-24 measurements, the `bench.yml` legacy path needs an
+Elixir bundle built against each target OTP. CI handles this via the
+`prep-target-bundle` job (Phase 2 of
+[`PLAN/TARGET_ELIXIR_RUNNER_PLAN.md`](PLAN/TARGET_ELIXIR_RUNNER_PLAN.md)),
+which extracts OTP from the per-OTP-SHA `build-linux` Docker image
+and feeds it to `bin/build-target-bundle.sh`. To build a bundle
+locally on macOS for ad-hoc backfills:
+
+```sh
+# 1. Build target OTP from source. Existing path; cached at
+#    ~/.local/otp/<sha>/. Takes ~5–10 min on cold cache for OTP 20–23.
+PREFIX="$(./bin/install-otp-source.sh OTP-20.3)"
+
+# 2. Build the bundle. Idempotent — Elixir source build is cached
+#    at ~/.local/elixir-src/<version>/.
+./bin/build-target-bundle.sh "$PREFIX" 1.9.4
+
+# Output: ./target_bundle_1.9.4.tar.gz (~30 MB).
+```
+
+The pinned OTP × Elixir matrix is in
+[`apps/awfy_target_runner/README.md`](apps/awfy_target_runner/README.md).
+To update the vendored Benchee/deep_merge/statistex versions, run
+`bin/refresh-target-deps.sh --apply` after bumping the host project's
+deps; the script copies the host-resolved sources into the sub-app
+and re-applies the dev/test strip.
+
+The sub-app is a sibling under `apps/`, **not** path-depended-on by
+the root project. Its tests run as part of `mix precommit` via
+`mix cmd --cd apps/awfy_target_runner mix test`. Run that directly
+when iterating on the runner module.
+
 ## 3. macOS — local fill task
 
 The M5 is your daily-driver dev machine, not a CI box. Rather

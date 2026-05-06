@@ -64,7 +64,8 @@ defmodule AwfyRunner.MixProject do
 
   # `mix precommit` runs locally everything CI runs — compiler as
   # error, REUSE, shellcheck, ESLint/stylelint and Vitest on
-  # priv/dashboard.{js,css}. Faster than waiting for the GHA
+  # priv/dashboard.{js,css}, plus mix-test in any sibling app under
+  # apps/ that ships a test/ tree. Faster than waiting for the GHA
   # round-trip and catches the same issues. Requires:
   #   * `reuse` on $PATH         — pip install reuse
   #   * `shellcheck` on $PATH    — brew install shellcheck
@@ -79,8 +80,30 @@ defmodule AwfyRunner.MixProject do
         # the bin/*.sh glob expands.
         ~s|cmd sh -c 'shellcheck bin/*.sh'|,
         "cmd npm run lint --silent",
-        "cmd npm test --silent"
+        "cmd npm test --silent",
+        # Sibling apps under apps/ aren't pulled into the root
+        # project (apps/awfy_target_runner is intentionally not a
+        # path-dep — see PLAN/TARGET_ELIXIR_RUNNER_PLAN.md decision
+        # #10). Run `mix test` in each that ships a test/ tree, so
+        # local pre-commit checks stay symmetric with CI.
+        &test_apps_with_tests/1
       ]
     ]
+  end
+
+  defp test_apps_with_tests(_args) do
+    Path.wildcard("apps/*/test")
+    |> Enum.map(&Path.dirname/1)
+    |> Enum.sort()
+    |> Enum.each(fn app_dir ->
+      Mix.shell().info("==> mix test (#{app_dir})")
+
+      {_out, status} =
+        System.cmd("mix", ["test"], cd: app_dir, into: IO.stream(:stdio, :line))
+
+      if status != 0 do
+        Mix.raise("mix test failed in #{app_dir}")
+      end
+    end)
   end
 end

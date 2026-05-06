@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 _build/
-deps/
+# `deps/` is anchored to repo root so the sub-app's vendored deps
+# (apps/awfy_target_runner/deps/{benchee,...}/) stay tracked. Root
+# /deps/ is mix-managed; we still ignore it.
+/deps/
 *.beam
 erl_crash.dump
 .elixir_ls/
