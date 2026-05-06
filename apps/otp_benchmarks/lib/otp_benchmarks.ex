@@ -26,7 +26,10 @@ defmodule OtpBenchmarks do
       OtpBenchmarks.Benchmarks.Base64Decode,
       OtpBenchmarks.Benchmarks.Base64MimeDecode,
       OtpBenchmarks.Benchmarks.BinaryMatch,
-      OtpBenchmarks.Benchmarks.BinaryMatches
+      OtpBenchmarks.Benchmarks.BinaryMatches,
+      OtpBenchmarks.Benchmarks.StringGraphemes,
+      OtpBenchmarks.Benchmarks.UnicodeNfc,
+      OtpBenchmarks.Benchmarks.StringLexemes
     ]
   end
 
