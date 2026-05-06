@@ -254,12 +254,24 @@ jobs:
   # build-linux pipeline too. Phase 2 of
   # PLAN/TARGET_ELIXIR_RUNNER_PLAN.md: a single source-of-truth for
   # Linux OTP builds across modern + legacy. Two consumers:
-  #   * prep-target-bundle: extracts /opt/otp from the resulting
-  #     image and feeds bin/build-target-bundle.sh — no duplicate
-  #     OTP source build.
-  #   * measure-linux-target: docker pull the image (GHA) or
-  #     extract + bare-metal exec (AWS) — same dual-mode consumption
-  #     as the modern measure-linux job.
+  #   * prep-target-bundle: extracts /usr/local + /opt/awfy_target
+  #     from the resulting image and feeds bin/build-target-bundle.sh —
+  #     no duplicate OTP source build.
+  #   * measure-linux-target: extract + bare-metal exec for the
+  #     legacy bundle path (no `docker run`, since the bundle ships
+  #     its own Elixir).
+  #
+  # Stops at the `otp-build` stage instead of carrying through to
+  # the `app` stage. The `app` stage installs the precompiled
+  # `elixir-otp-XX.zip` bundle, but pre-24 OTP majors don't have a
+  # compatible bundle (Elixir 1.19 dropped OTP 26 — and since the
+  # current resolve script picks 1.19 as the fallback elixir for
+  # OTP 21, the app stage's `mix deps.get` boots an Elixir 1.19
+  # built for OTP 28 against an OTP 21 emulator and dies with
+  # `undef elixir:start_cli/0`). The legacy path doesn't need
+  # Elixir in the image anyway — it ships its own via the
+  # target-Elixir bundle (apps/awfy_target_runner/), built against
+  # the OTP we just installed.
   build-linux-target:
     needs: resolve
     if: needs.resolve.outputs.has_legacy_linux == 'true'
@@ -288,13 +300,17 @@ jobs:
         with:
           context: .
           file: Dockerfile.linux
+          # Stop at the `otp-build` stage — the only thing the
+          # legacy path consumes from the image is /usr/local (OTP)
+          # and /opt/awfy_target (target-erlc-compiled benchmarks).
+          # See the comment block above this job for why we skip
+          # the `app` stage.
+          target: otp-build
           platforms: ${{ matrix.arch.platform }}
           push: true
           build-args: |
             OTP_SHA=${{ matrix.target.sha }}
             OTP_REF=${{ matrix.target.ref }}
-            ELIXIR_OTP_MAJOR=${{ matrix.target.elixir_bundle }}
-            ELIXIR_VERSION=${{ matrix.target.elixir }}
           secrets: |
             gh_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
