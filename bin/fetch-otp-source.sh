@@ -18,14 +18,24 @@
 #      pre-run configure) uploaded by `Build and check Erlang/OTP`
 #      for every commit. Requires GH_TOKEN (a personal token or
 #      GITHUB_TOKEN both work; the artifact is public-readable).
+#   4. github's auto-generated SHA/tag archive at
+#      `github.com/erlang/otp/archive/<sha>.tar.gz`
+#      — last-resort fallback for modern OTP (>= 24) when (3)
+#      hasn't published yet for a fresh-pushed branch HEAD or
+#      fresh-tagged release. Modern erlang/otp commits `configure`
+#      under git, so the archive is buildable as-is; bootstrap
+#      beams are recreated by `make`. **Not used for OTP < 24** —
+#      those branches don't commit `configure` and we refuse to
+#      run autoconf at fetch time (no guarantee the runner has the
+#      right autoconf version, and regenerated configure breaks
+#      the line-numbered `patches/OTP-X.Y/*.patch` series).
 #
-# Each outcome leaves $WORK_DIR/otp/ as the canonical source dir
-# with a pre-generated `configure` script and a pre-built bootstrap.
-# When all three paths miss, the script exits non-zero rather than
-# silently producing a degraded build — raw /archive sources lack
-# the bootstrap beams + generated configure that AWFY's downstream
-# steps assume, and a slow-success was already proven to mask
-# upstream-CI ordering bugs nobody would otherwise notice.
+# (1)–(3) leave $WORK_DIR/otp/ as the canonical source dir with a
+# pre-generated `configure` script and a pre-built bootstrap. (4)
+# uses the in-tree `configure`; bootstrap beams are not needed
+# because the downstream step builds from source anyway. If all
+# applicable paths miss, the script exits non-zero rather than
+# silently producing a degraded build.
 
 set -euo pipefail
 
@@ -104,12 +114,69 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
     done
 fi
 
+# Last-resort fallback: github's auto-generated tag/SHA archive. The
+# bootstrap beams aren't there but `make` rebuilds them; what matters
+# is that `configure` is present so we don't have to invoke autoconf
+# at fetch time (we can't trust that the runner has the exact
+# autoconf version erlang/otp's tree was generated with, and a
+# regenerated configure has different line numbers from the canonical
+# one — patches in `patches/OTP-X.Y/*.patch` would silently fail to
+# apply). This works because modern erlang/otp commits `configure`
+# under git; older versions don't.
+#
+# **Modern OTP only (>= 24).** For OTP < 24 the archive lacks
+# `configure` entirely (it was .gitignored in those branches) and
+# even if it weren't, the patches in `patches/OTP-X.Y/*.patch` are
+# line-numbered against the canonical release tarball's `configure`,
+# which can drift from the in-tree version. Old OTPs must come from
+# the canonical release tarball; better to fail loudly than mis-build.
+# master/maint always count as modern; numeric majors must be >= 24.
+modern_otp=0
+case "$REF" in
+    master|maint) modern_otp=1 ;;
+    maint-*)
+        v="${REF#maint-}"
+        if [ "$v" -ge 24 ] 2>/dev/null; then modern_otp=1; fi
+        ;;
+    OTP-*)
+        v="${REF#OTP-}"
+        v="${v%%.*}"
+        if [ "$v" -ge 24 ] 2>/dev/null; then modern_otp=1; fi
+        ;;
+esac
+
+if [ -z "$SRC" ] && [ "$modern_otp" = "1" ]; then
+    archive_url="https://github.com/erlang/otp/archive/$SHA.tar.gz"
+    if curl -fsLI -o /dev/null "$archive_url"; then
+        echo "fetch-otp-source: falling back to $archive_url" >&2
+        if curl -fL "$archive_url" | tar xz; then
+            # SC2012: github's archive extracts to otp-<SHA>, no
+            # spaces or special chars in the dirname. Glob is fine.
+            # shellcheck disable=SC2012
+            extracted="$(ls -d otp-* 2>/dev/null | head -1)"
+            if [ -n "$extracted" ] && [ -f "$extracted/configure" ]; then
+                SRC="$extracted"
+            elif [ -n "$extracted" ]; then
+                echo "fetch-otp-source: archive at $SHA has no committed configure script; refusing to autoconf at fetch time" >&2
+                rm -rf "$extracted"
+            else
+                echo "fetch-otp-source: archive extract produced no tree" >&2
+            fi
+        fi
+    fi
+fi
+
 if [ -z "$SRC" ]; then
     echo "fetch-otp-source: no buildable source found for ref=$REF sha=$SHA" >&2
-    echo "  paths tried: release tarball (github), erlang.org tarball, otp_prebuilt artifact" >&2
-    echo "  if this is a master/branch ref, check that GH_TOKEN is set and that" >&2
-    echo "  erlang/otp's 'Build and check Erlang/OTP' workflow has a recent successful run" >&2
-    echo "  for this SHA (artifacts expire after 90 days)." >&2
+    if [ "$modern_otp" = "1" ]; then
+        echo "  paths tried: release tarball (github), erlang.org tarball, otp_prebuilt artifact, github archive fallback" >&2
+        echo "  archive fallback requires a committed configure script (modern erlang/otp commits it; if missing, the SHA is too old)." >&2
+    else
+        echo "  paths tried: release tarball (github), erlang.org tarball, otp_prebuilt artifact" >&2
+        echo "  archive fallback intentionally disabled for OTP < 24 — those branches don't commit configure" >&2
+        echo "  and patches/OTP-X.Y/*.patch are line-numbered against the canonical release tarball." >&2
+        echo "  Wait for the upstream release tarball, or use a newer ref." >&2
+    fi
     exit 1
 fi
 
