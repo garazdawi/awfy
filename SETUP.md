@@ -352,8 +352,10 @@ keeps the recent feature releases current; new patch tags are
 benchmarked one-off via additional `workflow_dispatch` triggers.
 See `PLAN/CLOUD_BENCH_PLAN.md` § Backfill and steady-state cadence.
 
-For a no-AWS dry run of the wiring, use the parallel
-`bench-test.yml` workflow — it runs the same matrix on
-GHA-hosted runners (free, noisy timings). See
-`PLAN/CLOUD_BENCH_PLAN.md` § Phase 0 for what it does and doesn't
-validate.
+For a no-AWS dry run of the wiring, dispatch `bench.yml` with
+`runner_pool=gha` (or just rely on the push trigger, which is
+hard-pinned to `gha`). The same workflow runs the full matrix on
+GHA-hosted runners — free, noisy timings, but exercises the
+pipeline end-to-end without spending an AWS dollar. See
+`PLAN/CLOUD_BENCH_PLAN.md` § Phase 0 for what GHA-hosted runs do
+and don't validate.

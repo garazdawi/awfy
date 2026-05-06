@@ -96,9 +96,10 @@ awfy/
 │
 ├── test/                   # ExUnit, 165 tests
 ├── .github/workflows/
-│   ├── bench.yml           # production AWS sweep
-│   ├── bench-test.yml      # GHA-hosted Phase-0 sweep
-│   └── reuse.yml           # SPDX/REUSE compliance
+│   ├── bench.yml           # push / schedule / dispatch with
+│   │                       #   runner_pool=gha|aws (default gha)
+│   ├── reuse.yml           # SPDX/REUSE compliance
+│   └── shellcheck.yml      # bin/*.sh static analysis
 │
 ├── Dockerfile.linux        # build target OTP + benchmark image
 ├── mix.exs                 # runner project; path-deps each suite
@@ -380,41 +381,60 @@ pipeline and dashboard JS.
 
 Three workflows live in `.github/workflows/`:
 
-### `bench-test.yml` — Phase 0 / GHA-hosted
+### `bench.yml` — unified
 
-Free GHA runners (linux-x86_64, linux-arm64, macos-arm64, windows-latest).
-Numbers are noisy because the hardware is shared, but it validates the
-pipeline (Dockerfile builds, installers work, mix tasks run, gh-pages
-publish succeeds). Three triggers, three default scopes:
+One workflow, three triggers, two pools.
 
-* **push** → master only (single ref, fast wiring check).
-* **schedule** (Mondays 06:00 UTC) → `26,27,28,master`.
-* **workflow_dispatch** → user-provided, default `26,27,28,master`.
+* **push** → smoke test, refs `21,28,master` (one per code path),
+  `runner_pool` hard-pinned to `gha`. Pushes don't pay AWS bills.
+* **schedule** (Mondays 06:00 UTC) → `fill` mode (rebuild whatever's
+  missing on `gh-pages`), default `runner_pool=gha`. Flip the
+  default to `aws` once the AWS pool is committed; one-line change.
+* **workflow_dispatch** → user-provided `otp_refs` (default `fill`)
+  and `runner_pool` (default `gha`). Operator entry point for
+  backfills and AWS sweeps.
 
-Shorthand `26`, `27`, `28` (etc., now `20`-`29`) expand to the latest
-matching `OTP-X.Y.Z` tag at resolve time.
+Shorthand `26`, `27`, `28` (etc., `20`–`29`) expand to the latest
+matching `OTP-X.Y.Z` tag at resolve time. Special tokens `fill` and
+`all` are handled by `bin/expand-otp-refs.sh` + `bin/resolve-fill-needs.sh`.
 
-The `resolve` job partitions targets into `targets_modern` (OTP ≥ 24,
-existing Docker + same-OTP peer flow) and `targets_target_mode`
-(OTP < 24, source-built target erl + cross-OTP shell-out). Each
-partition feeds its own measure job (`measure-linux`, `measure-macos`,
-`measure-windows` for modern; `measure-linux-target` for target-mode);
-both feed the shared `publish` job.
+The `resolve` job emits six per-`(major, platform)` arrays
+(`targets_modern_{linux,macos,windows}` for OTP ≥ 24,
+`targets_legacy_{linux,macos,windows}` for OTP < 24) plus
+`has_*` gates. Modern targets feed the same-OTP peer flow with a
+per-target Docker image on Linux, setup-beam on Windows, source
+build on macOS. Legacy targets feed the cross-OTP target-runner:
+host orchestrator on a pinned modern Elixir/OTP shells out to a
+target `erl` built from source via `bin/install-otp-source.sh`.
 
-### `bench.yml` — production
+`runner_pool` only affects the measure-* jobs. Anything that
+doesn't need bare-metal hardware accuracy (`resolve`, `build-linux`,
+`publish`) stays on free GHA-hosted Linux regardless of the pool.
+CPU pinning (`--cpuset-cpus=0` on Linux Docker, `taskset -c 0` on
+target-mode Linux, `ProcessorAffinity = 1` on Windows) only fires
+when `runner_pool=aws` — pinning is meaningless on shared GHA
+tenancy. The Windows `wmic` shim only runs on GHA windows-latest;
+the AWS Windows AMI is pinned to a version that still ships WMIC.
 
-Terraform-managed ephemeral EC2 self-hosted runners for Linux
-(x86_64 = `c6i.4xlarge`, arm64 = `c7g.4xlarge`) and Windows
-(`c6i.4xlarge`); macOS-arm64 fed locally via `mix awfy.fill`. See
-[`SETUP.md`](SETUP.md) § 2 for the operator-side AWS / GitHub-App
+The AWS pool is Terraform-managed ephemeral EC2 (Linux
+x86_64 = `c6i.4xlarge`, arm64 = `c7g.4xlarge`, Windows
+= `c6i.4xlarge`); macOS-arm64 is always GHA-hosted (operator's M5
+covers local-fill via `mix awfy.fill` — no AWS macOS pool in
+scope). See [`SETUP.md`](SETUP.md) § 2 for the operator-side
 walkthrough and `terraform/main.tf` for the module config.
-Cost ≈ $0.61/sweep; daily ≈ $220/year.
+Cost ≈ $0.61/sweep on `aws`; daily ≈ $220/year if the schedule
+default flips. `gha` pool is free.
 
 ### `reuse.yml`
 
 Runs `fsfe/reuse-action@v6` on every push to verify SPDX headers and
 the project's REUSE compliance. The benchmark sources are MIT
 (Stefan Marr); everything else is Apache-2.0.
+
+### `shellcheck.yml`
+
+Static analysis for `bin/*.sh` on every push. Same checks `mix
+precommit` runs locally.
 
 ## Adding things
 
@@ -446,15 +466,16 @@ this; the contract is preliminary.
 4. Trigger a sweep. The matrix is `fail-fast: false`; failures
    surface per-target without breaking the others.
 
-For OTP < 24, the target-runner path applies. `bench-test.yml`'s
-`resolve` job splits the input refs into `targets_modern` (OTP ≥ 24,
-the existing per-target Docker image + same-OTP peer flow) and
-`targets_target_mode` (OTP < 24). The new `measure-linux-target`
-job consumes the latter: it builds the target OTP from source via
-`bin/install-otp-source.sh`, installs a pinned modern OTP/Elixir
-host (`erlef/setup-beam`), and exports `AWFY_TARGET_ERL` /
-`AWFY_TARGET_BEAMS` so `mix awfy.measure` shells out to the target
-per benchmark.
+For OTP < 24, the target-runner path applies. The unified
+`bench.yml` `resolve` job emits per-platform `targets_legacy_*`
+arrays (OTP < 24, target-runner mode) alongside the
+`targets_modern_*` arrays (OTP ≥ 24, same-OTP peer flow). The
+`measure-{linux,macos,windows}-target` jobs consume the legacy
+arrays: they build the target OTP from source via
+`bin/install-otp-source.sh` (or the upstream installer on Windows),
+install a pinned modern OTP/Elixir host (`erlef/setup-beam`), and
+export `AWFY_TARGET_ERL` / `AWFY_TARGET_BEAMS` so `mix awfy.measure`
+shells out to the target per benchmark.
 
 For v1 the target-runner path is Linux-x86_64 + emu-flavor only.
 Adding linux-arm64 and macos-arm64 is mechanical (the same script

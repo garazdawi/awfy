@@ -52,8 +52,9 @@ awfy/
 ├── bin/                           # install-otp-source.sh / -windows.ps1 /
 │                                  # measure-versions (asdf sweep)
 ├── test/                          # 165 ExUnit tests
-├── .github/workflows/             # bench.yml (prod), bench-test.yml (Phase-0),
-│                                  # reuse.yml (license compliance)
+├── .github/workflows/             # bench.yml (push/schedule/dispatch with
+│                                  # runner_pool=gha|aws), reuse.yml,
+│                                  # shellcheck.yml
 ├── upstream/                      # AWFY source (submodule, reference only)
 ├── *.md                           # plan docs — see "Documentation" below
 └── mix.exs                        # runner project (`:awfy_runner`),
@@ -169,11 +170,13 @@ module — pinned to `c6i.4xlarge` (Linux x86 + Windows) and
 `c7g.4xlarge` (Linux ARM Graviton 3) so trend lines hold up across
 years.
 
-`bench-test.yml` is a parallel workflow that runs the same matrix on
-free GHA-hosted runners — it validates the wiring end-to-end without
-spending an AWS dollar. Use it before promoting to `bench.yml` against
-the EC2 pools. Numbers from hosted runners are too noisy for regression
-detection; this is for pipeline correctness only.
+`bench.yml` accepts a `runner_pool` workflow_dispatch input (`gha` /
+`aws`, default `gha`) and the push trigger pins it to `gha`. Free
+GHA-hosted runs validate the wiring end-to-end without spending an
+AWS dollar; `aws` flips the measure jobs onto the Terraform-managed
+EC2 pools. Numbers from hosted runners are too noisy for regression
+detection — use the GHA pool for pipeline correctness, `aws` for
+publishable measurements.
 
 See [`PLAN/CLOUD_BENCH_PLAN.md`](PLAN/CLOUD_BENCH_PLAN.md) and
 [`SETUP.md`](SETUP.md) for the AWS / Terraform setup the repo owner
