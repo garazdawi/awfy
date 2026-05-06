@@ -22,7 +22,8 @@ defmodule OtpBenchmarks do
       OtpBenchmarks.Benchmarks.BinaryMatch,
       OtpBenchmarks.Benchmarks.Unicode,
       OtpBenchmarks.Benchmarks.CryptoAead,
-      OtpBenchmarks.Benchmarks.Ets
+      OtpBenchmarks.Benchmarks.Ets,
+      OtpBenchmarks.Benchmarks.Estone
     ]
   end
 
