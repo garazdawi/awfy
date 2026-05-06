@@ -24,7 +24,7 @@ defmodule OtpBenchmarks do
       OtpBenchmarks.Benchmarks.CryptoAead,
       OtpBenchmarks.Benchmarks.Ets,
       OtpBenchmarks.Benchmarks.Estone,
-      OtpBenchmarks.Benchmarks.MnesiaTpcbRam
+      OtpBenchmarks.Benchmarks.MnesiaTpcb
     ]
   end
 

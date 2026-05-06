@@ -1,15 +1,25 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
 
-defmodule OtpBenchmarks.Benchmarks.MnesiaTpcbRam do
+defmodule OtpBenchmarks.Benchmarks.MnesiaTpcb do
   @moduledoc """
-  Mnesia TPC-B (debit-credit) workload, single-node `local_only`,
-  `ram_copies` storage. Models the standalone
-  `lib/mnesia/examples/bench/bench.erl` driver as a Benchee
-  scenario: per-iteration runs one TPC-B transaction (read +
-  update a random account / teller / branch, append a history
-  row); setup pre-populates the schema so transaction-loop
-  latency is what's timed, not schema build.
+  Mnesia TPC-B (debit-credit) workload, single-node `local_only`.
+  Models the standalone `lib/mnesia/examples/bench/bench.erl`
+  driver as a Benchee scenario: per-iteration runs one TPC-B
+  transaction (read + update a random account / teller / branch,
+  append a history row); setup pre-populates the schema so
+  transaction-loop latency is what's timed, not schema build.
+
+  Two storage backends share the workload:
+
+    * `ram_copies`        — clean CPU/lock signal, expected CV
+                            ~3%.
+    * `disc_only_copies`  — adds dets I/O to every transaction;
+                            advisory until CV stabilises (the plan
+                            expects 10-20% CV vs ram's ~3%; if it
+                            stays above 25% for a month, gate
+                            behind `--include-flaky` per plan open
+                            question #3).
 
   Schema is intentionally tiny vs upstream TPC-B sizes — 1 branch
   × 10 tellers × 1000 accounts. We're tracking BEAM-level
@@ -26,14 +36,17 @@ defmodule OtpBenchmarks.Benchmarks.MnesiaTpcbRam do
 
   use OtpBenchmarks.Benchmark
 
-  def name, do: "mnesia_tpcb_ram"
+  def name, do: "mnesia_tpcb"
 
   @branches 1
   @tellers_per_branch 10
   @accounts_per_branch 1000
 
   def inputs do
-    %{"single_txn" => :ram_copies}
+    %{
+      "ram" => :ram_copies,
+      "disc_only" => :disc_only_copies
+    }
   end
 
   def setup(storage_type) do
