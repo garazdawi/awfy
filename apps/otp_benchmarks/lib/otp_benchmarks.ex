@@ -15,7 +15,12 @@ defmodule OtpBenchmarks do
   @doc "All registered benchmark families, in display order."
   def benchmarks do
     [
-      OtpBenchmarks.Benchmarks.Phash2
+      OtpBenchmarks.Benchmarks.Phash2,
+      OtpBenchmarks.Benchmarks.MapNew,
+      OtpBenchmarks.Benchmarks.MapGet,
+      OtpBenchmarks.Benchmarks.MapPut,
+      OtpBenchmarks.Benchmarks.MapMerge,
+      OtpBenchmarks.Benchmarks.MapKeys
     ]
   end
 

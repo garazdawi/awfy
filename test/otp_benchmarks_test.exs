@@ -21,6 +21,44 @@ defmodule OtpBenchmarksTest do
       assert OtpBenchmarks.fetch_by_name("phash2") == Phash2
       assert OtpBenchmarks.fetch_by_name("nope") == nil
     end
+
+    test "every family name is unique" do
+      names = OtpBenchmarks.benchmarks() |> Enum.map(& &1.name())
+      assert names == Enum.uniq(names),
+             "duplicate family names in registry: #{inspect(names -- Enum.uniq(names))}"
+    end
+  end
+
+  describe "every registered family conforms to the behaviour" do
+    # Walks the registry — adding a new family that's missing one of
+    # name/0, inputs/0, run/1, or whose run/1 crashes on its declared
+    # inputs surfaces here without per-family boilerplate.
+    for mod <- OtpBenchmarks.benchmarks() do
+      @mod mod
+
+      test "#{inspect(mod)} declares a name and at least one input" do
+        assert is_binary(@mod.name()) and @mod.name() != ""
+        assert is_map(@mod.inputs()) and map_size(@mod.inputs()) > 0
+      end
+
+      test "#{inspect(mod)} run/1 doesn't crash for every declared input" do
+        Enum.each(@mod.inputs(), fn {scenario, raw} ->
+          state = @mod.setup(raw)
+
+          try do
+            @mod.run(state)
+          rescue
+            e ->
+              flunk(
+                "#{inspect(@mod)}/#{scenario} crashed in run/1: " <>
+                  Exception.message(e)
+              )
+          after
+            @mod.teardown(state)
+          end
+        end)
+      end
+    end
   end
 
   describe "Phash2 family" do
