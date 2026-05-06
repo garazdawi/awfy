@@ -27,14 +27,18 @@
 #                           outputs go to stdout.
 #
 # Outputs (to GITHUB_OUTPUT or stdout):
-#   targets_linux=[…]    — unified JSON array of entries that need
-#                          the Linux measure leg (modern + legacy)
-#   targets_macos=[…]
-#   targets_windows=[…]
-#   has_modern_linux=true|false   — does targets_linux contain at
-#                                   least one modern (OTP ≥ 24) entry?
-#   has_legacy_linux=true|false   — at least one legacy (OTP < 24)?
-#   …same six has_* per platform/mode…
+#   targets_modern_linux=[…]   — entries that need the modern (OTP ≥ 24,
+#                                peer-runner) Linux measure leg.
+#   targets_modern_macos=[…]
+#   targets_modern_windows=[…]
+#   targets_legacy_linux=[…]   — entries that need the legacy (OTP < 24,
+#                                target-Elixir bundle) Linux leg.
+#   targets_legacy_macos=[…]
+#   targets_legacy_windows=[…]
+#   has_modern_linux=true|false   — does targets_modern_linux have
+#                                   at least one entry? Used to gate
+#                                   the whole measure-linux job.
+#   …same six has_* per (mode, platform)…
 #
 # stderr — `[fill]` decision log and `Resolved …` lines for each ref.
 #
@@ -44,13 +48,14 @@
 #   windows_otp_label, elixir, elixir_bundle, commit_timestamp,
 #   extra_configure, mode
 #
-# `mode` is `"modern"` (OTP ≥ 24, peer-runner flow) or `"legacy"`
-# (OTP < 24, target-Elixir bundle flow). The workflow's measure-*
-# jobs filter on this via job-level `if: matrix.target.mode == '…'`
-# so a single shared array drives both modern (`measure-linux`) and
-# legacy (`measure-linux-target`) jobs without spawning dead-letter
-# runners for the wrong mode. See PLAN/TARGET_ELIXIR_RUNNER_PLAN.md
-# § Follow-ups item 3 for the rationale on the array collapse.
+# Why pre-filter per-mode here rather than letting the workflow do
+# it via `if: matrix.target.mode == '…'`: GHA evaluates job-level
+# `if:` *before* matrix expansion. Naming `matrix.target` in a
+# job-level `if:` causes the whole workflow to be rejected at parse
+# time. Step-level `if:` does see matrix, but spawning wrong-mode
+# runners only to skip every step burns ~30 s per row. Filtering
+# once in bash sidesteps both. See PLAN/TARGET_ELIXIR_RUNNER_PLAN.md
+# § Follow-ups item 3 for the full discussion.
 #
 # Per-(ref, platform) skip rule:
 #   * FILL_MODE=0 → every platform needs to run for every ref.
@@ -219,11 +224,10 @@ if [ "$FILL_MODE" = "1" ]; then
   fi
 fi
 
-# Per-platform collectors. Both modern and legacy entries land in the
-# same array — they're distinguished by the `mode` field on each
-# entry. The workflow's measure-{linux,macos,windows} jobs gate on
-# `mode == 'modern'` and the matching -target jobs gate on
-# `mode == 'legacy'`.
+# Per-(mode, platform) collectors. Modern and legacy entries land in
+# the same intermediate platform array (so the per-ref skip logic can
+# share state); we partition by mode at the end via jq for the final
+# emitted outputs.
 linux_entries="["
 macos_entries="["
 windows_entries="["
@@ -233,10 +237,9 @@ sep_windows=""
 
 # Track per-(mode, platform) counts so we can emit `has_modern_*` /
 # `has_legacy_*` booleans. The workflow uses these to skip whole jobs
-# when their mode has no targets at all (without it, an empty matrix
-# axis from `fromJson(targets_linux)` would still be valid but the
-# job would dispatch zero runners — the `has_*` gate on the job's
-# `if:` keeps the publish step's `needs:` resolution clean).
+# when their mode has no targets at all — needed because GHA happily
+# spins up a job that ends up with an empty matrix expansion, then
+# fails at `fromJson("[]")` time when no rows materialise.
 n_modern_linux=0;  n_modern_macos=0;  n_modern_windows=0
 n_legacy_linux=0;  n_legacy_macos=0;  n_legacy_windows=0
 
@@ -405,10 +408,28 @@ windows_entries="${windows_entries}]"
 
 bool() { [ "$1" -gt 0 ] && echo true || echo false; }
 
+# Partition each platform's entries into per-mode arrays via jq so
+# each measure-* job's matrix expands directly to the rows it cares
+# about — see the header comment for why we can't filter inline in
+# the workflow.
+filter_mode() {
+  jq -c --arg m "$2" '[.[] | select(.mode == $m)]' <<<"$1"
+}
+
+modern_linux="$(filter_mode   "$linux_entries"   modern)"
+modern_macos="$(filter_mode   "$macos_entries"   modern)"
+modern_windows="$(filter_mode "$windows_entries" modern)"
+legacy_linux="$(filter_mode   "$linux_entries"   legacy)"
+legacy_macos="$(filter_mode   "$macos_entries"   legacy)"
+legacy_windows="$(filter_mode "$windows_entries" legacy)"
+
 {
-  echo "targets_linux=${linux_entries}"
-  echo "targets_macos=${macos_entries}"
-  echo "targets_windows=${windows_entries}"
+  echo "targets_modern_linux=${modern_linux}"
+  echo "targets_modern_macos=${modern_macos}"
+  echo "targets_modern_windows=${modern_windows}"
+  echo "targets_legacy_linux=${legacy_linux}"
+  echo "targets_legacy_macos=${legacy_macos}"
+  echo "targets_legacy_windows=${legacy_windows}"
   echo "has_modern_linux=$(bool $n_modern_linux)"
   echo "has_modern_macos=$(bool $n_modern_macos)"
   echo "has_modern_windows=$(bool $n_modern_windows)"
@@ -417,6 +438,9 @@ bool() { [ "$1" -gt 0 ] && echo true || echo false; }
   echo "has_legacy_windows=$(bool $n_legacy_windows)"
 } >> "$OUTPUT"
 
-echo "linux:   $linux_entries"   >&2
-echo "macos:   $macos_entries"   >&2
-echo "windows: $windows_entries" >&2
+echo "modern linux:   $modern_linux"   >&2
+echo "modern macos:   $modern_macos"   >&2
+echo "modern windows: $modern_windows" >&2
+echo "legacy linux:   $legacy_linux"   >&2
+echo "legacy macos:   $legacy_macos"   >&2
+echo "legacy windows: $legacy_windows" >&2

@@ -95,22 +95,30 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # Three unified per-platform target lists (modern + legacy
-      # mixed) plus six per-(mode, platform) has_* booleans. Each
-      # entry in `targets_<plat>` carries a `mode` field —
-      # `"modern"` (OTP ≥ 24, peer-runner flow) or `"legacy"`
-      # (OTP < 24, target-Elixir bundle flow). The measure-* jobs
-      # use job-level `if: matrix.target.mode == '<mode>'` to filter
-      # the matrix per-combination so wrong-mode rows don't spawn
-      # runners. The `has_*` booleans gate the whole job for the
-      # case where the matrix has zero matching entries (an empty
-      # `if:`-filtered matrix is still valid but the publish job's
-      # `needs:` resolution gets cleaner this way). See
-      # PLAN/TARGET_ELIXIR_RUNNER_PLAN.md § Follow-ups item 3 for
-      # the rationale on the array collapse.
-      targets_linux:   ${{ steps.r.outputs.targets_linux }}
-      targets_macos:   ${{ steps.r.outputs.targets_macos }}
-      targets_windows: ${{ steps.r.outputs.targets_windows }}
+      # Six per-(mode, platform) target arrays plus matching has_*
+      # booleans. Each array contains only entries for that one
+      # (mode, platform) combination, so the measure-* jobs can
+      # `fromJson` the matching one straight into their matrix
+      # without any per-row filtering at all.
+      #
+      # We'd love to keep one unified `targets_<plat>` array per
+      # platform and filter in-job via
+      # `if: matrix.target.mode == '<mode>'`, but GHA evaluates
+      # job-level `if:` *before* matrix expansion — the matrix
+      # context isn't in scope there, and naming `matrix.target`
+      # in a job-level `if:` causes the whole workflow to fail at
+      # parse time. Step-level `if:` does see matrix, but spawning
+      # wrong-mode runners only to skip every step wastes ~30 s
+      # per row. Pre-filtering once in resolve sidesteps both.
+      #
+      # See PLAN/TARGET_ELIXIR_RUNNER_PLAN.md § Follow-ups item 3
+      # for the full discussion.
+      targets_modern_linux:   ${{ steps.r.outputs.targets_modern_linux }}
+      targets_modern_macos:   ${{ steps.r.outputs.targets_modern_macos }}
+      targets_modern_windows: ${{ steps.r.outputs.targets_modern_windows }}
+      targets_legacy_linux:   ${{ steps.r.outputs.targets_legacy_linux }}
+      targets_legacy_macos:   ${{ steps.r.outputs.targets_legacy_macos }}
+      targets_legacy_windows: ${{ steps.r.outputs.targets_legacy_windows }}
       has_modern_linux:   ${{ steps.r.outputs.has_modern_linux }}
       has_modern_macos:   ${{ steps.r.outputs.has_modern_macos }}
       has_modern_windows: ${{ steps.r.outputs.has_modern_windows }}
@@ -195,14 +203,14 @@ jobs:
   # tag from GHCR.
   build-linux:
     needs: resolve
-    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_linux == 'true'
+    if: needs.resolve.outputs.has_modern_linux == 'true'
     permissions:
       contents: read
       packages: write   # push image to GHCR
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -268,14 +276,14 @@ jobs:
   # the OTP we just installed.
   build-linux-target:
     needs: resolve
-    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_linux == 'true'
+    if: needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -369,16 +377,13 @@ jobs:
       - name: Find SHA for OTP ${{ matrix.otp_major }}
         id: find_sha
         env:
-          TARGETS: ${{ needs.resolve.outputs.targets_linux }}
+          TARGETS: ${{ needs.resolve.outputs.targets_legacy_linux }}
         run: |
-          # Filter on mode == "legacy" too — `targets_linux` is now a
-          # unified array (modern + legacy), and although modern
-          # majors (≥ 24) can't currently coincide with this job's
-          # matrix (fixed at 20/21/22/23), the explicit filter
-          # protects against a future schema drift.
+          # Every entry in `targets_legacy_linux` is already
+          # mode == "legacy"; just pick the first one for our major.
           SHA="$(echo "$TARGETS" \
             | jq -r --arg M "${{ matrix.otp_major }}" \
-                '[.[] | select(.major == $M and .mode == "legacy")] | .[0].sha // empty')"
+                '[.[] | select(.major == $M)] | .[0].sha // empty')"
           if [ -z "$SHA" ]; then
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             echo "[prep] no OTP-${{ matrix.otp_major }} entry in this run, skipping"
@@ -440,14 +445,14 @@ jobs:
   # tenancy and pinning there gives us nothing.
   measure-linux:
     needs: [resolve, build-linux]
-    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_linux == 'true'
+    if: needs.resolve.outputs.has_modern_linux == 'true'
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
         arch:
           # gha_runner: GHA-hosted label per arch. AWS-pool runners
           # carry [self-hosted, aws, linux, <arch.name>] labels (per
@@ -518,14 +523,14 @@ jobs:
   # version where WMIC is still present.
   measure-windows:
     needs: resolve
-    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_windows == 'true'
+    if: needs.resolve.outputs.has_modern_windows == 'true'
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_windows) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_windows) }}
         # The upstream Windows installer ships JIT-only (no
         # beam.emu.dll). Measuring emu on Windows would require
         # building OTP from source on the runner (slow + fiddly on
@@ -679,13 +684,13 @@ jobs:
   # of `runner_pool`.
   measure-macos:
     needs: resolve
-    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_macos == 'true'
+    if: needs.resolve.outputs.has_modern_macos == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_macos) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_macos) }}
         flavor: [jit, emu]
     runs-on: macos-latest
     steps:
@@ -804,7 +809,7 @@ jobs:
   # ---------------------------------------------------------------
   measure-linux-target:
     needs: [resolve, build-linux-target, prep-target-bundle]
-    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_linux == 'true'
+    if: needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
       contents: read
       packages: read
@@ -812,7 +817,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
         arch:
           - { name: x86_64, gha_runner: ubuntu-latest    }
           - { name: arm64,  gha_runner: ubuntu-24.04-arm }
@@ -893,14 +898,14 @@ jobs:
 
   measure-windows-target:
     needs: [resolve, prep-target-bundle]
-    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_windows == 'true'
+    if: needs.resolve.outputs.has_legacy_windows == 'true'
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_windows) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_windows) }}
         flavor: [emu]
     runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","aws","windows","x86_64"]') || 'windows-latest' }}
     steps:
@@ -990,14 +995,14 @@ jobs:
 
   measure-macos-target:
     needs: [resolve, prep-target-bundle]
-    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_macos == 'true'
+    if: needs.resolve.outputs.has_legacy_macos == 'true'
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_macos) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_macos) }}
         flavor: [emu]
     runs-on: macos-latest
     steps:
