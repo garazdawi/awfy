@@ -21,7 +21,10 @@ defmodule OtpBenchmarks do
       OtpBenchmarks.Benchmarks.MapPut,
       OtpBenchmarks.Benchmarks.MapMerge,
       OtpBenchmarks.Benchmarks.MapKeys,
-      OtpBenchmarks.Benchmarks.IolistSize
+      OtpBenchmarks.Benchmarks.IolistSize,
+      OtpBenchmarks.Benchmarks.Base64Encode,
+      OtpBenchmarks.Benchmarks.Base64Decode,
+      OtpBenchmarks.Benchmarks.Base64MimeDecode
     ]
   end
 
