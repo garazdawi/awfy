@@ -24,7 +24,9 @@ defmodule OtpBenchmarks do
       OtpBenchmarks.Benchmarks.IolistSize,
       OtpBenchmarks.Benchmarks.Base64Encode,
       OtpBenchmarks.Benchmarks.Base64Decode,
-      OtpBenchmarks.Benchmarks.Base64MimeDecode
+      OtpBenchmarks.Benchmarks.Base64MimeDecode,
+      OtpBenchmarks.Benchmarks.BinaryMatch,
+      OtpBenchmarks.Benchmarks.BinaryMatches
     ]
   end
 
