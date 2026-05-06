@@ -28,6 +28,7 @@ defmodule Awfy.Compare.DataTest do
       {:emu_flavor, Keyword.get(opts, :emu_flavor, "jit")},
       {:schedulers_online, Keyword.get(opts, :schedulers_online, 10)},
       {:lang, Keyword.get(opts, :lang, "erlang")},
+      {:input, Keyword.get(opts, :input)},
       {:benchmark, Keyword.get(opts, :benchmark, "Bounce")},
       {:median_ms, Keyword.get(opts, :median_ms, 100.0)},
       {:mean_ms, Keyword.get(opts, :mean_ms, 100.0)},
@@ -116,6 +117,24 @@ defmodule Awfy.Compare.DataTest do
       assert {gm, dropped} = Data.geomean_ratio(label, base)
       assert_in_delta gm, 2.0, 0.0001
       assert dropped == ["B"]
+    end
+
+    test "multi-input rows (OtpBenchmarks) excluded from the suite geomean" do
+      # Otherwise phash2's 13 input cells would dominate the
+      # geomean against any AWFY 1-cell benchmark in the same run.
+      base = [
+        row(benchmark: "Bounce", median_ms: 100.0),
+        row(benchmark: "phash2", lang: nil, input: "atom", median_ms: 0.000012),
+        row(benchmark: "phash2", lang: nil, input: "binary_4k", median_ms: 0.001580)
+      ]
+
+      label =
+        Enum.map(base, fn r -> %{r | median_ms: r.median_ms * 2} end)
+
+      assert {gm, dropped} = Data.geomean_ratio(label, base)
+      # Only Bounce remains; ratio 200/100 = 2.0; phash2 doesn't contribute.
+      assert_in_delta gm, 2.0, 0.0001
+      assert dropped == []
     end
 
     test "when both langs present, indexes by Erlang first" do

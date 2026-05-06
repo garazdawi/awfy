@@ -347,6 +347,7 @@ defmodule Mix.Tasks.Awfy.Compare do
           "machine_class" => machine_class(%{"arch" => r.arch}),
           "emu_flavor" => r.emu_flavor,
           "lang" => r.lang,
+          "input" => Map.get(r, :input),
           "benchmark" => r.benchmark,
           "median_ms" => r.median_ms,
           "mean_ms" => r.mean_ms,

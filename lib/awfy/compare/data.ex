@@ -14,9 +14,11 @@ defmodule Awfy.Compare.Data do
       per-benchmark `median_ms / baseline_median_ms`); used by both
       the dashboard index page and `mix awfy.diff`.
 
-  A "row" is a single (run × benchmark × language) measurement,
+  A "row" is a single (run × benchmark × series-axis) measurement,
   flattened so the dashboard JS doesn't have to navigate Benchee's
-  Suite struct:
+  Suite struct. The series axis is whichever of `lang` (AWFY:
+  `"erlang"` / `"elixir"`) or `input` (OtpBenchmarks: `"atom"`,
+  `"binary_4k"`, …) the suite populated; the other field is `nil`.
 
       %{
         label: "v1",
@@ -27,7 +29,8 @@ defmodule Awfy.Compare.Data do
         cpu: "Apple M5",
         arch: "aarch64-apple-darwin",
         emu_flavor: "jit",
-        lang: "erlang",
+        lang: "erlang",   # set for AWFY ports; nil for OtpBenchmarks
+        input: nil,       # set for OtpBenchmarks scenarios; nil for AWFY
         benchmark: "Bounce",
         median_ms: 116.7,
         mean_ms: 116.4,
@@ -115,6 +118,12 @@ defmodule Awfy.Compare.Data do
 
           Enum.map(suite.scenarios, fn scenario ->
             {bname, lang} = parse_name(scenario.name)
+            # Benchee sets `input_name` only when the suite was run
+            # with `inputs: %{...}` — that's the OtpBenchmarks shape.
+            # For AWFY suites it's the sentinel `Benchee.Benchmark.no_input/0`,
+            # which we map to nil so the dashboard's series-axis
+            # logic treats lang as the only series identifier.
+            input = scenario_input_name(scenario)
             stats = scenario.run_time_data.statistics
             lang_meta = Map.get(languages, lang, %{})
 
@@ -130,6 +139,7 @@ defmodule Awfy.Compare.Data do
               emu_flavor: get(run.runtime, "emu_flavor"),
               schedulers_online: get(run.runtime, "schedulers_online"),
               lang: lang,
+              input: input,
               benchmark: bname || bench_name,
               median_ms: ns_to_ms(stats.median),
               mean_ms: ns_to_ms(stats.average),
@@ -174,8 +184,22 @@ defmodule Awfy.Compare.Data do
     end
   end
 
+  # 6 decimal places preserves nanosecond resolution for
+  # OtpBenchmarks-style sub-microsecond medians (12 ns rounds to
+  # 0.000012 ms instead of 0.0). AWFY scenarios at the millisecond
+  # scale lose nothing — the trailing zeros are noise.
   defp ns_to_ms(nil), do: nil
-  defp ns_to_ms(ns) when is_number(ns), do: Float.round(ns / 1_000_000, 3)
+  defp ns_to_ms(ns) when is_number(ns), do: Float.round(ns / 1_000_000, 6)
+
+  # Benchee fills `scenario.input_name` only when the suite was run
+  # with an `inputs: %{...}` map. AWFY-shape suites (one timed
+  # closure, no inputs) use the sentinel `Benchee.Benchmark.no_input`
+  # — an atom — which the dashboard's series-axis logic should
+  # treat as "no input variant", not as a literal value. Strings
+  # are real OtpBenchmarks input names; anything else is a sentinel
+  # we collapse to nil.
+  defp scenario_input_name(%{input_name: name}) when is_binary(name), do: name
+  defp scenario_input_name(_), do: nil
 
   defp get(m, k) when is_map(m), do: Map.get(m, k)
   defp get(_, _), do: nil
@@ -187,11 +211,19 @@ defmodule Awfy.Compare.Data do
   Both `label_rows` and `baseline_rows` are lists of `rows_for_run`
   output filtered down to a single label and (optionally) a single
   language.
+
+  Multi-input families (OtpBenchmarks scenarios where `input` is set)
+  are excluded from the geomean. Including them would over-weight
+  whichever family had the most input variants — `phash2` alone has
+  13 cells vs every AWFY benchmark's 1 — and silently shift the
+  headline number. The right aggregation for a multi-input family
+  is its own per-input geomean, exposed separately rather than mixed
+  into the suite-wide AWFY-style ratio.
   """
   @spec geomean_ratio([map()], [map()]) :: {float(), [String.t()]}
   def geomean_ratio(label_rows, baseline_rows) do
-    label_by_bench = index_by_benchmark(label_rows)
-    base_by_bench = index_by_benchmark(baseline_rows)
+    label_by_bench = label_rows |> reject_multi_input() |> index_by_benchmark()
+    base_by_bench = baseline_rows |> reject_multi_input() |> index_by_benchmark()
 
     intersection =
       MapSet.intersection(
@@ -224,6 +256,10 @@ defmodule Awfy.Compare.Data do
         gm = :math.exp(sum_log / length(benches))
         {Float.round(gm, 4), dropped}
     end
+  end
+
+  defp reject_multi_input(rows) do
+    Enum.reject(rows, fn r -> Map.get(r, :input) end)
   end
 
   defp index_by_benchmark(rows) do

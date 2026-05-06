@@ -98,11 +98,34 @@ describe("majorOf", () => {
   });
 });
 
+describe("seriesAxis", () => {
+  it("returns lang for AWFY-shape rows", () => {
+    expect(dash.seriesAxis({ lang: "erlang", input: null })).toBe("erlang");
+  });
+
+  it("returns input for OtpBenchmarks-shape rows (lang null)", () => {
+    expect(dash.seriesAxis({ lang: null, input: "binary_4k" })).toBe("binary_4k");
+  });
+
+  it("prefers lang when both are populated (defensive)", () => {
+    // Real rows never have both — the loader sets exactly one. But
+    // if a future contract bug ever produces both, lang wins so
+    // AWFY pages stay stable.
+    expect(dash.seriesAxis({ lang: "erlang", input: "atom" })).toBe("erlang");
+  });
+});
+
 describe("seriesKey", () => {
-  it("joins lang × machine_class × emu_flavor", () => {
+  it("joins lang × machine_class × emu_flavor for AWFY rows", () => {
     expect(dash.seriesKey({
-      lang: "erlang", machine_class: "linux-x86_64", emu_flavor: "jit"
+      lang: "erlang", input: null, machine_class: "linux-x86_64", emu_flavor: "jit"
     })).toBe("erlang / linux-x86_64 / jit");
+  });
+
+  it("uses input as the axis for OtpBenchmarks rows", () => {
+    expect(dash.seriesKey({
+      lang: null, input: "atom", machine_class: "linux-x86_64", emu_flavor: "jit"
+    })).toBe("atom / linux-x86_64 / jit");
   });
 });
 
@@ -149,6 +172,22 @@ describe("applyFilters", () => {
     });
     expect(out).toHaveLength(1);
     expect(out[0].emu_flavor).toBe("emu");
+  });
+
+  it("filters OtpBenchmarks rows by input via the lang control (multi-select)", () => {
+    // The lang control on multi-input pages is a checkbox group;
+    // state.lang is an array of checked input variants. applyFilters
+    // already handles the array shape via includes(seriesAxis(r)).
+    const otpRows = [
+      { lang: null, input: "atom",      machine_class: "macos-arm64", emu_flavor: "jit" },
+      { lang: null, input: "binary_4k", machine_class: "macos-arm64", emu_flavor: "jit" },
+      { lang: null, input: "list_1000", machine_class: "macos-arm64", emu_flavor: "jit" }
+    ];
+    const out = dash.applyFilters(otpRows, {
+      lang: ["atom", "binary_4k"], machine_class: "macos-arm64", emu_flavor: "jit"
+    });
+    expect(out).toHaveLength(2);
+    expect(out.map(r => r.input).sort()).toEqual(["atom", "binary_4k"]);
   });
 });
 
@@ -244,6 +283,24 @@ describe("buildSeries", () => {
     expect(p.yMin).toBeCloseTo(1000 / 816, 4);
     expect(p.yMax).toBeGreaterThan(p.y);
     expect(p.yMin).toBeLessThan(p.y);
+  });
+
+  it("labels OtpBenchmarks series by input rather than machine_class", () => {
+    // Multi-input rows have lang=null and input populated. The
+    // chart should label each series by its input variant so the
+    // legend reads "atom" / "binary_4k" / … rather than every
+    // line saying "macos-arm64".
+    const inputRows = [
+      { lang: null, input: "atom", machine_class: "macos-arm64", emu_flavor: "jit",
+        benchmark: "phash2", otp: "28.0", median_ms: 0.000013, stddev_ms: 0.00001,
+        label: "test-otp", timestamp: "2026-05-01T00:00:00Z", inner_iter: null },
+      { lang: null, input: "binary_4k", machine_class: "macos-arm64", emu_flavor: "jit",
+        benchmark: "phash2", otp: "28.0", median_ms: 0.001584, stddev_ms: 0.00018,
+        label: "test-otp", timestamp: "2026-05-01T00:00:00Z", inner_iter: null }
+    ];
+    const series = dash.buildSeries(inputRows, "otp");
+    expect(series).toHaveLength(2);
+    expect(series.map(s => s.label).sort()).toEqual(["atom", "binary_4k"]);
   });
 });
 

@@ -5,11 +5,24 @@
 
 const STORAGE_KEY = "awfy.filters." + PAGE_KIND + "." + BENCH_NAME;
 
+// Within-benchmark series identifier:
+//   * AWFY ports populate `lang` ("erlang" / "elixir") and leave
+//     `input` null — series axis is the language port.
+//   * OtpBenchmarks scenarios populate `input` ("atom",
+//     "binary_4k", …) and leave `lang` null — series axis is the
+//     input variant. The "Language" radio is overloaded to switch
+//     between input variants on those pages.
+// One field is always nil, so `lang || input` deterministically
+// picks the populated one.
+function seriesAxis(row) {
+  return row.lang || row.input;
+}
+
 function seriesKey(row) {
   // Group by stable machine class (linux-x86_64 / macos-arm64 / …)
   // rather than ephemeral hostnames, so multi-CI runs collapse
-  // into a single trend line per (lang × class × flavor).
-  return [row.lang, row.machine_class, row.emu_flavor].join(" / ");
+  // into a single trend line per (axis × class × flavor).
+  return [seriesAxis(row), row.machine_class, row.emu_flavor].join(" / ");
 }
 
 // Order OTP version strings: "20.0" < "20.1" < ... < "21.0" <
@@ -198,6 +211,43 @@ function buildPlatformCheckboxes(values, persisted, fallbacks) {
   container.appendChild(group);
 }
 
+// Multi-select checkbox group rendered into #control-lang on
+// per-bench pages whose family has multiple input variants
+// (OtpBenchmarks scenarios). Replaces the single-select
+// "Language" radio so every input renders concurrently on the
+// chart by default; individual inputs can be hidden via uncheck
+// for a focused view. The control's <input>s share the `name="lang"`
+// attribute so the existing applyFilters / readUIState shape
+// (array-of-values lang state) flows unchanged — `lang` here means
+// "within-benchmark series axis", overloaded for OtpBenchmarks
+// just as it's overloaded in the data row's `seriesAxis()` helper.
+function buildInputCheckboxes(values, persisted) {
+  const container = document.getElementById("control-lang");
+  // Replace the static <b>Language</b> heading and any prior
+  // radio buttons that the static template emitted.
+  container.innerHTML = "";
+  const heading = document.createElement("b");
+  heading.textContent = "Input";
+  container.appendChild(heading);
+
+  const persistedArr = Array.isArray(persisted) ? persisted : null;
+  values.forEach(v => {
+    const lab = document.createElement("label");
+    const inp = document.createElement("input");
+    inp.type = "checkbox";
+    inp.name = "lang";
+    inp.value = v;
+    // Default: every input checked. Persisted state overrides if
+    // present so an unchecked-on-last-visit input stays hidden
+    // across reloads.
+    inp.checked = persistedArr ? persistedArr.includes(v) : true;
+    inp.addEventListener("change", onFilterChange);
+    lab.appendChild(inp);
+    lab.appendChild(document.createTextNode(" " + v));
+    container.appendChild(lab);
+  });
+}
+
 function onFilterChange() {
   const state = readUIState();
   saveFilterState(state);
@@ -242,7 +292,16 @@ function buildSnapshotMajorCheckboxes() {
 
 function readUIState() {
   const flavor = (document.querySelector('input[name="flavor"]:checked') || {}).value;
-  const lang = (document.querySelector('input[name="lang"]:checked') || {}).value;
+  // The lang/series-axis control is a single-select radio on AWFY
+  // pages and a multi-select checkbox group on multi-input
+  // OtpBenchmarks pages. Detect by the rendered <input> type and
+  // shape state.lang accordingly — applyFilters already handles
+  // both array (any-of) and scalar (equals) shapes via seriesAxis.
+  const langInputs = document.querySelectorAll('input[name="lang"]');
+  const isCheckboxLang = langInputs.length > 0 && langInputs[0].type === "checkbox";
+  const lang = isCheckboxLang
+    ? [...langInputs].filter(i => i.checked).map(i => i.value)
+    : (document.querySelector('input[name="lang"]:checked') || {}).value;
   if (PAGE_KIND === "bench") {
     return {
       machine_class: [...document.querySelectorAll('input[name="machine"]:checked')].map(c => c.value),
@@ -260,8 +319,8 @@ function readUIState() {
 
 function applyFilters(rows, state) {
   const langOK = Array.isArray(state.lang)
-    ? (r) => state.lang.includes(r.lang)
-    : (r) => r.lang === state.lang;
+    ? (r) => state.lang.includes(seriesAxis(r))
+    : (r) => seriesAxis(r) === state.lang;
   const mcOK = Array.isArray(state.machine_class)
     ? (r) => state.machine_class.includes(r.machine_class)
     : (r) => r.machine_class === state.machine_class;
@@ -307,7 +366,17 @@ function buildSeries(rows, xAxis) {
       // — label by lang. Per-bench page picks the language with a
       // radio and the platforms with checkboxes, so machine_class
       // is what varies — label by that instead.
-      label: PAGE_KIND === "bench" ? items[0].machine_class : items[0].lang,
+      // Series label is the field that *varies* between series:
+      //   * Suite page: lang varies, machine_class is fixed by tab.
+      //   * AWFY per-bench page: machine_class varies (multi-select),
+      //     lang is fixed by radio.
+      //   * Multi-input per-bench page: input varies (multi-select),
+      //     machine_class is the per-bench multi-select but for
+      //     OtpBenchmarks we render input as the primary distinction
+      //     so user sees "atom" / "binary_4k" / … not "macos-arm64".
+      label:
+        items[0].input ||
+        (PAGE_KIND === "bench" ? items[0].machine_class : items[0].lang),
       data: sorted.map(r => {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
         const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
@@ -361,7 +430,14 @@ function buildSeries(rows, xAxis) {
    chart is always the headline view.
 */
 function buildSuiteGeomeanSeries() {
-  const rows = DATASET.rows.filter(r => r.emu_flavor === "jit");
+  // AWFY-only: multi-input families (OtpBenchmarks scenarios where
+  // `input` is populated) carry a different aggregation semantics
+  // than single-cell AWFY benchmarks. Rolling them into the
+  // suite-wide geomean would over-weight whichever family has the
+  // most input variants — phash2 alone has 13 cells vs every AWFY
+  // benchmark's 1. Their own per-input geomean is available on
+  // each family's per-bench page.
+  const rows = DATASET.rows.filter(r => r.emu_flavor === "jit" && !r.input);
 
   const runOtp = {};
   DATASET.runs.forEach(r => { runOtp[r.label] = r.otp; });
@@ -820,12 +896,16 @@ function renderHeadline() {
   }
   const oldest = otps[0], newest = otps[otps.length - 1];
 
-  const langs = [...new Set(filtered.map(r => r.lang))].sort();
-  const lines = langs.map(lang => {
-    // For each (lang, benchmark) pick the latest run on each end.
+  // One headline line per series-axis value. AWFY pages: one per
+  // language ("erlang", "elixir"). Multi-input pages: one per
+  // checked input ("atom", "binary_4k", …) — `seriesAxis` collapses
+  // to whichever of lang/input is populated.
+  const labels = [...new Set(filtered.map(seriesAxis))].sort();
+  const lines = labels.map(label => {
+    // For each (series-axis-value, benchmark) pick the latest run on each end.
     const pickLatest = (otp) => {
       const m = {};
-      filtered.filter(r => r.lang === lang && r.otp === otp).forEach(r => {
+      filtered.filter(r => seriesAxis(r) === label && r.otp === otp).forEach(r => {
         if (!m[r.benchmark] || r.timestamp > m[r.benchmark].timestamp) m[r.benchmark] = r;
       });
       return m;
@@ -836,7 +916,7 @@ function renderHeadline() {
     if (benches.length === 0) return null;
     const sumLog = benches.reduce((s, b) => s + Math.log(oldRuns[b].median_ms / newRuns[b].median_ms), 0);
     const speedup = Math.exp(sumLog / benches.length);
-    return { lang, speedup, benches };
+    return { lang: label, speedup, benches };
   }).filter(Boolean);
 
   if (lines.length === 0) {
@@ -1044,18 +1124,36 @@ if (typeof document !== "undefined") (function () {
   const state = loadFilterState();
   const machineClasses = uniqueValues(DATASET.rows, "machine_class");
   const flavors = uniqueValues(DATASET.rows, "emu_flavor");
-  const langs = uniqueValues(DATASET.rows, "lang");
-
   // Defaults: JIT + Erlang everywhere. Per-bench gets both Linux
   // platforms checked by default so a fresh visit shows the
   // cross-platform comparison the multi-select control was built
   // for; suite stays single-platform on the linux-x86_64 tab.
   buildRadioGroup("control-flavor", "flavor", flavors, state.emu_flavor, "jit");
-  // Persisted lang state may be an array (from when suite used a
-  // checkbox group) or a string. Both pages now use a single-select
-  // radio so collapse to the first array element if needed.
-  const persistedLang = Array.isArray(state.lang) ? state.lang[0] : state.lang;
-  buildRadioGroup("control-lang", "lang", langs, persistedLang, "erlang");
+
+  // Within-benchmark control. Two shapes:
+  //   * AWFY-shape page (rows have `lang` set, `input` null) →
+  //     single-select "Language" radio with ["elixir", "erlang"].
+  //   * OtpBenchmarks-shape page (rows have `input` set, `lang`
+  //     null) → multi-select "Input" checkboxes, default all
+  //     checked so every input variant renders concurrently.
+  // Suite-index pages always use the radio: multi-input rows have
+  // lang=null and are dropped by applyFilters / suite-geomean
+  // anyway, so the radio cleanly lists only AWFY ports.
+  const isMultiInput =
+    PAGE_KIND === "bench" && DATASET.rows.some(r => r.input);
+  if (isMultiInput) {
+    const inputs = [...new Set(DATASET.rows.map(r => r.input).filter(Boolean))].sort();
+    const persistedInputs = Array.isArray(state.lang) ? state.lang : null;
+    buildInputCheckboxes(inputs, persistedInputs);
+  } else {
+    const langs = uniqueValues(DATASET.rows, "lang");
+    // Persisted lang state may be an array (from a previous
+    // multi-input visit on the same STORAGE_KEY) or a scalar.
+    // Collapse to the first element so the AWFY radio doesn't
+    // crash when handed an array.
+    const persistedLang = Array.isArray(state.lang) ? state.lang[0] : state.lang;
+    buildRadioGroup("control-lang", "lang", langs, persistedLang, "erlang");
+  }
   if (PAGE_KIND === "bench") {
     buildPlatformCheckboxes(machineClasses, state.machine_class,
       ["linux-arm64", "linux-x86_64"]);
@@ -1088,6 +1186,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     compareOtpVersions,
     majorOf,
+    seriesAxis,
     seriesKey,
     applyFilters,
     buildOtpXMap,
