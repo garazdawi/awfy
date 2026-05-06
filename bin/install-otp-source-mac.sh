@@ -164,15 +164,16 @@ trap 'rm -rf "$WORK"' EXIT
     # splitting to turn that into separate configure args. Quoting
     # would pass the whole string as a single argument.
     #
-    # CFLAGS=-fcommon: same fix as the Linux Dockerfile — OTP < 23
-    # has tentative definitions (declared in headers without
-    # `extern`) that fail to link under modern toolchains where
-    # `-fno-common` is the default (GCC ≥ 10, Apple Clang since
-    # Xcode 12). No-op for OTP ≥ 23 where the declarations are
-    # properly `extern`-qualified, so we apply globally rather
-    # than gating per-version.
+    # CFLAGS="-O2 -fcommon": same fix as the Linux Dockerfile —
+    # `-fcommon` re-enables the pre-GCC-10/pre-Xcode-12 lenient
+    # treatment of tentative definitions (OTP < 23 source has
+    # several declared in headers without `extern`); `-O2` replaces
+    # autoconf's default optimisation level since touching CFLAGS
+    # at all suppresses its built-in `-g -O2` injection, and OTP's
+    # configure tests depend on optimisation being on. No-op for
+    # OTP ≥ 23 where the declarations are properly extern-qualified.
     # shellcheck disable=SC2086
-    CFLAGS="-fcommon ${CFLAGS:-}" \
+    CFLAGS="-O2 -fcommon ${CFLAGS:-}" \
     ./configure \
         --prefix="$PREFIX" \
         --disable-debug \
