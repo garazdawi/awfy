@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Walk a list of expanded OTP refs, probe gh-pages for what's already
-# published, and emit six per-(major, platform) JSON arrays of
-# resolved target entries plus has_* booleans suitable for $GITHUB_OUTPUT.
+# published, and emit three per-platform JSON arrays of resolved
+# target entries plus a small handful of routing booleans.
 #
 # Inputs:
 #   $1                — comma-separated list of fully-expanded OTP
@@ -27,15 +27,14 @@
 #                           outputs go to stdout.
 #
 # Outputs (to GITHUB_OUTPUT or stdout):
-#   targets_modern_linux=[…]   — JSON array of entries for measure-linux
-#   targets_modern_macos=[…]
-#   targets_modern_windows=[…]
-#   targets_legacy_linux=[…]   — JSON array for measure-linux-target
-#   targets_legacy_macos=[…]
-#   targets_legacy_windows=[…]
-#   has_modern_linux=true|false
-#   has_modern_macos=…
-#   …
+#   targets_linux=[…]    — unified JSON array of entries that need
+#                          the Linux measure leg (modern + legacy)
+#   targets_macos=[…]
+#   targets_windows=[…]
+#   has_modern_linux=true|false   — does targets_linux contain at
+#                                   least one modern (OTP ≥ 24) entry?
+#   has_legacy_linux=true|false   — at least one legacy (OTP < 24)?
+#   …same six has_* per platform/mode…
 #
 # stderr — `[fill]` decision log and `Resolved …` lines for each ref.
 #
@@ -43,7 +42,15 @@
 # jobs consume:
 #   ref, windows_ref, sha, short, label, major, otp_label,
 #   windows_otp_label, elixir, elixir_bundle, commit_timestamp,
-#   extra_configure
+#   extra_configure, mode
+#
+# `mode` is `"modern"` (OTP ≥ 24, peer-runner flow) or `"legacy"`
+# (OTP < 24, target-Elixir bundle flow). The workflow's measure-*
+# jobs filter on this via job-level `if: matrix.target.mode == '…'`
+# so a single shared array drives both modern (`measure-linux`) and
+# legacy (`measure-linux-target`) jobs without spawning dead-letter
+# runners for the wrong mode. See PLAN/TARGET_ELIXIR_RUNNER_PLAN.md
+# § Follow-ups item 3 for the rationale on the array collapse.
 #
 # Per-(ref, platform) skip rule:
 #   * FILL_MODE=0 → every platform needs to run for every ref.
@@ -137,13 +144,14 @@ otp_major_for_ref() {
 #   * 1.18.4 → otp-25, 26, 27 (1.18.5 dropped 26)
 #   * 1.19.5 → otp-27, 28
 # OTP < 24 has no matching elixir-otp-XX.zip; those targets take the
-# target-runner path (measure-{linux,macos,windows}-target) where the
-# host orchestrator runs on pinned modern Elixir/OTP and shells out to
-# the target erl. The :elixir field is still populated for shape
-# parity but not consumed there.
+# bundle-target path (the `apps/awfy_target_runner/` source-built
+# Elixir against the target OTP — pinned per-major below).
 elixir_version_for_major() {
   case "$1" in
-    22|23) echo "1.14.5" ;;
+    20)    echo "1.9.4"  ;;
+    21)    echo "1.11.4" ;;
+    22)    echo "1.13.4" ;;
+    23)    echo "1.14.5" ;;
     24)    echo "1.16.3" ;;
     25)    echo "1.17.3" ;;
     26)    echo "1.18.4" ;;
@@ -211,21 +219,26 @@ if [ "$FILL_MODE" = "1" ]; then
   fi
 fi
 
-# Per-(major, platform) collectors. Splitting `modern` / `legacy`
-# into three each lets fill skip individual platforms when only some
-# are missing for a ref.
-modern_linux="["
-modern_macos="["
-modern_windows="["
-legacy_linux="["
-legacy_macos="["
-legacy_windows="["
-sep_m_linux=""
-sep_m_macos=""
-sep_m_windows=""
-sep_l_linux=""
-sep_l_macos=""
-sep_l_windows=""
+# Per-platform collectors. Both modern and legacy entries land in the
+# same array — they're distinguished by the `mode` field on each
+# entry. The workflow's measure-{linux,macos,windows} jobs gate on
+# `mode == 'modern'` and the matching -target jobs gate on
+# `mode == 'legacy'`.
+linux_entries="["
+macos_entries="["
+windows_entries="["
+sep_linux=""
+sep_macos=""
+sep_windows=""
+
+# Track per-(mode, platform) counts so we can emit `has_modern_*` /
+# `has_legacy_*` booleans. The workflow uses these to skip whole jobs
+# when their mode has no targets at all (without it, an empty matrix
+# axis from `fromJson(targets_linux)` would still be valid but the
+# job would dispatch zero runners — the `has_*` gate on the job's
+# `if:` keeps the publish step's `needs:` resolution clean).
+n_modern_linux=0;  n_modern_macos=0;  n_modern_windows=0
+n_legacy_linux=0;  n_legacy_macos=0;  n_legacy_windows=0
 
 for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   raw="$(echo "$raw" | xargs)"
@@ -316,6 +329,9 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   extra_configure=""
   if [ "$major" -lt 24 ] 2>/dev/null; then
     extra_configure="--without-ssl"
+    mode="legacy"
+  else
+    mode="modern"
   fi
 
   # otp_label is what the dashboard plots on its x axis. We carry the
@@ -345,7 +361,7 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
     *)     rest="" ;;
   esac
   xy="$(echo "$rest" | cut -d. -f1,2)"
-  if [ "$major" -lt 24 ] 2>/dev/null && [ -n "$xy" ]; then
+  if [ "$mode" = "legacy" ] && [ -n "$xy" ]; then
     windows_ref="OTP-$xy"
     # windows_otp_label is what the dashboard plots for the Windows
     # leg specifically — must match the binary that actually runs
@@ -358,48 +374,49 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
     windows_otp_label="$otp_label"
   fi
 
-  entry="{\"ref\":\"$ref\",\"windows_ref\":\"$windows_ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"windows_otp_label\":\"$windows_otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\"}"
+  entry="{\"ref\":\"$ref\",\"windows_ref\":\"$windows_ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"windows_otp_label\":\"$windows_otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\",\"mode\":\"$mode\"}"
 
-  # OTP < 24 has no compatible Elixir bundle, so the host orchestrator
-  # can't compile against it. Route to the target-runner path: build
-  # target OTP from source, run the orchestrator on a pinned modern
-  # Elixir, shell out to the target erl per benchmark.
-  if [ "$major" -lt 24 ] 2>/dev/null; then
-    [ "$need_linux"   = "1" ] && { legacy_linux="${legacy_linux}${sep_l_linux}${entry}";    sep_l_linux=","; }
-    [ "$need_macos"   = "1" ] && { legacy_macos="${legacy_macos}${sep_l_macos}${entry}";    sep_l_macos=","; }
-    [ "$need_windows" = "1" ] && { legacy_windows="${legacy_windows}${sep_l_windows}${entry}"; sep_l_windows=","; }
-    echo "Resolved $ref → $sha (OTP $major, target-runner mode)" >&2
+  if [ "$need_linux" = "1" ]; then
+    linux_entries="${linux_entries}${sep_linux}${entry}"
+    sep_linux=","
+    if [ "$mode" = "modern" ]; then n_modern_linux=$((n_modern_linux+1)); else n_legacy_linux=$((n_legacy_linux+1)); fi
+  fi
+  if [ "$need_macos" = "1" ]; then
+    macos_entries="${macos_entries}${sep_macos}${entry}"
+    sep_macos=","
+    if [ "$mode" = "modern" ]; then n_modern_macos=$((n_modern_macos+1)); else n_legacy_macos=$((n_legacy_macos+1)); fi
+  fi
+  if [ "$need_windows" = "1" ]; then
+    windows_entries="${windows_entries}${sep_windows}${entry}"
+    sep_windows=","
+    if [ "$mode" = "modern" ]; then n_modern_windows=$((n_modern_windows+1)); else n_legacy_windows=$((n_legacy_windows+1)); fi
+  fi
+
+  if [ "$mode" = "legacy" ]; then
+    echo "Resolved $ref → $sha (OTP $major, bundle-target mode)" >&2
   else
-    [ "$need_linux"   = "1" ] && { modern_linux="${modern_linux}${sep_m_linux}${entry}";    sep_m_linux=","; }
-    [ "$need_macos"   = "1" ] && { modern_macos="${modern_macos}${sep_m_macos}${entry}";    sep_m_macos=","; }
-    [ "$need_windows" = "1" ] && { modern_windows="${modern_windows}${sep_m_windows}${entry}"; sep_m_windows=","; }
-    echo "Resolved $ref → $sha (OTP $major, Elixir $elixir)" >&2
+    echo "Resolved $ref → $sha (OTP $major, peer-runner mode, Elixir $elixir)" >&2
   fi
 done
 
-modern_linux="${modern_linux}]"
-modern_macos="${modern_macos}]"
-modern_windows="${modern_windows}]"
-legacy_linux="${legacy_linux}]"
-legacy_macos="${legacy_macos}]"
-legacy_windows="${legacy_windows}]"
+linux_entries="${linux_entries}]"
+macos_entries="${macos_entries}]"
+windows_entries="${windows_entries}]"
+
+bool() { [ "$1" -gt 0 ] && echo true || echo false; }
 
 {
-  for var in modern_linux modern_macos modern_windows \
-             legacy_linux legacy_macos legacy_windows; do
-    val=$(eval echo "\${$var}")
-    echo "targets_${var}=${val}"
-    if [ "$val" = "[]" ]; then
-      echo "has_${var}=false"
-    else
-      echo "has_${var}=true"
-    fi
-  done
+  echo "targets_linux=${linux_entries}"
+  echo "targets_macos=${macos_entries}"
+  echo "targets_windows=${windows_entries}"
+  echo "has_modern_linux=$(bool $n_modern_linux)"
+  echo "has_modern_macos=$(bool $n_modern_macos)"
+  echo "has_modern_windows=$(bool $n_modern_windows)"
+  echo "has_legacy_linux=$(bool $n_legacy_linux)"
+  echo "has_legacy_macos=$(bool $n_legacy_macos)"
+  echo "has_legacy_windows=$(bool $n_legacy_windows)"
 } >> "$OUTPUT"
 
-echo "Modern   linux:   $modern_linux" >&2
-echo "Modern   macos:   $modern_macos" >&2
-echo "Modern   windows: $modern_windows" >&2
-echo "Target-mode linux:   $legacy_linux" >&2
-echo "Target-mode macos:   $legacy_macos" >&2
-echo "Target-mode windows: $legacy_windows" >&2
+echo "linux:   $linux_entries"   >&2
+echo "macos:   $macos_entries"   >&2
+echo "windows: $windows_entries" >&2

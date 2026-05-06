@@ -4,11 +4,22 @@
 
 #
 # Build OTP from source at a given git ref/SHA and install into a
-# prefix. Used by the macOS self-hosted runner (and locally for
-# manual measurement runs); the Linux GHA path uses the Dockerfile.
+# prefix.
+#
+# Used in two places:
+#   * macOS measure-{macos,macos-target} jobs in bench.yml — there's
+#     no Linux Docker for macOS, so source-build is the only option.
+#   * Local target-bundle development — operator runs this once per
+#     target OTP, then feeds the prefix to bin/build-target-bundle.sh.
+#
+# The Linux measure path goes through Dockerfile.linux for both
+# modern (build-linux) and legacy (build-linux-target) — Phase 3 of
+# PLAN/TARGET_ELIXIR_RUNNER_PLAN.md unified those. So this script
+# is effectively macOS-only on CI; the `-mac` suffix in the
+# filename makes that clear.
 #
 # Usage:
-#   bin/install-otp-source.sh <git-ref> [<install-prefix>]
+#   bin/install-otp-source-mac.sh <git-ref> [<install-prefix>]
 #
 # Defaults:
 #   install-prefix = $HOME/.local/otp/<sha>
@@ -56,7 +67,7 @@ fi
 PREFIX="$PREFIX_BASE/$SHA"
 
 # Everything except the final `echo "$PREFIX"` writes to stderr. Callers
-# capture stdout via `$(./install-otp-source.sh ...)` to get the prefix
+# capture stdout via `$(./install-otp-source-mac.sh ...)` to get the prefix
 # back, and a single `make install` run can produce megabytes of output
 # (xmerl in OTP 26 has so many .beam files that one `/usr/bin/install`
 # line exceeds MAXPATHLEN — leaking that into stdout corrupts GITHUB_PATH

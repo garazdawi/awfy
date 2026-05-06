@@ -6,15 +6,27 @@
 # Three runner pools, each pinned to a specific instance type so the
 # benchmark numbers are reproducible across runs and across years:
 #
-#   - awfy-bench-linux-x86_64  → c6i.4xlarge
-#   - awfy-bench-linux-arm64   → c7g.4xlarge (Graviton 3)
-#   - awfy-bench-windows       → c6i.4xlarge + Windows
+#   pool                | instance     | OS+arch         | runner labels
+#   --------------------+--------------+-----------------+--------------------------
+#   linux x86_64        | c6i.4xlarge  | Ubuntu LTS x64  | self-hosted aws linux x86_64
+#   linux arm64         | c7g.4xlarge  | Ubuntu LTS arm64| self-hosted aws linux arm64
+#   windows             | c6i.4xlarge  | Windows + x64   | self-hosted aws windows x86_64
+#
+# Labels follow the schema `["self-hosted","aws","<os>","<arch>"]`
+# (resolved decision #7 in PLAN/TARGET_ELIXIR_RUNNER_PLAN.md). The
+# `self-hosted` label is auto-added by the runner registration; the
+# rest go in `runner_extra_labels`. Workflow `runs-on:` requires a
+# runner that has ALL of the listed labels, so a job pinned to
+# `[self-hosted, aws, linux, arm64]` only schedules on the arm pool.
+# Adding a future pool (macOS, GPU, …) is mechanical: add an `<os>`
+# / `<arch>` to its labels and to the workflow's `runs-on:`.
 #
 # Each pool registers itself with GitHub via a single GitHub App (set
 # up once, shared across pools). When a workflow_job event fires for a
-# matching `runs-on:` label, the module spins up a fresh EC2 instance,
-# the runner registers as ephemeral (one-shot), runs the job, and the
-# instance terminates. Per-second billing on raw EC2 — no idle charges.
+# matching `runs-on:` label set, the module spins up a fresh EC2
+# instance, the runner registers as ephemeral (one-shot), runs the
+# job, and the instance terminates. Per-second billing on raw EC2 —
+# no idle charges.
 #
 # Quickstart: see terraform/README.md.
 
@@ -72,7 +84,9 @@ module "runners_linux_x86_64" {
 
   github_app = local.github_app
 
-  runner_extra_labels = ["awfy-bench-linux-x86_64"]
+  # Workflow targets these via runs-on: [self-hosted, aws, linux, x86_64].
+  # `self-hosted` is auto-added by the runner registration.
+  runner_extra_labels = ["aws", "linux", "x86_64"]
   enable_ephemeral_runners = true
 
   instance_types = ["c6i.4xlarge"]
@@ -113,7 +127,8 @@ module "runners_linux_arm64" {
 
   github_app = local.github_app
 
-  runner_extra_labels = ["awfy-bench-linux-arm64"]
+  # Workflow targets these via runs-on: [self-hosted, aws, linux, arm64].
+  runner_extra_labels = ["aws", "linux", "arm64"]
   enable_ephemeral_runners = true
 
   instance_types = ["c7g.4xlarge"]
@@ -147,7 +162,8 @@ module "runners_windows" {
 
   github_app = local.github_app
 
-  runner_extra_labels = ["awfy-bench-windows"]
+  # Workflow targets these via runs-on: [self-hosted, aws, windows, x86_64].
+  runner_extra_labels = ["aws", "windows", "x86_64"]
   enable_ephemeral_runners = true
 
   instance_types = ["c6i.4xlarge"]

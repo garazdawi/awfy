@@ -95,28 +95,22 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # Six per-(major, platform) target lists. Two majors:
-      #   * modern_*  — OTP ≥ 24, runs through the same-OTP peer flow
-      #                 with a per-target Docker image on Linux,
-      #                 setup-beam on Windows, source build on macOS.
-      #   * legacy_*  — OTP < 24, runs through the cross-OTP
-      #                 target-runner: host orchestrator on modern
-      #                 Elixir/OTP shells out to a target `erl` built
-      #                 from source via install-otp-source.sh.
-      # Three platforms (linux / macos / windows) for each. Splitting
-      # along both axes lets `fill` route a partially-published ref
-      # only to the legs that are missing — adding a new platform
-      # later doesn't force a re-run of refs that already have all
-      # the older platforms.
-      #
-      # The has_* booleans gate the corresponding measure job's `if:`
-      # so an empty array doesn't break matrix expansion downstream.
-      targets_modern_linux:   ${{ steps.r.outputs.targets_modern_linux }}
-      targets_modern_macos:   ${{ steps.r.outputs.targets_modern_macos }}
-      targets_modern_windows: ${{ steps.r.outputs.targets_modern_windows }}
-      targets_legacy_linux:   ${{ steps.r.outputs.targets_legacy_linux }}
-      targets_legacy_macos:   ${{ steps.r.outputs.targets_legacy_macos }}
-      targets_legacy_windows: ${{ steps.r.outputs.targets_legacy_windows }}
+      # Three unified per-platform target lists (modern + legacy
+      # mixed) plus six per-(mode, platform) has_* booleans. Each
+      # entry in `targets_<plat>` carries a `mode` field —
+      # `"modern"` (OTP ≥ 24, peer-runner flow) or `"legacy"`
+      # (OTP < 24, target-Elixir bundle flow). The measure-* jobs
+      # use job-level `if: matrix.target.mode == '<mode>'` to filter
+      # the matrix per-combination so wrong-mode rows don't spawn
+      # runners. The `has_*` booleans gate the whole job for the
+      # case where the matrix has zero matching entries (an empty
+      # `if:`-filtered matrix is still valid but the publish job's
+      # `needs:` resolution gets cleaner this way). See
+      # PLAN/TARGET_ELIXIR_RUNNER_PLAN.md § Follow-ups item 3 for
+      # the rationale on the array collapse.
+      targets_linux:   ${{ steps.r.outputs.targets_linux }}
+      targets_macos:   ${{ steps.r.outputs.targets_macos }}
+      targets_windows: ${{ steps.r.outputs.targets_windows }}
       has_modern_linux:   ${{ steps.r.outputs.has_modern_linux }}
       has_modern_macos:   ${{ steps.r.outputs.has_modern_macos }}
       has_modern_windows: ${{ steps.r.outputs.has_modern_windows }}
@@ -201,14 +195,14 @@ jobs:
   # tag from GHCR.
   build-linux:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_linux == 'true'
+    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_linux == 'true'
     permissions:
       contents: read
       packages: write   # push image to GHCR
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -274,14 +268,14 @@ jobs:
   # the OTP we just installed.
   build-linux-target:
     needs: resolve
-    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -347,6 +341,10 @@ jobs:
   # within an OTP major).
   prep-target-bundle:
     needs: [resolve, build-linux-target]
+    # No matrix.target.mode filter — this job's matrix is over OTP
+    # majors / Elixir versions, not target entries. The whole-job
+    # gate on `has_legacy_linux` is sufficient: if no legacy targets
+    # made the cut, no bundle needs building.
     if: needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
       contents: read
@@ -371,11 +369,16 @@ jobs:
       - name: Find SHA for OTP ${{ matrix.otp_major }}
         id: find_sha
         env:
-          TARGETS: ${{ needs.resolve.outputs.targets_legacy_linux }}
+          TARGETS: ${{ needs.resolve.outputs.targets_linux }}
         run: |
+          # Filter on mode == "legacy" too — `targets_linux` is now a
+          # unified array (modern + legacy), and although modern
+          # majors (≥ 24) can't currently coincide with this job's
+          # matrix (fixed at 20/21/22/23), the explicit filter
+          # protects against a future schema drift.
           SHA="$(echo "$TARGETS" \
             | jq -r --arg M "${{ matrix.otp_major }}" \
-                '[.[] | select(.major == $M)] | .[0].sha // empty')"
+                '[.[] | select(.major == $M and .mode == "legacy")] | .[0].sha // empty')"
           if [ -z "$SHA" ]; then
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             echo "[prep] no OTP-${{ matrix.otp_major }} entry in this run, skipping"
@@ -437,22 +440,24 @@ jobs:
   # tenancy and pinning there gives us nothing.
   measure-linux:
     needs: [resolve, build-linux]
-    if: needs.resolve.outputs.has_modern_linux == 'true'
+    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_linux == 'true'
     permissions:
       contents: read
       packages: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
         arch:
-          # gha_runner: GHA-hosted label per arch.
-          # aws_label: self-hosted label registered by Terraform —
-          # see terraform/README.md and SETUP.md § 2.
-          - { name: x86_64, gha_runner: ubuntu-latest,    aws_label: awfy-bench-linux-x86_64 }
-          - { name: arm64,  gha_runner: ubuntu-24.04-arm, aws_label: awfy-bench-linux-arm64 }
+          # gha_runner: GHA-hosted label per arch. AWS-pool runners
+          # carry [self-hosted, aws, linux, <arch.name>] labels (per
+          # resolved decision #7 in TARGET_ELIXIR_RUNNER_PLAN.md);
+          # the `runs-on:` expression below builds the label list
+          # from arch.name when runner_pool=aws.
+          - { name: x86_64, gha_runner: ubuntu-latest    }
+          - { name: arm64,  gha_runner: ubuntu-24.04-arm }
         flavor: [jit, emu]
-    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","{0}"]', matrix.arch.aws_label)) || matrix.arch.gha_runner }}
+    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","aws","linux","{0}"]', matrix.arch.name)) || matrix.arch.gha_runner }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -513,21 +518,21 @@ jobs:
   # version where WMIC is still present.
   measure-windows:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_windows == 'true'
+    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_windows == 'true'
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern_windows) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_windows) }}
         # The upstream Windows installer ships JIT-only (no
         # beam.emu.dll). Measuring emu on Windows would require
         # building OTP from source on the runner (slow + fiddly on
         # Windows). Drop emu here; pick it back up if/when we have a
         # `make FLAVOR=emu` installer artifact to side-load.
         flavor: [jit]
-    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","awfy-bench-windows"]') || 'windows-latest' }}
+    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","aws","windows","x86_64"]') || 'windows-latest' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -674,13 +679,13 @@ jobs:
   # of `runner_pool`.
   measure-macos:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_macos == 'true'
+    if: matrix.target.mode == 'modern' && needs.resolve.outputs.has_modern_macos == 'true'
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_modern_macos) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_macos) }}
         flavor: [jit, emu]
     runs-on: macos-latest
     steps:
@@ -692,7 +697,7 @@ jobs:
       - name: Cache OTP build
         uses: actions/cache@v4
         with:
-          # install-otp-source.sh content-addresses by SHA, so the
+          # install-otp-source-mac.sh content-addresses by SHA, so the
           # cache key is exact. Hits skip the 5-10 min source build
           # entirely; the script's own OTP_INSTALLED guard then just
           # recompiles the small target-beam tree. Same scheme as the
@@ -701,7 +706,7 @@ jobs:
           # The hashFiles segment busts the cache whenever any file
           # that materially affects the cached prefix changes:
           #
-          #   * bin/install-otp-source.sh   — configure flags, build
+          #   * bin/install-otp-source-mac.sh   — configure flags, build
           #     command, target-beam compile.
           #   * bin/fetch-otp-source.sh     — source resolution
           #     (release tarball / prebuilt artifact / archive).
@@ -711,7 +716,7 @@ jobs:
           #     (AWFY_OTP_EXTRA_CONFIGURE, CFLAGS) is composed here;
           #     coarse but correct.
           path: ~/.local/otp/${{ matrix.target.sha }}
-          key: otp-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
+          key: otp-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source-mac.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
       - name: Build OTP from source
         id: otp
         env:
@@ -724,7 +729,7 @@ jobs:
           # without crypto (which makes mix refuse to start with
           # "application crypto could not be found").
           #
-          # GH_TOKEN: install-otp-source.sh may pull the `otp_prebuilt`
+          # GH_TOKEN: install-otp-source-mac.sh may pull the `otp_prebuilt`
           # artifact from upstream's Build workflow for branch refs
           # (master). That download requires actions:read on erlang/otp;
           # the default GHA token works since erlang/otp is public.
@@ -736,7 +741,7 @@ jobs:
           else
               export AWFY_OTP_EXTRA_CONFIGURE="--with-ssl=$(brew --prefix openssl@3)"
           fi
-          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
+          PREFIX="$(./bin/install-otp-source-mac.sh "$OTP_REF")"
           echo "$PREFIX/bin" >> "$GITHUB_PATH"
       - name: Install Elixir
         # `brew install elixir` always pulls latest (1.19) which dropped
@@ -794,12 +799,12 @@ jobs:
   #
   # Per-platform target acquisition:
   #   * Linux: docker pull + extract via bin/extract-otp-from-image.sh.
-  #   * macOS: bin/install-otp-source.sh source-build.
+  #   * macOS: bin/install-otp-source-mac.sh source-build.
   #   * Windows: install-otp-windows.ps1 against the function release.
   # ---------------------------------------------------------------
   measure-linux-target:
     needs: [resolve, build-linux-target, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
       contents: read
       packages: read
@@ -807,12 +812,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_linux) }}
         arch:
-          - { name: x86_64, gha_runner: ubuntu-latest,    aws_label: awfy-bench-linux-x86_64 }
-          - { name: arm64,  gha_runner: ubuntu-24.04-arm, aws_label: awfy-bench-linux-arm64 }
+          - { name: x86_64, gha_runner: ubuntu-latest    }
+          - { name: arm64,  gha_runner: ubuntu-24.04-arm }
         flavor: [emu]
-    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","{0}"]', matrix.arch.aws_label)) || matrix.arch.gha_runner }}
+    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","aws","linux","{0}"]', matrix.arch.name)) || matrix.arch.gha_runner }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -888,16 +893,16 @@ jobs:
 
   measure-windows-target:
     needs: [resolve, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_windows == 'true'
+    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_windows == 'true'
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_windows) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_windows) }}
         flavor: [emu]
-    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","awfy-bench-windows"]') || 'windows-latest' }}
+    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","aws","windows","x86_64"]') || 'windows-latest' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -985,14 +990,14 @@ jobs:
 
   measure-macos-target:
     needs: [resolve, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_macos == 'true'
+    if: matrix.target.mode == 'legacy' && needs.resolve.outputs.has_legacy_macos == 'true'
     permissions:
       contents: read
       actions: read
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_macos) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_macos) }}
         flavor: [emu]
     runs-on: macos-latest
     steps:
@@ -1015,7 +1020,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.local/otp/${{ matrix.target.sha }}
-          key: otp-target-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
+          key: otp-target-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source-mac.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
       - name: Build target OTP
         env:
           OTP_REF: ${{ matrix.target.ref }}
@@ -1023,7 +1028,7 @@ jobs:
           CFLAGS: -O2 -g -fcommon
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
+          PREFIX="$(./bin/install-otp-source-mac.sh "$OTP_REF")"
           echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
           echo "AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
       - name: Download target bundle

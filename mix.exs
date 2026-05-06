@@ -81,6 +81,22 @@ defmodule AwfyRunner.MixProject do
         ~s|cmd sh -c 'shellcheck bin/*.sh'|,
         "cmd npm run lint --silent",
         "cmd npm test --silent",
+        # Root tests cover the runner (`Awfy.{BencheeRunner,
+        # PeerRunner,Runner,Compare,…}`) plus the benchmarks-as-
+        # tests in `test/benchmarks_test.exs` and friends. Slowest
+        # part of precommit at ~13 s, dominated by the
+        # versioned_bench end-to-end test that runs an actual 1-s
+        # Benchee invocation.
+        #
+        # Wrapped in a fresh `sh -c` subshell so Mix's default
+        # `MIX_ENV=test` for the test task takes effect. Inside an
+        # alias chain MIX_ENV would otherwise inherit the precommit
+        # parent's dev env and Mix refuses to switch — see the
+        # "mix test is running in the dev environment" warning.
+        # `--warnings-as-errors` matches the compile step's
+        # strictness: any warning in test code or recompile fails
+        # the precommit.
+        ~s|cmd sh -c 'mix test --warnings-as-errors'|,
         # Sibling apps under apps/ aren't pulled into the root
         # project (apps/awfy_target_runner is intentionally not a
         # path-dep — see PLAN/TARGET_ELIXIR_RUNNER_PLAN.md decision

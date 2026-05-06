@@ -16,7 +16,7 @@ order, with `patch -p1 -N`. The function-release-line directory
 | `maint-X` / `master`       | resolved via the source's `OTP_VERSION` file |
 | Bare SHA / branch          | resolved via the source's `OTP_VERSION` file |
 
-Both `bin/install-otp-source.sh` (used for macOS and Linux source
+Both `bin/install-otp-source-mac.sh` (used for macOS and Linux source
 builds) and `Dockerfile.linux` apply the same patch set, so a fix
 written once works across both environments.
 
@@ -148,4 +148,4 @@ modern toolchains. Patches likely to live here over time:
 
 If the failure is in the build chain rather than the source (missing
 package, wrong autoconf, etc.), fix it in `Dockerfile.linux` /
-`bin/install-otp-source.sh` rather than carrying a patch.
+`bin/install-otp-source-mac.sh` rather than carrying a patch.

@@ -21,7 +21,7 @@
 #     the per-OTP-SHA Docker image produced by build-linux via
 #     bin/extract-otp-from-image.sh and passes the path here. OTP
 #     is built once per SHA across the whole workflow.
-#   * Locally, run bin/install-otp-source.sh first and pass the
+#   * Locally, run bin/install-otp-source-mac.sh first and pass the
 #     prefix it prints.
 #
 # Bundle layout (matches PLAN/TARGET_ELIXIR_RUNNER_PLAN.md

@@ -9,8 +9,8 @@ output "webhook_endpoint" {
 output "runner_labels" {
   description = "GitHub Actions `runs-on` labels emitted by each pool. The bench workflow uses these directly."
   value = {
-    linux_x86_64 = ["self-hosted", "awfy-bench-linux-x86_64"]
-    linux_arm64  = ["self-hosted", "awfy-bench-linux-arm64"]
-    windows      = ["self-hosted", "awfy-bench-windows"]
+    linux_x86_64 = ["self-hosted", "aws", "linux", "x86_64"]
+    linux_arm64  = ["self-hosted", "aws", "linux", "arm64"]
+    windows      = ["self-hosted", "aws", "windows", "x86_64"]
   }
 }

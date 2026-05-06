@@ -9,11 +9,22 @@ This module provisions three ephemeral self-hosted GitHub Actions
 runner pools on AWS EC2, one per platform the cloud bench workflow
 targets:
 
-| Pool | Instance | Label |
-|------|----------|-------|
-| `awfy-bench-linux-x86_64` | `c6i.4xlarge` | `awfy-bench-linux-x86_64` |
-| `awfy-bench-linux-arm64`  | `c7g.4xlarge` | `awfy-bench-linux-arm64`  |
-| `awfy-bench-windows`      | `c6i.4xlarge` + Windows | `awfy-bench-windows` |
+| Pool | Instance | Runner labels |
+|------|----------|---------------|
+| Linux x86_64 | `c6i.4xlarge` | `self-hosted aws linux x86_64` |
+| Linux arm64  | `c7g.4xlarge` | `self-hosted aws linux arm64`  |
+| Windows      | `c6i.4xlarge` + Windows | `self-hosted aws windows x86_64` |
+
+`self-hosted` is auto-added by GitHub's runner registration; the
+remaining three (`aws` / `linux | windows` / `<arch>`) come from
+`runner_extra_labels` in `main.tf`. The workflow's `runs-on:`
+expression specifies the full list — GHA matches a runner if it has
+all of them — so a job pinned to `[self-hosted, aws, linux, arm64]`
+only schedules on the Graviton pool. Adding a future os/arch is a
+mechanical extension: append a label to `runner_extra_labels` and
+to the workflow's `runs-on:`. See resolved decision #7 in
+[`PLAN/TARGET_ELIXIR_RUNNER_PLAN.md`](../PLAN/TARGET_ELIXIR_RUNNER_PLAN.md)
+for the rationale.
 
 It wraps the [`philips-labs/terraform-aws-github-runner`][module]
 module — a Lambda watches GitHub for `workflow_job` queued events,

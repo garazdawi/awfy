@@ -114,7 +114,7 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
     # /usr/local/lib/erlang/erts-VSN/bin/ on older OTPs — it lands in
     # the source tree's bin/<TARGET>/ but the install phase ships only
     # beam.smp. Without this copy `-emu_flavor emu` fails with
-    # "Invalid flavor". Mirror what install-otp-source.sh does.
+    # "Invalid flavor". Mirror what install-otp-source-mac.sh does.
     erts_bin="$(ls -d /usr/local/lib/erlang/erts-*/bin 2>/dev/null | head -1)" && \
     if [ -n "$erts_bin" ]; then \
       for src in /otp/bin/*/beam.emu; do \

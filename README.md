@@ -49,7 +49,7 @@ awfy/
 │   └── preflight/                 # OS-specific stability parsers
 ├── lib/mix/tasks/                 # awfy.{benchee,measure,compare,diff,fill,preflight}
 ├── patches/                       # OTP-source patches per major
-├── bin/                           # install-otp-source.sh / -windows.ps1 /
+├── bin/                           # install-otp-source-mac.sh / -windows.ps1 /
 │                                  # measure-versions (asdf sweep)
 ├── test/                          # 165 ExUnit tests
 ├── .github/workflows/             # bench.yml (push/schedule/dispatch with

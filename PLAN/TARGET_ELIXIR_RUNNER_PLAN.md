@@ -348,17 +348,21 @@ Phases 0-3 landed (commits `2de710c6` plan resolutions, `55e5c99c` Phase 0, `b63
 
 ### Plan items we deferred during implementation
 
-3. **`bin/resolve-fill-needs.sh` simplification (plan §197).** Collapse the 6 per-`(major, platform)` arrays into 3 per-platform `targets_*` arrays carrying `(otp_ref, elixir_version, …)` per entry. Pure cleanup post-Phase-3 — dispatch is unified, the per-major arrays exist only as a workflow-routing artefact. No behaviour change; smaller resolve script, smaller workflow.
+3. ✅ **`bin/resolve-fill-needs.sh` simplification (plan §197).** Done.
+   The script now emits three unified `targets_{linux,macos,windows}` arrays (down from six per-(mode, platform) arrays), with each entry carrying a `mode: "modern"|"legacy"` field. The six `has_modern_*` / `has_legacy_*` booleans stay as whole-job gates so empty-matrix scenarios skip cleanly. Each measure-* job in `bench.yml` filters per-matrix-combination via `if: matrix.target.mode == '<mode>' && needs.resolve.outputs.has_<mode>_<plat> == 'true'` — GHA evaluates the `if:` with matrix context per combination, so wrong-mode rows skip without spawning runners.
 
-4. **`bin/install-otp-source.sh` rename to `install-otp-source-mac.sh`** (plan §198). After Phase 3, Linux goes through `Dockerfile.linux` for both modern and legacy; this script is macOS-only in practice. Rename is cosmetic but makes the layout self-documenting. Header comment updated as the in-place alternative if rename feels too invasive.
+4. ✅ **`bin/install-otp-source.sh` rename to `install-otp-source-mac.sh`** (plan §198). Done.
+   `git mv` plus reference updates across `bench.yml`, `Dockerfile.linux`, `bin/build-target-bundle.sh`, `apps/awfy_target_runner/README.md`, `README.md`, `SETUP.md`, `patches/README.md`, `ARCHITECTURE.md`. Header comment makes the macOS-only role explicit. PLAN files preserve the old name in historical run logs.
 
-5. **AWS runner-label scheme migration (resolved decision #7).** Move from `awfy-bench-linux-{x86_64,arm64}` / `awfy-bench-windows` to the structured `["self-hosted","aws","linux","<arch>"]` form. Touches Terraform AMIs, `bench.yml` `runs-on:` expressions, and `terraform/README.md`. Best done together when next adjusting the runner pool.
+5. ✅ **AWS runner-label scheme migration (resolved decision #7).** Done.
+   `terraform/main.tf`'s `runner_extra_labels` now emit `["aws","linux","x86_64"]` / `["aws","linux","arm64"]` / `["aws","windows","x86_64"]` (the `self-hosted` label is auto-added by GHA's runner registration). `bench.yml`'s `runs-on:` expressions construct the full label list from `matrix.arch.name` when `runner_pool=aws`, dropping the old `aws_label` matrix field. `terraform/outputs.tf`, `terraform/README.md`, `SETUP.md` table all updated. AMI name filters (`awfy-bench-*-*`) intentionally untouched — those are operator-side bake conventions, separate concern.
 
 ### Quality-of-life
 
-6. **Add root `mix test` to `precommit`.** Currently `precommit` runs sub-app tests via the `Path.wildcard("apps/*/test")` loop but skips root `test/`. Now that the pre-existing `versioned_bench_test` failure is fixed, root is green. Adds ~13s but catches `BencheeRunner` regressions locally instead of in CI.
+6. ✅ **Add root `mix test` to `precommit`.** Done.
+   Wrapped in `cmd sh -c 'mix test --warnings-as-errors'` so MIX_ENV switches to `:test` cleanly inside the alias chain. ~13 s slowest part of precommit, dominated by the `versioned_bench_test` end-to-end Benchee invocation; catches `BencheeRunner` / `Awfy.Runner` / dashboard-renderer regressions locally.
 
-7. **Bundle distribution to AWS — exercise the S3 path.** The `aws s3 cp` step in `prep-target-bundle` is gated on `runner_pool=aws` *and* `vars.AWFY_TARGET_BUNDLE_S3_BUCKET != ''`. Wired but never run. When the AWS runner pool is committed, set the bucket var and validate the end-to-end fetch on the AWS side.
+7. **Bundle distribution to AWS — exercise the S3 path.** The `aws s3 cp` step in `prep-target-bundle` is gated on `runner_pool=aws` *and* `vars.AWFY_TARGET_BUNDLE_S3_BUCKET != ''`. Wired but never run. When the AWS runner pool is committed, set the bucket var and validate the end-to-end fetch on the AWS side. (Deferred per "no AWS tests right now" — wiring is in place.)
 
 ## Appendix — Prototype findings & gotchas
 

@@ -77,7 +77,7 @@ For pre-24 measurements on a workstation:
 
 ```sh
 # 1. Build target OTP from source (existing macOS path).
-PREFIX="$(./bin/install-otp-source.sh OTP-20.3)"
+PREFIX="$(./bin/install-otp-source-mac.sh OTP-20.3)"
 
 # 2. Build the bundle against that OTP, pinned to Elixir 1.9.4.
 ./bin/build-target-bundle.sh "$PREFIX" 1.9.4

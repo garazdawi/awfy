@@ -42,11 +42,17 @@ that "8 vCPUs of whatever CodeBuild gave you today" is not.
 
 [module]: https://github.com/philips-labs/terraform-aws-github-runner
 
-| Pool label | Instance | Purpose |
-|------------|----------|---------|
-| `awfy-bench-linux-x86_64` | `c6i.4xlarge` | Linux x86_64 measurements |
-| `awfy-bench-linux-arm64`  | `c7g.4xlarge` (Graviton 3) | Linux ARM64 measurements |
-| `awfy-bench-windows`      | `c6i.4xlarge` + Windows | Windows measurements |
+| Pool         | Instance                   | `runs-on:` labels                  |
+|--------------|----------------------------|------------------------------------|
+| Linux x86_64 | `c6i.4xlarge`              | `[self-hosted, aws, linux, x86_64]` |
+| Linux arm64  | `c7g.4xlarge` (Graviton 3) | `[self-hosted, aws, linux, arm64]`  |
+| Windows      | `c6i.4xlarge` + Windows    | `[self-hosted, aws, windows, x86_64]` |
+
+`self-hosted` is auto-added by GHA's runner registration; the
+remaining three (`aws` / `linux | windows` / `<arch>`) come from
+`runner_extra_labels` in `terraform/main.tf`. See resolved decision
+\#7 in [`PLAN/TARGET_ELIXIR_RUNNER_PLAN.md`](PLAN/TARGET_ELIXIR_RUNNER_PLAN.md)
+for the rationale.
 
 The Terraform module — `terraform/main.tf` plus `variables.tf` /
 `outputs.tf` — is the source of truth. This section walks through
@@ -208,7 +214,9 @@ Within ~30 s, the philips-labs Lambda should pick up the
 queued job. Watch:
 
 - AWS Console → EC2 → Instances (filter: tag `ghr:Application =
-  awfy-bench-linux-x86_64`).
+  awfy-bench-linux-x86_64` — that's the resource-name prefix from
+  `terraform/main.tf`'s `prefix` arg, separate from the GHA
+  runner labels).
 - GitHub → repo → Settings → Actions → Runners — short-lived
   entries appear and disappear as instances register and shut
   down.
@@ -273,11 +281,13 @@ jobs:
    layer for now (defense in depth — GHA's artifact retention is
    30 days, S3 is whatever lifecycle the operator configures).
 
-The runner labels stay as today (`awfy-bench-linux-x86_64`,
-`awfy-bench-linux-arm64`, `awfy-bench-windows`); Phase 2 doesn't
-relabel them. Resolved decision #7 in the plan calls for a future
-schema (`["self-hosted","aws","linux","<arch>"]`); rolling that
-out is a separate Terraform exercise.
+Runner labels follow the structured schema
+`[self-hosted, aws, <os>, <arch>]` (resolved decision #7). The
+`self-hosted` label is auto-added by GHA's runner registration;
+the rest come from `runner_extra_labels` in `terraform/main.tf`.
+Workflow `runs-on:` builds the full label list at job-dispatch time
+from the matrix axis. See [`terraform/README.md`](terraform/README.md)
+§ AMI selection for the matching pool table.
 
 ## 2.5. Building target Elixir bundles locally
 
@@ -292,7 +302,7 @@ locally on macOS for ad-hoc backfills:
 ```sh
 # 1. Build target OTP from source. Existing path; cached at
 #    ~/.local/otp/<sha>/. Takes ~5–10 min on cold cache for OTP 20–23.
-PREFIX="$(./bin/install-otp-source.sh OTP-20.3)"
+PREFIX="$(./bin/install-otp-source-mac.sh OTP-20.3)"
 
 # 2. Build the bundle. Idempotent — Elixir source build is cached
 #    at ~/.local/elixir-src/<version>/.

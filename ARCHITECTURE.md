@@ -32,7 +32,7 @@ These translate into a four-piece architecture:
 
 ```
 ┌───────────────────────────┐    ┌──────────────────────────────────┐
-│    apps/<group>/          │    │  bin/install-otp-source.sh       │
+│    apps/<group>/          │    │  bin/install-otp-source-mac.sh       │
 │    benchmark suites       │    │  Dockerfile.linux                │
 │    (awfy, otp, …)         │───▶│  build target OTP +              │
 │    plain Erlang/Elixir    │    │  per-target beams                │
@@ -100,7 +100,7 @@ awfy/
 │   └── OTP-<N>/*.patch
 │
 ├── bin/                    # Build & install scripts
-│   ├── install-otp-source.sh   # macOS + local: build target OTP from src
+│   ├── install-otp-source-mac.sh   # macOS + local: build target OTP from src
 │   └── install-otp-windows.ps1 # Windows: download tag/CI installer
 │
 ├── test/                   # ExUnit, 165 tests
@@ -228,7 +228,7 @@ Per scenario:
    moduledoc for the contract.
 2. **Code path**: `-pa <bundle>/lib/*/ebin` plus `AWFY_TARGET_BEAMS`
    (the target-erlc-compiled benchmark modules from
-   `Dockerfile.linux`'s build stage or `bin/install-otp-source.sh`'s
+   `Dockerfile.linux`'s build stage or `bin/install-otp-source-mac.sh`'s
    target compile).
 3. **Measurement**: Benchee on the target VM. Native run-time
    budgeting; no calibration pass to size warmup/measure counts.
@@ -308,7 +308,7 @@ via Hex; the suite has none.
 
 Two entry points:
 
-* **`bin/install-otp-source.sh <ref>`** — for macOS (and local
+* **`bin/install-otp-source-mac.sh <ref>`** — for macOS (and local
   Linux). Fetches the OTP source tarball at the given ref, applies
   `patches/OTP-<major>/*.patch` if any, runs `./configure && make &&
   make install` to a content-addressed prefix (`~/.local/otp/<sha>`).
@@ -471,7 +471,7 @@ The `resolve` job emits six per-`(major, platform)` arrays
 per-target Docker image on Linux, setup-beam on Windows, source
 build on macOS. Legacy targets feed the cross-OTP target-runner:
 host orchestrator on a pinned modern Elixir/OTP shells out to a
-target `erl` built from source via `bin/install-otp-source.sh`.
+target `erl` built from source via `bin/install-otp-source-mac.sh`.
 
 `runner_pool` only affects the measure-* jobs. Anything that
 doesn't need bare-metal hardware accuracy (`resolve`, `build-linux`,
@@ -594,7 +594,7 @@ For OTP < 24, the bundle target path applies. The `bench.yml`
 arrays (OTP ≥ 24, same-OTP peer flow). The
 `measure-{linux,macos,windows}-target` jobs consume the legacy
 arrays: they acquire the target OTP (Linux: `docker pull` +
-`bin/extract-otp-from-image.sh`; macOS: `bin/install-otp-source.sh`;
+`bin/extract-otp-from-image.sh`; macOS: `bin/install-otp-source-mac.sh`;
 Windows: `install-otp-windows.ps1` against the function release),
 download the matching `target-bundle-<elixir-version>` artifact
 from `prep-target-bundle`, install a pinned modern OTP/Elixir host
