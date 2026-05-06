@@ -71,8 +71,15 @@ NPROC="$(getconf _NPROCESSORS_ONLN 2>/dev/null \
   || echo 2)"
 
 echo "[install-elixir] building Elixir $ELIXIR_VERSION against $OTP_PREFIX (-j$NPROC)" >&2
+# Redirect make's stdout to stderr — the script's stdout contract
+# is "the install path, one line, on success". Without this, make's
+# `Compiled lib/...` lines pollute the path captured by $(... )
+# in build-target-bundle.sh, the [-x] check fails on a multi-line
+# string, and the error message prints garbage. CI run 25429751957
+# tripped this when 1.11.4's source-build first ran (locally we
+# always cache-hit the early return so the bug stayed hidden).
 PATH="$OTP_PREFIX/bin:$PATH" \
-  make -C "$TMP/elixir" -j"$NPROC"
+  make -C "$TMP/elixir" -j"$NPROC" 1>&2
 
 mv "$TMP/elixir" "$OUTPUT_DIR"
 trap - EXIT

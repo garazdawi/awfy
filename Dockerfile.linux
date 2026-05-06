@@ -35,6 +35,16 @@ ARG ELIXIR_OTP_MAJOR=28
 FROM debian:bullseye-slim AS otp-build
 ARG OTP_SHA
 ARG OTP_REF=""
+# Per-OTP extra configure flags. Resolve sets `--without-ssl` for
+# OTP < 24 because: (a) those crypto NIFs reference OpenSSL 1.1
+# APIs that OpenSSL 3 removed; (b) when the resulting image is
+# extracted onto an Ubuntu 24.04 host (no libssl1.1 in its repos),
+# crypto's on_load fails and any code path referencing `:crypto`
+# crashes at runtime instead of just emitting a compile-time
+# warning about an undefined function. AWFY benchmarks don't use
+# crypto, and Elixir's bootstrap completes fine without it. Passed
+# from `build-linux-target` as a build-arg.
+ARG EXTRA_CONFIGURE=""
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf m4 \
@@ -82,6 +92,8 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         echo "Applying $p"; patch -p1 -N < "$p"; \
       done; \
     fi && \
+    # shellcheck disable=SC2086 # EXTRA_CONFIGURE is intentionally
+    # word-split so multiple flags can be passed as a single arg.
     ./configure \
         --prefix=/usr/local \
         --disable-debug \
@@ -92,7 +104,8 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         --without-debugger \
         --without-megaco \
         --without-et \
-        --without-jinterface && \
+        --without-jinterface \
+        ${EXTRA_CONFIGURE} && \
     make -j"$(nproc)" && \
     make install && \
     make -j"$(nproc)" FLAVOR=emu && \

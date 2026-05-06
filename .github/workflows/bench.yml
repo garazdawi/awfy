@@ -311,15 +311,24 @@ jobs:
           build-args: |
             OTP_SHA=${{ matrix.target.sha }}
             OTP_REF=${{ matrix.target.ref }}
+            # Pass --without-ssl (or whatever resolve computed) so
+            # OTP <24's crypto NIF doesn't try to link against
+            # OpenSSL 1.1 — which the bullseye build image has but
+            # the ubuntu-latest extract host doesn't. Without this,
+            # crypto's on_load fails after extraction and any code
+            # path referencing `:crypto` crashes at runtime.
+            EXTRA_CONFIGURE=${{ matrix.target.extra_configure }}
           secrets: |
             gh_token=${{ secrets.GITHUB_TOKEN }}
           tags: |
             ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}
-          # Same gha cache scope as build-linux — modern and legacy
-          # OTPs share most of the layer cache (toolchain, base
-          # image, autotools), so they should warm each other.
-          cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
-          cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
+          # Distinct cache scope from `build-linux` — the legacy
+          # builds use a different `target:` and a different
+          # configure-args set, so they shouldn't share layer cache
+          # with the modern path (cache pollution would force
+          # rebuilds whenever flags drifted).
+          cache-from: type=gha,scope=linux-target-${{ matrix.arch.name }}
+          cache-to: type=gha,scope=linux-target-${{ matrix.arch.name }},mode=max
 
   # Build the per-Elixir target-Elixir bundle. Always runs on GHA
   # ubuntu-latest regardless of `runner_pool` — bundle assembly
