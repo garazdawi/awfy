@@ -16,11 +16,7 @@ defmodule OtpBenchmarks do
   def benchmarks do
     [
       OtpBenchmarks.Benchmarks.Phash2,
-      OtpBenchmarks.Benchmarks.MapNew,
-      OtpBenchmarks.Benchmarks.MapGet,
-      OtpBenchmarks.Benchmarks.MapPut,
-      OtpBenchmarks.Benchmarks.MapMerge,
-      OtpBenchmarks.Benchmarks.MapKeys,
+      OtpBenchmarks.Benchmarks.Maps,
       OtpBenchmarks.Benchmarks.IolistSize,
       OtpBenchmarks.Benchmarks.Base64Encode,
       OtpBenchmarks.Benchmarks.Base64Decode,
