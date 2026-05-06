@@ -92,7 +92,8 @@ defmodule Awfy.Compare.Data do
         runtime: get(meta, "runtime") || %{},
         config: get(meta, "config") || %{},
         git: get(meta, "git") || %{},
-        benchmarks_meta: get(meta, "benchmarks") || []
+        benchmarks_meta: get(meta, "benchmarks") || [],
+        otp_benchmarks_meta: get(meta, "otp_benchmarks") || []
       }
     else
       _ -> nil
@@ -116,6 +117,13 @@ defmodule Awfy.Compare.Data do
           inner_iter = get(per_bench_meta, "inner_iter")
           languages = get(per_bench_meta, "languages") || %{}
 
+          # OtpBenchmarks rows look up source_sha256 from the family
+          # entry in the run's `otp_benchmarks` meta block; AWFY rows
+          # look it up per-language from the existing `benchmarks`
+          # block. Either side hands back `nil` if the run-dir lacks
+          # that metadata (e.g. a phash2.benchee dropped in by hand).
+          otp_family_meta = otp_family_meta(run.otp_benchmarks_meta, bench_name)
+
           Enum.map(suite.scenarios, fn scenario ->
             {bname, lang} = parse_name(scenario.name)
             # Benchee sets `input_name` only when the suite was run
@@ -126,6 +134,17 @@ defmodule Awfy.Compare.Data do
             input = scenario_input_name(scenario)
             stats = scenario.run_time_data.statistics
             lang_meta = Map.get(languages, lang, %{})
+
+            {source_sha256, verified} =
+              if input do
+                # Family is multi-input → meta lives in otp_benchmarks.
+                # `verified` is unused for OtpBenchmarks today (no
+                # verify_result/2); fall through to nil. Future ETS /
+                # Mnesia smoke checks could populate it.
+                {get(otp_family_meta, "source_sha256"), nil}
+              else
+                {get(lang_meta, "source_sha256"), get(lang_meta, "verified")}
+              end
 
             %{
               label: run.label,
@@ -146,8 +165,8 @@ defmodule Awfy.Compare.Data do
               stddev_ms: ns_to_ms(stats.std_dev),
               samples_n: stats.sample_size,
               inner_iter: inner_iter,
-              source_sha256: get(lang_meta, "source_sha256"),
-              verified: get(lang_meta, "verified")
+              source_sha256: source_sha256,
+              verified: verified
             }
           end)
       end
@@ -173,6 +192,12 @@ defmodule Awfy.Compare.Data do
   end
 
   defp bench_meta(_, _), do: %{}
+
+  defp otp_family_meta(list, name) when is_list(list) do
+    Enum.find(list, %{}, fn entry -> get(entry, "name") == name end)
+  end
+
+  defp otp_family_meta(_, _), do: %{}
 
   # Scenario names look like "Bounce/erlang (v1)" — extract benchmark + lang.
   defp parse_name(name) do

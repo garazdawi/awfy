@@ -390,11 +390,22 @@ The output is a self-contained run-dir:
 ```
 <run-dir>/
 ├── meta.json
-├── Bounce.benchee
-├── CD.benchee
-├── DeltaBlue.benchee
-└── …
+├── Bounce.benchee          # AWFY suite — one per benchmark name,
+├── CD.benchee              # Benchee scenarios `<name>/erlang` and
+├── DeltaBlue.benchee       # `<name>/elixir`.
+├── …
+└── phash2.benchee          # OtpBenchmarks suite — one per family,
+                            # multiple Benchee scenarios under one
+                            # name keyed by `input_name` (atom,
+                            # binary_4k, …). Skipped under bundle-
+                            # target mode.
 ```
+
+`meta.json` carries an `otp_benchmarks` array parallel to the
+existing `benchmarks` array, with one entry per measured family
+(`name`, `scenarios`, `source_sha256`). Run-dirs predating the
+OtpBenchmarks integration still load — the dashboard treats the
+field as `[]` when missing.
 
 ## Source hashing
 

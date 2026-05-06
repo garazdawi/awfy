@@ -77,41 +77,54 @@ Effort estimates: wall-clock for one experienced engineer.
 
 ## Code structure
 
-```
-lib/awfy/extended/
-├── benchmark.ex                  # behaviour for these benchmarks
-└── benchmarks/
-    ├── phash2.ex
-    ├── maps.ex
-    ├── iolist_size.ex
-    ├── base64.ex
-    ├── binary_match.ex
-    ├── unicode_norm.ex
-    ├── crypto_aes.ex
-    ├── ets/
-    │   ├── single_scheduler.ex   # 12 scenarios — table type × access pattern
-    │   ├── concurrency.ex        # 8 scenarios — multi-scheduler + read/write_concurrency
-    │   ├── update.ex             # update_counter / update_element
-    │   ├── bulk.ex               # insert/2 list, select/2, match/2
-    │   ├── key_types.ex          # int/atom/tuple/binary keys
-    │   └── catree_init.ex        # ordered_set par-vs-seq init regression hotspot
-    └── estone/                   # one file per micros entry
-        ├── lists.ex
-        ├── msgp.ex
-        ├── pattern.ex
-        ├── …
-        └── int_arith.ex
+Final layout (deviates from the original plan's `lib/awfy/extended/`
+sketch — the suite app sits under `apps/` for the same reason
+AWFY does, plus the licensing split makes `apps/otp_benchmarks/` a
+clean Apache-2.0 boundary against the MIT-licensed `apps/awfy/`):
 
-lib/awfy/extended/mnesia/
-├── tpcb_ram.ex                   # single-node ram_copies TPC-B
-├── tpcb_disc_only.ex             # single-node disc_only_copies
-└── support.ex                    # shared schema + populate logic
+```
+apps/otp_benchmarks/
+├── mix.exs
+└── lib/
+    ├── otp_benchmarks.ex             # OtpBenchmarks (registry)
+    └── otp_benchmarks/
+        ├── benchmark.ex              # OtpBenchmarks.Benchmark (behaviour)
+        └── benchmarks/
+            ├── phash2.ex             # ✅ first family
+            ├── maps.ex
+            ├── iolist_size.ex
+            ├── base64.ex
+            ├── binary_match.ex
+            ├── unicode_norm.ex
+            ├── crypto_aes.ex
+            ├── ets/
+            │   ├── single_scheduler.ex
+            │   ├── concurrency.ex
+            │   ├── update.ex
+            │   ├── bulk.ex
+            │   ├── key_types.ex
+            │   └── catree_init.ex
+            ├── mnesia/
+            │   ├── tpcb_ram.ex
+            │   ├── tpcb_disc_only.ex
+            │   └── support.ex
+            └── estone/
+                ├── lists.ex
+                ├── msgp.ex
+                ├── pattern.ex
+                └── …
+
+lib/awfy/otp_benchmarks/
+└── runner.ex                         # Awfy.OtpBenchmarks.Runner
+                                      # (orchestration, peer/in-process
+                                      # dispatch, save shape)
 
 lib/mix/tasks/
-└── awfy.measure_extended.ex      # entry point — same shape as awfy.measure
+└── awfy.measure.ex                   # extended in-place to run both
+                                      # suites; no separate task.
 ```
 
-The `Awfy.Extended.Benchmark` behaviour mirrors `Awfy.Benchmark` but
+The `OtpBenchmarks.Benchmark` behaviour mirrors `Awfy.Benchmark` but
 adds:
 
 - `setup/1` returning a context (e.g. populated map, opened mnesia
@@ -129,46 +142,49 @@ timed loop tight.
 
 ## Mix task
 
+There is no separate `mix awfy.measure_extended` task — the original
+plan called for one but the unified `mix awfy.measure` flow turned
+out cleaner: every fill / sweep automatically picks up both suites
+without GHA changes, and the dashboard run-dirs hold both suites'
+data side by side.
+
 ```
-mix awfy.measure_extended                                 # all
-mix awfy.measure_extended --benchmarks phash2,maps        # subset
-mix awfy.measure_extended --skip-mnesia                   # the slow ones
-mix awfy.measure_extended --estone-only                   # just the micros
+mix awfy.measure                                  # AWFY + every OtpBenchmarks family
+mix awfy.measure --benchmarks Bounce,phash2       # mixed filter — AWFY + OtpBenchmarks
+mix awfy.measure --benchmarks phash2              # OtpBenchmarks only
+mix awfy.measure --no-otp-benchmarks              # AWFY only (legacy / debug)
 ```
 
 Reuses `results/<run-dir>/` save shape so `mix awfy.compare`
-generates the dashboard with no changes. Run-dir labels get an
-`-ext-` infix to distinguish them from compute-suite runs:
-`<sha>-ext-<flavor>` for Linux/macOS/Windows variants.
+generates the dashboard with no changes. Run-dirs hold one
+`<family>.benchee` per OtpBenchmarks family alongside the AWFY
+`<benchmark>.benchee` files.
 
 ## CI integration
 
-One new job per platform — no new AWS resources, just an extra row
-on the existing matrix:
+No new jobs needed. `mix awfy.measure` runs the OtpBenchmarks
+suite as part of every existing measure-* job (linux / macos /
+windows × modern peer-flow), so the existing fill workflow picks
+up the new data automatically:
 
-```yaml
-measure-extended:
-  needs: [resolve, build-linux]   # or installer / M5 path per platform
-  strategy:
-    fail-fast: false
-    matrix:
-      include:
-        - { os: linux,   arch: x86_64, runner: [self-hosted, awfy-bench-linux-x86_64], flavor: jit }
-        - { os: linux,   arch: x86_64, runner: [self-hosted, awfy-bench-linux-x86_64], flavor: emu }
-        - { os: linux,   arch: arm64,  runner: [self-hosted, awfy-bench-linux-arm64],  flavor: jit }
-        - { os: linux,   arch: arm64,  runner: [self-hosted, awfy-bench-linux-arm64],  flavor: emu }
-        - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5],                flavor: jit }
-        - { os: macos,   arch: arm64,  runner: [self-hosted, macos-m5],                flavor: emu }
-        - { os: windows, arch: x86_64, runner: [self-hosted, awfy-bench-windows],      flavor: jit }
-        - { os: windows, arch: x86_64, runner: [self-hosted, awfy-bench-windows],      flavor: emu }
-  steps:
-    - …pull image / install OTP per platform…
-    - run: mix awfy.measure_extended --label …-ext-${{ matrix.flavor }}
-    - uses: actions/upload-artifact@v4
+```
+gh workflow run bench.yml \
+   -f otp_refs=fill \
+   -f benchmarks=phash2     # filter to one family for targeted backfill
 ```
 
-8 added jobs (4 platforms × 2 flavors), each ~10-15 min. Cost:
-~$0.40 / sweep, ~$145/yr daily. Same publish flow.
+The resolve step's per-benchmark skip-check (`bin/resolve-fill-needs.sh`,
+`INPUT_BENCHMARKS=phash2`) walks gh-pages's `<sha>-test-<plat>-*/phash2.benchee`
+blobs and emits exactly the (sha × platform) pairs that don't yet
+have phash2 data. The downstream measure jobs invoke
+`mix awfy.measure --benchmarks phash2 …` against those, which in
+turn dispatches OtpBenchmarks's `Awfy.OtpBenchmarks.Runner`. The
+new `phash2.benchee` artifacts merge into gh-pages alongside the
+existing AWFY `.benchee` files; the dashboard already knows how
+to render the multi-input shape.
+
+Bundle-target legs (OTP < 24) skip the OtpBenchmarks pass for now;
+cross-OTP wiring lives at sequence step 9.
 
 ## ETS specifics
 
@@ -262,28 +278,42 @@ per Benchee iteration) rather than CLI-driven.
 
 ## Sequence
 
-1. **Spike**: port `phash2_benchmark_tests` + write
-   `Awfy.Extended.Benchmark` behaviour. Validates the framework
-   handles BIF-driven scenarios with multiple input variants.
-2. Port the rest of Tier 1 (#2-#7): maps, iolist_size, base64,
+1. ✅ **Spike**: port `phash2_benchmark_tests` + write
+   `OtpBenchmarks.Benchmark` behaviour. Lives at
+   `apps/otp_benchmarks/` (separate from AWFY for the licensing
+   split — see ARCHITECTURE.md). Runner at
+   `Awfy.OtpBenchmarks.Runner` dispatches via the shared peer-flow.
+2. ✅ **Dashboard data model**: `Awfy.Compare.Data` carries
+   `scenario.input_name` as a separate `input` field, sub-μs
+   medians preserved at 6-decimal precision, multi-input rows
+   excluded from the suite-wide geomean. Dashboard JS renders
+   multi-input families as multi-series charts driven by an
+   "Input" checkbox group (see `priv/dashboard.js` `seriesAxis`).
+3. ✅ **Measure integration**: `mix awfy.measure` runs both AWFY
+   and OtpBenchmarks suites in one pass. `--benchmarks <list>`
+   filters across both by family name; `--no-otp-benchmarks` opts
+   out. `meta.json` carries an `otp_benchmarks` block parallel to
+   the existing `benchmarks` block. Bundle-target mode skips the
+   OtpBenchmarks pass automatically (cross-OTP wiring → step 8).
+4. Port the rest of Tier 1 (#2-#7): maps, iolist_size, base64,
    binary:match, unicode, crypto AES. ~1 day each.
-3. `mix awfy.measure_extended` task; verify save / load / compare
-   integration with the existing dashboard.
-4. Port ETS (#8). Start with single-scheduler scenarios (12), add
+5. Port ETS (#8). Start with single-scheduler scenarios (12), add
    the concurrency matrix (8) once those are stable, then update /
    bulk / key-type / catree_init. ~3-4 days total.
-5. Port estone (~25 micros). The micros all share a tight common
+6. Port estone (~25 micros). The micros all share a tight common
    shape so this is more wrap-paste than thinking.
-6. Port mnesia TPC-B `ram_copies`. Build the single-node setup
+7. Port mnesia TPC-B `ram_copies`. Build the single-node setup
    helper first (schema + populate); the transaction-loop wrapper
    is short.
-7. Port mnesia TPC-B `disc_only_copies`. Should be a one-line diff
-   from #6 once the framework exists.
-8. Wire the GHA job; first sweep will be slow (cold images for the
-   new measure task on every platform). Stabilise over 3-4 daily
-   runs before judging numbers.
-9. Per-benchmark `:time` calibration pass — same pattern as the
-   compute calibration we did for AWFY.
+8. Port mnesia TPC-B `disc_only_copies`. Should be a one-line diff
+   from #7 once the framework exists.
+9. Cross-OTP wiring for OtpBenchmarks: extend the target bundle
+   path so OTP < 24 measure jobs produce phash2/ETS/etc. data
+   (today they only emit AWFY). Touches
+   `apps/awfy_target_runner/`, `bin/install-otp-source-mac.sh`,
+   `Dockerfile.linux`, and `bin/build-target-bundle.sh`.
+10. Per-benchmark `:time` calibration pass — same pattern as the
+    compute calibration we did for AWFY.
 
 ## Why not …
 

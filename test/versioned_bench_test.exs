@@ -32,7 +32,12 @@ defmodule AwfyTest.VersionedBench do
       "--label",
       "test1",
       "--out",
-      @tmp_root
+      @tmp_root,
+      # Filter is "Bounce" only — OtpBenchmarks pass would naturally
+      # be a no-op (phash2 isn't in the filter), but pass the explicit
+      # opt-out anyway so the test is robust to a future change that
+      # auto-includes some default OtpBenchmarks family.
+      "--no-otp-benchmarks"
     ])
 
     [run_dir] = File.ls!(@tmp_root) |> Enum.map(&Path.join(@tmp_root, &1))
@@ -70,6 +75,61 @@ defmodule AwfyTest.VersionedBench do
     assert bench_entry["languages"]["erlang"]["source_sha256"] =~ ~r/^[0-9a-f]{64}$/
 
     assert File.exists?(Path.join(run_dir, "Bounce.benchee"))
+
+    # `--no-otp-benchmarks` was set above; the OtpBenchmarks block
+    # should be present but empty so dashboard loaders that check
+    # for the field don't crash on missing keys.
+    assert meta["otp_benchmarks"] == []
+    refute File.exists?(Path.join(run_dir, "phash2.benchee"))
+  end
+
+  @tag timeout: 60_000
+  test "measure --benchmarks phash2 runs the OtpBenchmarks pass" do
+    # OtpBenchmarks-only run: AWFY filter ends empty, phash2 family
+    # ends populated. This is the path GHA fill mode takes when
+    # dispatched with `benchmarks=phash2` to backfill phash2 data
+    # across SHAs.
+    Mix.Task.rerun("awfy.measure", [
+      "--benchmarks",
+      "phash2",
+      "--time",
+      "1",
+      "--warmup",
+      "0",
+      "--label",
+      "test_phash2",
+      "--out",
+      @tmp_root
+    ])
+
+    [run_dir] = File.ls!(@tmp_root) |> Enum.map(&Path.join(@tmp_root, &1))
+    assert File.exists?(Path.join(run_dir, "phash2.benchee"))
+    refute File.exists?(Path.join(run_dir, "Bounce.benchee"))
+
+    meta = Path.join(run_dir, "meta.json") |> File.read!() |> Jason.decode!()
+    assert meta["benchmarks"] == []
+
+    [phash2_entry] = meta["otp_benchmarks"]
+    assert phash2_entry["name"] == "phash2"
+    assert phash2_entry["source_sha256"] =~ ~r/^[0-9a-f]{64}$/
+
+    # Pin the scenario list so an accidental drop or rename surfaces
+    # here. This is the same set the OtpBenchmarks tests pin.
+    assert phash2_entry["scenarios"] == [
+             "atom",
+             "binary_4k",
+             "binary_64",
+             "binary_8",
+             "int_bignum",
+             "int_fixnum",
+             "list_10",
+             "list_1000",
+             "map_100",
+             "map_32",
+             "map_5",
+             "tuple_10",
+             "tuple_1000"
+           ]
   end
 
   test "data loader extracts rows from saved runs" do

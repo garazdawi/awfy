@@ -18,10 +18,28 @@ defmodule Mix.Tasks.Awfy.Measure do
       mix awfy.measure                        # auto-label from git SHA
       mix awfy.measure --label before-jit2    # custom label
       mix awfy.measure --benchmarks Bounce,Json
+      mix awfy.measure --benchmarks phash2    # also matches OtpBenchmarks families
       mix awfy.measure --lang erlang
       mix awfy.measure --time 5 --warmup 2
       mix awfy.measure --no-clobber           # refuse to overwrite
       mix awfy.measure --ignore-preflight     # skip preflight gate
+      mix awfy.measure --no-otp-benchmarks    # AWFY only, skip the OtpBenchmarks pass
+
+  ## Two suites in one run
+
+  Each invocation runs both the AWFY cross-language suite and the
+  OtpBenchmarks BEAM-internal suite (phash2 today, ETS / Mnesia /
+  estone over time — see `PLAN/EXTENDED_BENCH_PLAN.md`). Outputs
+  land in the same run-dir; the OtpBenchmarks pass is skipped
+  automatically when bundle-target mode is active
+  (`AWFY_TARGET_ERL` set), since cross-OTP wiring for that suite
+  hasn't landed yet.
+
+  `--benchmarks` filters across both suites by family name
+  (`Bounce` matches the AWFY entry, `phash2` matches the
+  OtpBenchmarks family). When the filter contains only
+  OtpBenchmarks names, the AWFY pass is a no-op rather than an
+  error.
 
   Before timing starts, runs the blocking subset of
   `mix awfy.preflight` and aborts with the suggested fix commands if
@@ -49,6 +67,7 @@ defmodule Mix.Tasks.Awfy.Measure do
     warmup: :integer,
     no_clobber: :boolean,
     ignore_preflight: :boolean,
+    no_otp_benchmarks: :boolean,
     out: :string
   ]
 
@@ -97,7 +116,9 @@ defmodule Mix.Tasks.Awfy.Measure do
       |> Helpers.filter_lang(lang)
       |> Helpers.filter_benchmarks(bench_filter)
 
-    if candidates == [] do
+    otp_families = otp_families_to_run(bench_filter, opts)
+
+    if candidates == [] and otp_families == [] do
       Mix.raise("no benchmarks selected")
     end
 
@@ -114,7 +135,7 @@ defmodule Mix.Tasks.Awfy.Measure do
       end)
     end
 
-    if ok_entries == [] do
+    if ok_entries == [] and otp_families == [] do
       Mix.raise("no scenarios verified — aborting")
     end
 
@@ -136,14 +157,35 @@ defmodule Mix.Tasks.Awfy.Measure do
       |> Helpers.maybe_put(:time, user_time)
       |> Helpers.maybe_put(:warmup, user_warmup)
 
-    Awfy.BencheeRunner.run_all(
-      lang: lang,
-      benchmarks: bench_names_to_run,
-      skip: Enum.map(broken_entries, fn {entry, _} -> entry end),
-      save_dir: dir,
-      save_tag: label,
-      benchee: benchee_opts
-    )
+    if ok_entries != [] do
+      Awfy.BencheeRunner.run_all(
+        lang: lang,
+        benchmarks: bench_names_to_run,
+        skip: Enum.map(broken_entries, fn {entry, _} -> entry end),
+        save_dir: dir,
+        save_tag: label,
+        benchee: benchee_opts
+      )
+    end
+
+    if otp_families != [] do
+      Mix.shell().info(
+        "\n=== OtpBenchmarks pass (#{length(otp_families)} famil" <>
+          (if length(otp_families) == 1, do: "y", else: "ies") <> ") ==="
+      )
+
+      otp_benchee_opts =
+        [memory_time: 0, print: [fast_warning: false]]
+        |> Helpers.maybe_put(:time, user_time)
+        |> Helpers.maybe_put(:warmup, user_warmup)
+
+      Awfy.OtpBenchmarks.Runner.run_all(
+        benchmarks: Enum.map(otp_families, & &1.name()),
+        save_dir: dir,
+        save_tag: label,
+        benchee: otp_benchee_opts
+      )
+    end
 
     write_meta(dir, %{
       label: label,
@@ -154,10 +196,40 @@ defmodule Mix.Tasks.Awfy.Measure do
       lang: lang,
       ok_entries: ok_entries,
       broken_entries: broken_entries,
-      bench_names_to_run: bench_names_to_run
+      bench_names_to_run: bench_names_to_run,
+      otp_families: otp_families
     })
 
     Mix.shell().info("\nWrote #{dir}/")
+  end
+
+  # Compute the OtpBenchmarks families to measure in this run. Honors:
+  #   * `--no-otp-benchmarks` — explicit opt-out.
+  #   * `AWFY_TARGET_ERL` — bundle-target mode, where OtpBenchmarks
+  #     can't run yet (no cross-OTP wiring; see
+  #     `PLAN/EXTENDED_BENCH_PLAN.md` step 8). Skip silently rather
+  #     than fail the whole legacy measure leg.
+  #   * `--benchmarks <list>` — same name-set filter as AWFY uses; an
+  #     empty filter (nil) means "every registered family".
+  defp otp_families_to_run(bench_filter, opts) do
+    cond do
+      opts[:no_otp_benchmarks] ->
+        []
+
+      System.get_env("AWFY_TARGET_ERL") not in [nil, ""] ->
+        []
+
+      true ->
+        OtpBenchmarks.benchmarks()
+        |> filter_otp_families(bench_filter)
+    end
+  end
+
+  defp filter_otp_families(mods, nil), do: mods
+
+  defp filter_otp_families(mods, names) when is_list(names) do
+    set = MapSet.new(names)
+    Enum.filter(mods, fn mod -> MapSet.member?(set, mod.name()) end)
   end
 
   defp enforce_preflight do
@@ -260,10 +332,40 @@ defmodule Mix.Tasks.Awfy.Measure do
         "warmup" => ctx.warmup,
         "lang" => to_string(ctx.lang)
       },
-      "benchmarks" => benchmark_records(ctx)
+      "benchmarks" => benchmark_records(ctx),
+      "otp_benchmarks" => otp_benchmark_records(ctx)
     }
 
     File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
+  end
+
+  # Mirror of `benchmark_records/1` for the OtpBenchmarks suite.
+  # Per-family entry shape:
+  #   * name        — family display name ("phash2"). Matches the
+  #                   `<name>.benchee` filename in the run-dir.
+  #   * scenarios   — sorted list of input names declared by the
+  #                   family (via `inputs/0`). Captured at meta-
+  #                   write time so the dashboard can show "this
+  #                   run measured these 13 inputs" even if the
+  #                   .benchee parse later falls over.
+  #   * source_sha256 — hash of the family module's source file,
+  #                   same canonicalisation as AWFY (CRLF stripped
+  #                   so Windows checkouts match LF on Linux/macOS).
+  defp otp_benchmark_records(ctx) do
+    Enum.map(ctx.otp_families, fn mod ->
+      %{
+        "name" => mod.name(),
+        "scenarios" => mod.inputs() |> Map.keys() |> Enum.sort(),
+        "source_sha256" => source_sha256_for_module(mod)
+      }
+    end)
+  end
+
+  defp source_sha256_for_module(mod) do
+    case mod.module_info(:compile)[:source] do
+      nil -> ""
+      raw -> raw |> List.to_string() |> Path.relative_to_cwd() |> sha_file()
+    end
   end
 
   defp benchmark_records(ctx) do
