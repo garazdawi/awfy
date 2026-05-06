@@ -41,11 +41,11 @@ These translate into a four-piece architecture:
            ▼                                    ▼
 ┌───────────────────────────┐    ┌──────────────────────────────────┐
 │  Runner (this project)    │    │  Target VM (per-OTP)             │
-│  • mix awfy.measure       │───▶│  awfy_target_runner:run_iters    │
-│  • mix awfy.compare       │    │  pure Erlang, plain text out     │
-│  • Awfy.{BencheeRunner,   │    └──────────────────────────────────┘
-│    PeerRunner,            │
-│    TargetRunner}          │
+│  • mix awfy.measure       │───▶│  Elixir.Awfy.TargetRunner.main   │
+│  • mix awfy.compare       │    │  shipped as a target-Elixir      │
+│  • Awfy.{BencheeRunner,   │    │  bundle, runs Benchee natively   │
+│    PeerRunner,            │    └──────────────────────────────────┘
+│    Runner}                │
 │  • dashboard renderer     │
 └───────────┬───────────────┘
             │ writes .benchee + meta.json
@@ -60,20 +60,29 @@ These translate into a four-piece architecture:
 
 ```
 awfy/
-├── apps/                   # Benchmark suites — independently
+├── apps/                   # Sibling apps — independently
 │   │                       # compilable mix projects, low Elixir floor.
-│   └── awfy/               # AWFY suite (Stefan Marr's port)
+│   ├── awfy/               # AWFY suite (Stefan Marr's port)
+│   │   ├── mix.exs
+│   │   ├── src/            # Erlang benchmarks + helpers
+│   │   ├── lib/awfy/       # Elixir benchmarks + behaviour + registry
+│   │   └── priv/           # benchmark inputs (rap_benchmark.json)
+│   │
+│   └── awfy_target_runner/ # Target-side bundle (Phase 3 of
+│       │                   #   PLAN/TARGET_ELIXIR_RUNNER_PLAN.md).
+│       │                   # NOT a path-dep of the root project —
+│       │                   # built standalone by
+│       │                   # bin/build-target-bundle.sh, shipped to
+│       │                   # the target OTP for cross-OTP measure.
 │       ├── mix.exs
-│       ├── src/            # Erlang benchmarks + helpers
-│       ├── lib/awfy/       # Elixir benchmarks + behaviour + registry
-│       ├── priv/           # benchmark inputs (rap_benchmark.json)
-│       └── src_target/     # plain-Erlang harness compiled per target
+│       ├── lib/awfy/target_runner.ex   # Awfy.TargetRunner.main/0
+│       └── deps/{benchee,deep_merge,statistex}/  # vendored Hex copies
 │
 ├── lib/                    # Runner project (`:awfy_runner`)
 │   ├── awfy/
 │   │   ├── benchee_runner.ex   # picks execution mode, runs Benchee
-│   │   ├── peer_runner.ex      # same-OTP `:peer` orchestration
-│   │   ├── target_runner.ex    # cross-OTP fork-and-parse
+│   │   ├── peer_runner.ex      # same-OTP `:peer` orchestration (default, OTP ≥ 24)
+│   │   ├── runner.ex           # bundle-target shell-out (cross-OTP, OTP < 24)
 │   │   ├── compare/data.ex     # reads .benchee + meta.json
 │   │   ├── fill/diff.ex        # `mix awfy.fill` planner
 │   │   ├── measure/helpers.ex  # label / run-dir naming
@@ -144,23 +153,29 @@ discovery mechanism currently knows about `Awfy` specifically but is
 designed to grow into a registry-of-registries when a second suite
 lands.
 
-### Plain-Erlang target harness
+### Target-side script: `apps/awfy_target_runner/`
 
-`apps/awfy/src_target/awfy_target_runner.erl` is the only file in the
-suite that's never compiled by the runner's `mix compile`. Its sole
-purpose is to be compiled by each target OTP's `erlc` and loaded into
-the target VM at measurement time. It exports two functions:
+The bundle path's "harness" is an Elixir script:
+`Awfy.TargetRunner.main/0` in `apps/awfy_target_runner/`. Compiled
+once per pinned target Elixir into a self-contained tarball
+(`bin/build-target-bundle.sh`), shipped to the target host,
+invoked via `erl -s 'Elixir.Awfy.TargetRunner' main`. The script
+runs `Benchee.run/2` natively and writes a `.benchee` file the
+host reads back through `binary_to_term/1`.
 
-* `run_iters/3 (Module, InnerIter, IterCount) -> [ns]` — times each
-  call to `Module:inner_benchmark_loop(InnerIter)` with
-  `erlang:monotonic_time(nanosecond)` and returns the timings.
-* `run_iters_io/3` — same, but emits one decimal integer per line on
-  stdout and halts. Used when the host invokes the target via `-eval`.
+This is a **sibling app under `apps/`, not a path-dep of the root
+project**. The root `mix compile` doesn't touch it; vendored
+target-pinned deps with stripped dev/test trees never enter the
+host `_build`. See `apps/awfy_target_runner/README.md` for the
+vendoring policy and OTP × Elixir matrix.
 
-Plain Erlang means no Elixir or library deps, so it compiles on every
-OTP back to at least OTP 20. The host parses the integer-per-line
-output into a `[ns]` list and feeds those to Benchee's statistics
-calculator.
+The historical Phase-0/1/2 path used a plain-Erlang harness
+(`awfy_target_runner.erl`) that returned raw timings the host
+shaped into a Benchee suite. Phase 3 of
+`PLAN/TARGET_ELIXIR_RUNNER_PLAN.md` retired it — the bundle path
+delivers Elixir benchmarks on every target OTP, removes the
+~3.4 s/leg calibration tax, and collapses the modern/legacy split
+in the workflow.
 
 ## Execution modes
 
@@ -169,11 +184,11 @@ based on the environment:
 
 | Mode | Selector | Used when |
 |---|---|---|
-| **Target** | `AWFY_TARGET_ERL` env set | Target OTP differs from host OTP, or the orchestrator wants a clean cross-version comparison. |
+| **Bundle target** | `AWFY_TARGET_ERL` env set | Target OTP differs from host OTP. Always the path for OTP < 24. |
 | **In-process** | `AWFY_NO_ISOLATION=1` | Debugging; ExUnit tests where wrapping in a peer adds nothing. |
-| **Isolated peer** | (default) | Same-OTP measurement; the historical default and still the simplest flow. |
+| **Isolated peer** | (default) | Same-OTP measurement on OTP ≥ 24; the historical default and still the simplest flow. |
 
-### Isolated peer (default)
+### Isolated peer (default, OTP ≥ 24)
 
 Each benchmark gets its own `:peer.start_link/1` BEAM, code path
 inherited from the controller, communicating via stdio (no `epmd`,
@@ -186,32 +201,81 @@ benchmark in startup overhead, well below the per-bench time budgets
 Documented in `ISOLATION_POLICY.md`. See `Awfy.PeerRunner` for the
 peer mechanics.
 
-### Target
+#### Why peer-runner stays on OTP ≥ 24 instead of unifying everyone on the bundle path
 
-When `AWFY_TARGET_ERL` is set, the runner stays on the host (modern
-OTP + Elixir) and shells out to a different `erl` for each iteration
-batch. Per scenario:
+setup-beam's official Elixir bundles cover every OTP from 24 onward
+out-of-the-box. Forcing modern measurements through the bundle path
+would add a source-build of Elixir per OTP for no gain — peer
+isolation already gives same-OS-process accuracy at zero extra
+startup. The bundle path's wins (cross-OTP support, retiring the
+Erlang harness) only matter where the modern path can't reach.
 
-1. **Calibration**: 3 iterations to estimate per-iter cost.
-2. **Sizing**: warmup count = ceil(`warmup` × 1e9 / median);
-   measure count = ceil(`time` × 1e9 / median); always ≥ 3.
-3. **Measurement**: one VM startup, one `awfy_target_runner:run_iters_io`
-   call producing `(warmup + measure)` ns lines. Drop the first
-   `warmup` count.
-4. **Stats**: feed samples into a `%Benchee.Statistics{}` via
-   `Benchee.Statistics.statistics/2` so the resulting
-   `%Benchee.Suite{}` is byte-identical in shape to the regular path.
+### Bundle target (OTP < 24, or any cross-OTP run)
 
-The output `.benchee` file is the same `:erlang.term_to_binary/1` of a
-`Benchee.Suite` — `Awfy.Compare.Data` reads either path's output the
-same way.
+`AWFY_TARGET_ERL` set → `Awfy.Runner.run/4` shells out to a
+pre-built target bundle with `erl -noshell -pa <ebins> -s
+'Elixir.Awfy.TargetRunner' main -extra <argv>`. The target's
+`Awfy.TargetRunner` runs `Benchee.run/2` natively, saves a
+`.benchee` file at the path argv specifies, and exits. The host
+reads that file via `:erlang.binary_to_term/1` — same shape as the
+peer flow's `.benchee`, no schema divergence.
 
-Elixir scenarios are silently skipped when their `.beam` file isn't
-present in `AWFY_TARGET_BEAMS`. This is the expected state for OTP
-< 24 where no compatible Elixir bundle ships; the Erlang scenarios
-still run.
+Per scenario:
 
-See `lib/awfy/target_runner.ex` for the full flow.
+1. **Argv**: host marshals `[module, inner_iter, time_s, warmup_s,
+   out_path]` into `-extra` (synonym `--`). Target reads via
+   `:init.get_plain_arguments/0`. See `apps/awfy_target_runner/lib/awfy/target_runner.ex`
+   moduledoc for the contract.
+2. **Code path**: `-pa <bundle>/lib/*/ebin` plus `AWFY_TARGET_BEAMS`
+   (the target-erlc-compiled benchmark modules from
+   `Dockerfile.linux`'s build stage or `bin/install-otp-source.sh`'s
+   target compile).
+3. **Measurement**: Benchee on the target VM. Native run-time
+   budgeting; no calibration pass to size warmup/measure counts.
+4. **Save**: `Benchee.run` with `save: [path: out, tag: "target"]`
+   writes `term_to_binary(%Benchee.Suite{})` directly.
+
+Elixir scenarios run as long as `module.benchmark/1` is loadable on
+the target VM; for OTP < 24 the pinned Elixir (1.9.4 / 1.11.4 /
+1.13.4 / 1.14.5) is what gates compatibility. Erlang benchmarks
+work on every supported OTP back to OTP 20.
+
+#### Why the bundle uses an Elixir wrapper, not raw `erl -eval`
+
+The host needs Benchee's statistics (median, percentile, std-dev)
+on the target's timings. Either the host computes them from raw
+samples (the Phase-0 Erlang harness's design — ~3.4 s/leg
+overhead from the calibration pass it needed to size sample counts
+under a hardcoded budget) or the target computes them. Letting
+Benchee on the target do the math is simpler and more accurate:
+Benchee already knows how to honour `:time` / `:warmup` budgets
+without a separate calibration call. The bundle exists to ship
+Benchee + Elixir + the runner script as one self-contained package
+the host extracts and points at.
+
+#### Why the bundle's vendored deps strip dev/test entries
+
+Mix 1.9 walks the full transitive `deps()` tree of every dep
+regardless of `MIX_ENV` and `only:` modifiers — it filters at
+*build* time, not *resolution* time, and resolution-time SCM
+lookup demands a working Hex registry. Target OTP for OTP < 24 is
+built `--without-ssl` (OpenSSL 3 doesn't link against pre-23
+crypto NIFs). No SSL → no Hex. So the vendored
+`apps/awfy_target_runner/deps/{benchee,deep_merge,statistex}/`
+copies have their `defp deps` bodies stripped of every dev/test/docs
+entry, including the conditional `:table` branch in Benchee that's
+unused on our path. `bin/refresh-target-deps.sh` automates the
+re-strip on dep upgrades. See
+`PLAN/TARGET_ELIXIR_RUNNER_PLAN.md` Appendix A.
+
+#### Why host Benchee is pinned to target Benchee compatibility
+
+The `.benchee` file is `:erlang.term_to_binary/1` of a
+`%Benchee.Suite{}` struct. Host reads it back with its own Benchee.
+If the target's `Benchee.Suite` shape differs from the host's, the
+struct fields don't line up and the host crashes at decode. We pin
+both sides to Benchee 1.5; bumping the target version mandates a
+matching host bump. Documented in `apps/awfy_target_runner/README.md`.
 
 ### When to use each
 
@@ -219,14 +283,16 @@ See `lib/awfy/target_runner.ex` for the full flow.
                    target OTP == host OTP?
                     ┌─── yes ──→ isolated peer (default)
                     │
-host has Elixir ────┤
-compatible with     │
-the target OTP?     └─── no ───→ target  (set AWFY_TARGET_ERL)
+                    └─── no ───→ bundle target  (set AWFY_TARGET_ERL +
+                                                AWFY_TARGET_BUNDLE)
                                    │
-                                   └─── target Elixir compatible?
+                                   └─── target Elixir compatible
+                                        with the suite?
                                           yes → both langs measured
                                           no  → Erlang only (Elixir
-                                                scenarios skipped)
+                                                benchmarks fail at
+                                                load on the target,
+                                                Awfy.Runner soft-skips)
 ```
 
 ## Build pipeline
@@ -522,23 +588,28 @@ this; the contract is preliminary.
 4. Trigger a sweep. The matrix is `fail-fast: false`; failures
    surface per-target without breaking the others.
 
-For OTP < 24, the target-runner path applies. The unified
-`bench.yml` `resolve` job emits per-platform `targets_legacy_*`
-arrays (OTP < 24, target-runner mode) alongside the
-`targets_modern_*` arrays (OTP ≥ 24, same-OTP peer flow). The
+For OTP < 24, the bundle target path applies. The `bench.yml`
+`resolve` job emits per-platform `targets_legacy_*` arrays
+(OTP < 24, bundle-target mode) alongside the `targets_modern_*`
+arrays (OTP ≥ 24, same-OTP peer flow). The
 `measure-{linux,macos,windows}-target` jobs consume the legacy
-arrays: they build the target OTP from source via
-`bin/install-otp-source.sh` (or the upstream installer on Windows),
-install a pinned modern OTP/Elixir host (`erlef/setup-beam`), and
-export `AWFY_TARGET_ERL` / `AWFY_TARGET_BEAMS` so `mix awfy.measure`
-shells out to the target per benchmark.
+arrays: they acquire the target OTP (Linux: `docker pull` +
+`bin/extract-otp-from-image.sh`; macOS: `bin/install-otp-source.sh`;
+Windows: `install-otp-windows.ps1` against the function release),
+download the matching `target-bundle-<elixir-version>` artifact
+from `prep-target-bundle`, install a pinned modern OTP/Elixir host
+(`erlef/setup-beam`), export `AWFY_TARGET_ERL` /
+`AWFY_TARGET_BUNDLE` / `AWFY_TARGET_BEAMS`, and call
+`mix awfy.measure` — `Awfy.BencheeRunner` automatically dispatches
+to `Awfy.Runner` (the bundle path) when `AWFY_TARGET_ERL` is set.
 
-For v1 the target-runner path is Linux-x86_64 + emu-flavor only.
-Adding linux-arm64 and macos-arm64 is mechanical (the same script
-runs on both) but each adds ~10 min of cold OTP build time, so we
-widen as patches land. JIT-flavor coverage on OTP 20-23 needs HiPE
-support (compile sources with `+native`); not wired through the
-harness yet — see [`patches/README.md`](patches/README.md).
+Bundle-target coverage: Linux x86_64 + arm64, Windows x86_64,
+macOS arm64. Erlang benchmarks always run; Elixir benchmarks run
+when the pinned target Elixir (1.9.4 / 1.11.4 / 1.13.4 / 1.14.5
+for OTP 20-23 respectively) loads the benchmark module. JIT-flavor
+coverage on OTP 20-23 needs HiPE support (compile sources with
+`+native`); not wired through the harness yet — see
+[`patches/README.md`](patches/README.md).
 
 ### A patch for an old OTP
 
@@ -560,10 +631,11 @@ change:
 * **Execution mode**: `Awfy.BencheeRunner` picks one of three modes
   via env var. Adding a fourth (e.g. remote-host SSH) means adding
   one branch and one new module like `Awfy.{X}Runner`.
-* **Target harness**: `awfy_target_runner.erl` is plain Erlang and
-  receives `(Module, InnerIter, IterCount)` over `erl -eval`. The
-  protocol is "ns integers, one per line" — substitute any harness
-  that emits that.
+* **Target harness**: `apps/awfy_target_runner/lib/awfy/target_runner.ex`
+  is the bundle-side script. It accepts argv `(module, inner_iter,
+  time_s, warmup_s, out_path)` via `erl -extra`, runs Benchee, and
+  writes the suite as `term_to_binary` to `out_path`. Substitute
+  any harness that follows the same I/O contract.
 * **Dashboard renderer**: `Awfy.Compare` reads `.benchee` files
   (Benchee's term-binary format) plus `meta.json`. A new
   visualisation can read the same input without touching the

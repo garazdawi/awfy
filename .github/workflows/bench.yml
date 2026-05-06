@@ -257,7 +257,7 @@ jobs:
   #   * prep-target-bundle: extracts /opt/otp from the resulting
   #     image and feeds bin/build-target-bundle.sh — no duplicate
   #     OTP source build.
-  #   * measure-linux-target-v2: docker pull the image (GHA) or
+  #   * measure-linux-target: docker pull the image (GHA) or
   #     extract + bare-metal exec (AWS) — same dual-mode consumption
   #     as the modern measure-linux job.
   build-linux-target:
@@ -757,414 +757,22 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------
-  # Target-runner path for OTP < 24 (no compatible Elixir bundle).
-  # The host orchestrator runs on a pinned modern OTP/Elixir; the
-  # target VM is built from source on the runner via
-  # bin/install-otp-source.sh and shelled out to per benchmark.
+  # Pre-OTP-24 (legacy) measurements via the target-Elixir bundle.
+  # Phase 3 of PLAN/TARGET_ELIXIR_RUNNER_PLAN.md collapsed the
+  # earlier two-path setup (Erlang harness + bundle) onto the
+  # bundle alone; the prep-target-bundle job assembles the bundle
+  # once per pinned Elixir version, and these jobs download +
+  # extract it, set AWFY_TARGET_ERL / AWFY_TARGET_BUNDLE /
+  # AWFY_TARGET_BEAMS, and call `mix awfy.measure`.
+  # `Awfy.BencheeRunner` dispatches to `Awfy.Runner` (the bundle
+  # path) automatically when AWFY_TARGET_ERL is set.
   #
-  # Both x86_64 and arm64 supported (same install-otp-source.sh, same
-  # patches). OTP 20-23 only run the `emu` flavor — the JIT didn't
-  # exist yet, and HiPE-as-jit-equivalent (compiling sources with
-  # `+native`) isn't wired through the harness. See patches/README.md.
+  # Per-platform target acquisition:
+  #   * Linux: docker pull + extract via bin/extract-otp-from-image.sh.
+  #   * macOS: bin/install-otp-source.sh source-build.
+  #   * Windows: install-otp-windows.ps1 against the function release.
   # ---------------------------------------------------------------
   measure-linux-target:
-    needs: resolve
-    if: needs.resolve.outputs.has_legacy_linux == 'true'
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
-        arch:
-          - { name: x86_64, gha_runner: ubuntu-latest,    aws_label: awfy-bench-linux-x86_64 }
-          - { name: arm64,  gha_runner: ubuntu-24.04-arm, aws_label: awfy-bench-linux-arm64 }
-        flavor: [emu]
-    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","{0}"]', matrix.arch.aws_label)) || matrix.arch.gha_runner }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Install build deps for target OTP
-        # ubuntu-latest's image has build-essential preinstalled; we
-        # only need to top up the OTP-specific dev packages. OpenSSL 3
-        # is what ships on Ubuntu 24.04 — OTP < 23's crypto NIF won't
-        # compile against it without patches. That's the expected v1
-        # state: builds fail per major until a patch lands under
-        # patches/OTP-<major>/. See patches/README.md.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            autoconf m4 \
-            libssl-dev libncurses-dev zlib1g-dev \
-            ca-certificates curl patch
-      - name: Cache target OTP build
-        id: otp-cache
-        uses: actions/cache@v4
-        with:
-          # install-otp-source.sh content-addresses by SHA, so the
-          # cache key is exact. Hits skip the 5-10 min source build.
-          # See the measure-macos cache block above for the full
-          # rationale on the hashFiles segment.
-          path: ~/.local/otp/${{ matrix.target.sha }}
-          key: otp-target-linux-${{ matrix.arch.name }}-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
-      - name: Build target OTP
-        env:
-          # Pass the ref name (e.g. OTP-20.3), not the SHA — install-otp-source.sh's
-          # prebuilt-source URL probe matches on `OTP-*` so it can hit the
-          # github-release / erlang.org tarball with prebuilt beams.
-          # Passing only the SHA bypasses that path and falls through to
-          # /archive/<sha>.tar.gz, which lacks config.guess on older OTPs.
-          OTP_REF: ${{ matrix.target.ref }}
-          # Empty for OTP ≥ 24 (crypto compiles fine against OpenSSL 3
-          # so the suite can use it); `--without-ssl` for OTP < 24
-          # whose crypto NIF needs OpenSSL 1.1. Computed in resolve.
-          AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
-          # GCC 10+ defaults to `-fno-common`, which breaks the OTP 20
-          # link step (`multiple definition of erts_allctr_wrappers` in
-          # erts/emulator/beam/erl_alloc.h). `-fcommon` restores the
-          # older behaviour and is harmless on newer OTPs that don't
-          # trigger the conflict.
-          #
-          # OTP's configure REPLACES (not appends) when CFLAGS env is
-          # set, and refuses to run unless -O is present. So we have
-          # to bake in the defaults (-O2 -g) ourselves.
-          CFLAGS: -O2 -g -fcommon
-          # Same prebuilt-artifact caveat as the macOS build step.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
-          echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
-          echo "AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
-      - uses: erlef/setup-beam@v1
-        with:
-          # Pinned modern host. The orchestrator never touches the
-          # target erl directly — only via TargetRunner shell-out.
-          otp-version: "28"
-          elixir-version: "1.19"
-      - name: Compile orchestrator
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
-          mix compile
-      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
-        # AWFY_TARGET_ERL / AWFY_TARGET_BEAMS were exported via
-        # GITHUB_ENV in the build step. Setting them here would
-        # re-export the literal strings (with un-expanded `~`), so we
-        # rely on the env file inheritance instead.
-        env:
-          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
-          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
-          # CPU pinning on AWS only: taskset -c 0 wraps the mix
-          # invocation. Children (peer, target erl) inherit the
-          # affinity mask. Same hyperthread-sibling reasoning as
-          # measure-linux.
-          CPU_PIN: ${{ needs.resolve.outputs.runner_pool == 'aws' && 'taskset -c 0' || '' }}
-        run: |
-          BENCH_ARG=""
-          if [ -n "$BENCHMARKS" ]; then
-            BENCH_ARG="--benchmarks $BENCHMARKS"
-          fi
-          # shellcheck disable=SC2086 # CPU_PIN intentionally word-splits.
-          $CPU_PIN mix awfy.measure \
-            --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
-            --ignore-preflight \
-            $BENCH_ARG
-      - uses: actions/upload-artifact@v7
-        with:
-          name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
-          path: results/
-          retention-days: 30
-
-  # Target-runner path for OTP < 24 on Windows. Mirrors
-  # measure-linux-target: a pinned modern host runs the orchestrator,
-  # shells out per-benchmark to a target erl from the upstream
-  # Windows installer for matrix.target.windows_ref (function release
-  # — patch installers don't exist for OTP < 24 on Windows).
-  measure-windows-target:
-    needs: resolve
-    if: needs.resolve.outputs.has_legacy_windows == 'true'
-    permissions:
-      contents: read
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_windows) }}
-        flavor: [emu]
-    runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","awfy-bench-windows"]') || 'windows-latest' }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Install target OTP
-        id: install_target_otp
-        shell: pwsh
-        env:
-          OTP_REF: ${{ matrix.target.windows_ref }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $prefix = ./bin/install-otp-windows.ps1 -OtpRef $env:OTP_REF
-          if ([string]::IsNullOrWhiteSpace($prefix)) {
-            # No installer for this ref (script set skipped=true and exit 0).
-            exit 0
-          }
-          # Don't add the target's bin to PATH — that's the host's job.
-          # Just expose the absolute paths through GITHUB_ENV so the
-          # next step can compile target beams and the measure step
-          # can shell out via TargetRunner.
-          "AWFY_TARGET_PREFIX=$prefix" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "AWFY_TARGET_ERL=$prefix\bin\erl.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Compile target beams
-        if: steps.install_target_otp.outputs.skipped != 'true'
-        shell: pwsh
-        # Target erlc compiles awfy benchmark sources into a
-        # $PREFIX/awfy_target/awfy-0.1.0/{ebin,priv} layout that
-        # mirrors install-otp-source.sh's Linux/macOS step. .beam
-        # format isn't reliably forward-compatible across major OTPs,
-        # so we have to use the target's own erlc, not the host's.
-        # awfy_benchmark must be compiled first (the other modules
-        # `-behaviour(awfy_benchmark)`, and a missing behaviour spec
-        # silently falls back to "behaviour undefined" warnings).
-        #
-        # Resolve all sources to absolute paths up front. Earlier
-        # iterations relied on PowerShell line-continuation backticks
-        # plus `Get-ChildItem` and quietly produced an empty pass-2
-        # source list — `awfy_target_runner.beam` never landed in
-        # ebin and the timing pass blew up with `undef
-        # awfy_target_runner:run_iters_io/3`. Switching to explicit
-        # `Resolve-Path` calls + a post-compile listing makes that
-        # class of failure loud.
-        run: |
-          $prefix = $env:AWFY_TARGET_PREFIX
-          $erlc = Join-Path $prefix "bin\erlc.exe"
-          $targetLib = Join-Path $prefix "awfy_target\awfy-0.1.0"
-          $ebin = Join-Path $targetLib "ebin"
-          New-Item -ItemType Directory -Force -Path $ebin | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $targetLib "priv") | Out-Null
-
-          $srcDir = (Resolve-Path "apps/awfy/src").Path
-          $srcTargetDir = (Resolve-Path "apps/awfy/src_target").Path
-          $bootstrap = @("awfy_benchmark.erl", "awfy_random.erl", "awfy_som_vector.erl") |
-                       ForEach-Object { Join-Path $srcDir $_ }
-          $allSrcs = @(Get-ChildItem -Path $srcDir -Filter *.erl).FullName +
-                     @(Get-ChildItem -Path $srcTargetDir -Filter *.erl).FullName
-          Write-Host "pass 1: $($bootstrap.Count) bootstrap sources"
-          Write-Host "pass 2: $($allSrcs.Count) total sources"
-
-          & $erlc -o $ebin @bootstrap
-          if ($LASTEXITCODE -ne 0) { throw "target erlc (pass 1) failed: $LASTEXITCODE" }
-
-          & $erlc -pa $ebin -o $ebin @allSrcs
-          if ($LASTEXITCODE -ne 0) { throw "target erlc (pass 2) failed: $LASTEXITCODE" }
-
-          $beams = Get-ChildItem -Path $ebin -Filter *.beam
-          Write-Host "compiled $($beams.Count) beams into $ebin"
-          $beams | ForEach-Object { Write-Host "  $($_.Name)" }
-          if (-not ($beams.Name -contains "awfy_target_runner.beam")) {
-            throw "awfy_target_runner.beam missing from $ebin after compile"
-          }
-
-          if (Test-Path apps/awfy/priv) {
-            Copy-Item -Recurse -Force apps/awfy/priv\* (Join-Path $targetLib "priv\")
-          }
-          "AWFY_TARGET_BEAMS=$ebin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - uses: erlef/setup-beam@v1
-        if: steps.install_target_otp.outputs.skipped != 'true'
-        with:
-          # Pinned modern host. The orchestrator never touches the
-          # target erl directly — only via TargetRunner shell-out.
-          otp-version: "28"
-          elixir-version: "1.19"
-      - name: Install wmic shim (GHA only)
-        if: needs.resolve.outputs.runner_pool != 'aws' && steps.install_target_otp.outputs.skipped != 'true'
-        shell: pwsh
-        # See measure-windows for the full rationale; same shim, same
-        # csc.exe path. Without it Benchee's system-info probes raise
-        # :enoent and pollute the run with stack traces.
-        run: |
-          $shimDir = "$env:USERPROFILE\.local\bin"
-          New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
-          $cs = @'
-          using System;
-          using System.Diagnostics;
-          class Wmic {
-              static int Main(string[] args) {
-                  string ps = null;
-                  if (args.Length >= 3
-                      && string.Equals(args[0], "COMPUTERSYSTEM", StringComparison.OrdinalIgnoreCase)
-                      && string.Equals(args[1], "GET", StringComparison.OrdinalIgnoreCase)
-                      && string.Equals(args[2], "TOTALPHYSICALMEMORY", StringComparison.OrdinalIgnoreCase)) {
-                      ps = "Write-Output TotalPhysicalMemory; (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory";
-                  } else if (args.Length >= 3
-                      && string.Equals(args[0], "CPU", StringComparison.OrdinalIgnoreCase)
-                      && string.Equals(args[1], "GET", StringComparison.OrdinalIgnoreCase)
-                      && string.Equals(args[2], "NAME", StringComparison.OrdinalIgnoreCase)) {
-                      ps = "Write-Output Name; (Get-CimInstance Win32_Processor).Name";
-                  } else {
-                      return 1;
-                  }
-                  var psi = new ProcessStartInfo("powershell",
-                      "-NoProfile -Command \"" + ps + "\"");
-                  psi.UseShellExecute = false;
-                  var p = Process.Start(psi);
-                  p.WaitForExit();
-                  return p.ExitCode;
-              }
-          }
-          '@
-          $csPath = Join-Path $env:TEMP "wmic.cs"
-          $cs | Set-Content -Path $csPath -Encoding UTF8
-          $csc = "${env:WINDIR}\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          & $csc /nologo /out:"$shimDir\wmic.exe" $csPath
-          $shimDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-      - name: Compile orchestrator
-        if: steps.install_target_otp.outputs.skipped != 'true'
-        shell: pwsh
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
-          mix compile
-      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
-        if: steps.install_target_otp.outputs.skipped != 'true'
-        shell: pwsh
-        env:
-          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
-          # windows_otp_label, not otp_label — the upstream Windows
-          # installer for OTP < 24 only ships the function release
-          # (e.g. 21.0), so claiming "21.0.9" here would mislabel the
-          # dashboard. See windows_otp_label derivation in resolve.
-          AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
-          RUNNER_POOL: ${{ needs.resolve.outputs.runner_pool }}
-        run: |
-          if ($env:RUNNER_POOL -eq 'aws') {
-            [System.Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity = [IntPtr]1
-          }
-          $args = @(
-            "--label", "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}",
-            "--ignore-preflight"
-          )
-          if ($env:BENCHMARKS) { $args += @("--benchmarks", $env:BENCHMARKS) }
-          mix awfy.measure @args
-      - uses: actions/upload-artifact@v7
-        if: steps.install_target_otp.outputs.skipped != 'true'
-        with:
-          name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
-          path: results/
-          retention-days: 30
-
-  # Target-runner path for OTP < 24 on macOS arm64. Always GHA-hosted
-  # macos-latest (no AWS macOS pool in scope). Mirrors
-  # measure-linux-target: pinned modern host runs the orchestrator,
-  # shells out per-benchmark to a target erl built from source via
-  # bin/install-otp-source.sh. macOS arm64 builds for OTP 20-23
-  # require the patches/OTP-<major>/ stack — see patches/README.md.
-  # Single emu flavor (BEAM JIT didn't exist yet, HiPE-as-jit isn't
-  # wired through the harness).
-  measure-macos-target:
-    needs: resolve
-    if: needs.resolve.outputs.has_legacy_macos == 'true'
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_macos) }}
-        flavor: [emu]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Install build deps for target OTP
-        # ncurses keg-only on macOS — install-otp-source.sh's configure
-        # finds it via brew --prefix when set in CFLAGS/LDFLAGS, but
-        # we don't need that explicit wiring for OTP < 24 (the
-        # patches/OTP-<major>/ stack already covers the macOS-specific
-        # build issues for these majors). openssl@3 isn't pulled here
-        # because we configure target OTP with --without-ssl below.
-        run: brew install autoconf ncurses
-      - name: Cache target OTP build
-        id: otp-cache
-        uses: actions/cache@v4
-        with:
-          # Same content-addressed cache scheme as measure-linux-target
-          # / measure-macos. See measure-macos for the full hashFiles
-          # rationale.
-          path: ~/.local/otp/${{ matrix.target.sha }}
-          key: otp-target-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
-      - name: Build target OTP
-        env:
-          OTP_REF: ${{ matrix.target.ref }}
-          # Same OpenSSL-3-incompat reasoning as measure-linux-target:
-          # OTP < 24 crypto NIF needs APIs OpenSSL 3 removed. Resolve
-          # picks `--without-ssl` for those refs.
-          AWFY_OTP_EXTRA_CONFIGURE: ${{ matrix.target.extra_configure }}
-          # GCC/clang-15+ defaults to `-fno-common`, which breaks the
-          # OTP 20 link step. -fcommon restores the older behaviour
-          # and is harmless on newer OTPs. Same as the linux-target
-          # leg.
-          CFLAGS: -O2 -g -fcommon
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PREFIX="$(./bin/install-otp-source.sh "$OTP_REF")"
-          echo "AWFY_TARGET_ERL=$PREFIX/bin/erl" >> "$GITHUB_ENV"
-          echo "AWFY_TARGET_BEAMS=$PREFIX/awfy_target/awfy-0.1.0/ebin" >> "$GITHUB_ENV"
-      - uses: erlef/setup-beam@v1
-        with:
-          # Pinned modern host. The orchestrator never touches the
-          # target erl directly — only via TargetRunner shell-out.
-          otp-version: "28"
-          elixir-version: "1.19"
-      - name: Compile orchestrator
-        run: |
-          mix local.hex --force
-          mix local.rebar --force
-          mix deps.get
-          mix compile
-      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
-        env:
-          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
-          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
-        run: |
-          BENCH_ARG=""
-          if [ -n "$BENCHMARKS" ]; then
-            BENCH_ARG="--benchmarks $BENCHMARKS"
-          fi
-          mix awfy.measure \
-            --label "${{ matrix.target.label }}-macos-arm64-${{ matrix.flavor }}" \
-            --ignore-preflight \
-            $BENCH_ARG
-      - uses: actions/upload-artifact@v7
-        with:
-          name: results-${{ matrix.target.short }}-macos-arm64-${{ matrix.flavor }}
-          path: results/
-          retention-days: 30
-
-  # ---------------------------------------------------------------
-  # Phase-2 parallel `-target-v2` measure jobs. Run alongside the
-  # legacy `-target` jobs (which they don't replace until Phase 3
-  # of PLAN/TARGET_ELIXIR_RUNNER_PLAN.md). Both paths produce
-  # `.benchee` files for the same OTP refs into separate run-dirs
-  # so `bin/compare-target-paths.sh` can validate parity.
-  #
-  # Common shape per platform:
-  #   1. Acquire target OTP (docker pull on Linux, install-otp-* on
-  #      macOS/Windows — same as the legacy -target jobs).
-  #   2. Download the matching target_bundle_<version>.tar.gz from
-  #      prep-target-bundle (always via actions/download-artifact —
-  #      no S3 fallback in v1; AWS fetches the same artifact).
-  #   3. Extract the bundle, set AWFY_TARGET_ERL / AWFY_TARGET_BUNDLE
-  #      / AWFY_TARGET_BEAMS, invoke `mix awfy.measure --runner=bundle`.
-  #   4. Upload results into a `*-v2` artifact name so the legacy
-  #      and bundle paths don't clobber each other on staging.
-  # ---------------------------------------------------------------
-  measure-linux-target-v2:
     needs: [resolve, build-linux-target, prep-target-bundle]
     if: needs.resolve.outputs.has_legacy_linux == 'true'
     permissions:
@@ -1230,7 +838,7 @@ jobs:
           mix local.rebar --force
           mix deps.get
           mix compile
-      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }}, --runner=bundle)
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
@@ -1243,17 +851,17 @@ jobs:
           fi
           # shellcheck disable=SC2086 # CPU_PIN intentionally word-splits.
           $CPU_PIN mix awfy.measure \
-            --runner=bundle \
-            --label "${{ matrix.target.label }}-v2-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
+            \
+            --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}" \
             --ignore-preflight \
             $BENCH_ARG
       - uses: actions/upload-artifact@v7
         with:
-          name: results-v2-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
           path: results/
           retention-days: 30
 
-  measure-windows-target-v2:
+  measure-windows-target:
     needs: [resolve, prep-target-bundle]
     if: needs.resolve.outputs.has_legacy_windows == 'true'
     permissions:
@@ -1325,7 +933,7 @@ jobs:
           mix local.rebar --force
           mix deps.get
           mix compile
-      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }}, --runner=bundle)
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
         if: steps.install_target_otp.outputs.skipped != 'true'
         shell: pwsh
         env:
@@ -1338,8 +946,7 @@ jobs:
             [System.Diagnostics.Process]::GetCurrentProcess().ProcessorAffinity = [IntPtr]1
           }
           $args = @(
-            "--runner=bundle",
-            "--label", "${{ matrix.target.label }}-v2-windows-x86_64-${{ matrix.flavor }}",
+            "--label", "${{ matrix.target.label }}-windows-x86_64-${{ matrix.flavor }}",
             "--ignore-preflight"
           )
           if ($env:BENCHMARKS) { $args += @("--benchmarks", $env:BENCHMARKS) }
@@ -1347,11 +954,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: steps.install_target_otp.outputs.skipped != 'true'
         with:
-          name: results-v2-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
           path: results/
           retention-days: 30
 
-  measure-macos-target-v2:
+  measure-macos-target:
     needs: [resolve, prep-target-bundle]
     if: needs.resolve.outputs.has_legacy_macos == 'true'
     permissions:
@@ -1414,7 +1021,7 @@ jobs:
           mix local.rebar --force
           mix deps.get
           mix compile
-      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }}, --runner=bundle)
+      - name: Measure (target ${{ matrix.target.major }}, ${{ matrix.flavor }})
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
@@ -1425,36 +1032,29 @@ jobs:
             BENCH_ARG="--benchmarks $BENCHMARKS"
           fi
           mix awfy.measure \
-            --runner=bundle \
-            --label "${{ matrix.target.label }}-v2-macos-arm64-${{ matrix.flavor }}" \
+            \
+            --label "${{ matrix.target.label }}-macos-arm64-${{ matrix.flavor }}" \
             --ignore-preflight \
             $BENCH_ARG
       - uses: actions/upload-artifact@v7
         with:
-          name: results-v2-${{ matrix.target.short }}-macos-arm64-${{ matrix.flavor }}
+          name: results-${{ matrix.target.short }}-macos-arm64-${{ matrix.flavor }}
           path: results/
           retention-days: 30
 
   # Aggregate every uploaded results/ dir onto gh-pages and
   # regenerate the dashboard. Always GHA-hosted (no benchmark
   # accuracy needed). Runs even if some measure jobs fail —
-  # partial sweeps still produce a useful update. Phase 2's
-  # `-target-v2` jobs upload to a separate artifact namespace
-  # (`results-v2-*`) so the dashboard's own pattern (`results-*`)
-  # picks them up only if we explicitly stage them — for v2 we
-  # leave them off the dashboard until parity is confirmed.
+  # partial sweeps still produce a useful update.
   publish:
     needs:
       - resolve
       - measure-linux
       - measure-linux-target
-      - measure-linux-target-v2
       - measure-windows
       - measure-windows-target
-      - measure-windows-target-v2
       - measure-macos
       - measure-macos-target
-      - measure-macos-target-v2
     permissions:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}

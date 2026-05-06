@@ -80,6 +80,28 @@ Key points:
 - **Code paths are inherited**, so the peer loads the already-
   compiled `Awfy` + `Benchee` from `_build/`.
 
+## The bundle target path's isolation model
+
+For pre-OTP-24 measurements, the runner uses the bundle target
+path (`Awfy.Runner` + `apps/awfy_target_runner/`) instead of
+`:peer`. Each benchmark spawns a **fresh OS process** — `erl
+-noshell -s 'Elixir.Awfy.TargetRunner' main` exits between
+benchmarks rather than persisting like a peer would. Stronger
+isolation than the same-OS-process peer flow (every benchmark
+gets a virgin BEAM heap, fresh ETS, fresh atom table, fresh JIT
+state where applicable), at the cost of ~30-50 ms extra OS-fork
+overhead per benchmark.
+
+Bundle-path isolation is *also* strict per the policy above: one
+process per benchmark, no shared state across benchmarks, output
+saved from inside the target VM. The cost differential is in the
+noise relative to per-bench time budgets (4-10 s) and well
+inside the run-dir wall-clock margin. See
+`PLAN/TARGET_ELIXIR_RUNNER_PLAN.md` § Architecture and the
+moduledoc on `Awfy.Runner` for why we shell out via `System.cmd/3`
+rather than using `:peer.start_link/1`'s `:exec` option (ETF
+version-skew safety, swappable harness shape).
+
 ## Cost
 
 - **Peer startup**: ~300-500 ms per benchmark.

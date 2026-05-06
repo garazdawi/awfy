@@ -111,14 +111,16 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
       done; \
     fi
 
-# Build target beams for the AWFY suite + the target-runner harness
-# using the *just-installed* erlc. They land at
-# `/opt/awfy_target/awfy-0.1.0/{ebin,priv}` — under /opt/ rather than
-# /usr/local/lib/ so they don't collide with the regular OTP-app
-# lookup the host's `mix compile` does (the awfy app is also installed
-# there as a path dep). The peer adds this dir explicitly via -pa.
+# Build target benchmark beams using the *just-installed* erlc.
+# They land at `/opt/awfy_target/awfy-0.1.0/{ebin,priv}` — alongside
+# the OTP install at /usr/local rather than under it so the
+# target-runner-mode caller can pass them via -pa without colliding
+# with the host's `mix compile`-installed `awfy` app. The legacy
+# Erlang harness under `apps/awfy/src_target/` was retired in
+# Phase 3 of PLAN/TARGET_ELIXIR_RUNNER_PLAN.md; this stage now
+# compiles only the benchmark sources. AWS bare-metal extracts both
+# /usr/local and /opt/awfy_target via bin/extract-otp-from-image.sh.
 COPY apps/awfy/src/         /tmp/awfy_src/
-COPY apps/awfy/src_target/  /tmp/awfy_src_target/
 COPY apps/awfy/priv/        /opt/awfy_target/awfy-0.1.0/priv/
 RUN mkdir -p /opt/awfy_target/awfy-0.1.0/ebin && \
     /usr/local/bin/erlc -o /opt/awfy_target/awfy-0.1.0/ebin \
@@ -127,10 +129,13 @@ RUN mkdir -p /opt/awfy_target/awfy-0.1.0/ebin && \
         /tmp/awfy_src/awfy_som_vector.erl && \
     /usr/local/bin/erlc -pa /opt/awfy_target/awfy-0.1.0/ebin \
         -o /opt/awfy_target/awfy-0.1.0/ebin \
-        /tmp/awfy_src/*.erl /tmp/awfy_src_target/*.erl
+        /tmp/awfy_src/*.erl
 
-# In the app stage we'll pass /opt/awfy_target through verbatim so
-# `awfy.measure` can find it via $AWFY_TARGET_BEAMS.
+# Two output trees from the build stage:
+#   * /usr/local — OTP install (bin/erl, lib/erlang/...).
+#   * /opt/awfy_target/awfy-0.1.0 — target-erlc-compiled benchmarks.
+# Both get COPY'd into the app stage below; bin/extract-otp-from-
+# image.sh pulls both onto the host for the AWS bare-metal flow.
 
 # Sanity: confirm `erl` runs. We don't try `-emu_flavor jit/emu` here —
 # the available flavor names changed across OTP versions (OTP 26/27:
@@ -149,19 +154,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl unzip git \
     && rm -rf /var/lib/apt/lists/*
 
-# Carry over the OTP install + target beams from the build stage.
-# The image ships the target beams under /opt/awfy_target/ ready to
-# go, but doesn't auto-enable target-runner mode (no AWFY_TARGET_ERL
-# in ENV). Callers that need it set both env vars at `docker run`
-# time:
+# Carry over both the OTP install and target benchmark beams from
+# the build stage. The image ships the target beams under
+# /opt/awfy_target/ ready to go, but doesn't auto-enable
+# target-runner mode (no AWFY_TARGET_ERL in ENV). Callers that need
+# it set the env vars at `docker run` time:
 #
 #   docker run -e AWFY_TARGET_ERL=/usr/local/bin/erl \
 #              -e AWFY_TARGET_BEAMS=/opt/awfy_target/awfy-0.1.0/ebin \
 #              <image> awfy.measure …
 #
-# The default (env unset) keeps the current isolated-peer flow,
-# which runs Elixir benchmarks too — the right choice when target
-# OTP has a compatible Elixir.
+# The default (env unset) keeps the isolated-peer flow, which runs
+# Elixir benchmarks too — the right choice when target OTP has a
+# compatible Elixir.
 COPY --from=otp-build /usr/local /usr/local
 COPY --from=otp-build /opt/awfy_target /opt/awfy_target
 ENV PATH=/usr/local/bin:$PATH

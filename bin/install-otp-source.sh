@@ -246,8 +246,7 @@ trap 'rm -rf "$WORK"' EXIT
     # visible to the second pass so behaviour-conformance checks on the
     # benchmark modules don't print "behaviour awfy_benchmark undefined".
     "$PREFIX/bin/erlc" -pa "$TARGET_LIB/ebin" -o "$TARGET_LIB/ebin" \
-        "$AWFY_ROOT"/apps/awfy/src/*.erl \
-        "$AWFY_ROOT"/apps/awfy/src_target/*.erl
+        "$AWFY_ROOT"/apps/awfy/src/*.erl
     cp -R "$AWFY_ROOT"/apps/awfy/priv/. "$TARGET_LIB/priv/" 2>/dev/null || true
 } >&2
 

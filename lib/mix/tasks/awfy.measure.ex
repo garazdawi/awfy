@@ -49,14 +49,7 @@ defmodule Mix.Tasks.Awfy.Measure do
     warmup: :integer,
     no_clobber: :boolean,
     ignore_preflight: :boolean,
-    out: :string,
-    # Phase 2 of PLAN/TARGET_ELIXIR_RUNNER_PLAN.md — selects between
-    # the existing legacy harness (`peer-or-target`, default) and
-    # the new target-Elixir bundle path (`bundle`). Used while the
-    # `-target-v2` measure jobs run in parallel with the legacy
-    # `-target` jobs. Phase 3 collapses this to a single path and
-    # the flag goes away.
-    runner: :string
+    out: :string
   ]
 
   @format_version 1
@@ -149,8 +142,7 @@ defmodule Mix.Tasks.Awfy.Measure do
       skip: Enum.map(broken_entries, fn {entry, _} -> entry end),
       save_dir: dir,
       save_tag: label,
-      benchee: benchee_opts,
-      runner: parse_runner(opts[:runner])
+      benchee: benchee_opts
     )
 
     write_meta(dir, %{
@@ -166,22 +158,6 @@ defmodule Mix.Tasks.Awfy.Measure do
     })
 
     Mix.shell().info("\nWrote #{dir}/")
-  end
-
-  # `--runner=peer-or-target` (default) preserves the existing
-  # AWFY_TARGET_ERL-driven dispatch where setting the env var picks
-  # the legacy Erlang-only target harness, otherwise the same-OTP
-  # peer flow. `--runner=bundle` opts into the Phase 2 target-Elixir
-  # bundle path. Anything else raises early with a list of valid
-  # values rather than letting BencheeRunner discover the typo.
-  defp parse_runner(nil), do: :peer_or_target
-  defp parse_runner("peer-or-target"), do: :peer_or_target
-  defp parse_runner("bundle"), do: :bundle
-
-  defp parse_runner(other) do
-    Mix.raise(
-      "invalid --runner=#{inspect(other)}; expected one of: peer-or-target, bundle"
-    )
   end
 
   defp enforce_preflight do

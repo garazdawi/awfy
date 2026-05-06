@@ -157,28 +157,25 @@ defmodule Awfy.BencheeRunner do
 
     IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
 
-    runner_mode = Keyword.get(opts, :runner, :peer_or_target)
-
-    # Four execution modes, in priority order:
+    # Three execution modes, in priority order:
     #
-    #   1. Bundle target mode (`runner: :bundle` and AWFY_TARGET_ERL
-    #      set) — Phase 2 target-Elixir bundle path. Host shells out
-    #      to the bundle's pre-compiled `Awfy.TargetRunner` script;
-    #      the bundle writes a `.benchee` file directly.
-    #   2. Legacy target mode (`AWFY_TARGET_ERL` set, default runner) —
-    #      measure under a different OTP via the Erlang-only harness
-    #      in `apps/awfy/src_target/`. Phase 3 of
-    #      `PLAN/TARGET_ELIXIR_RUNNER_PLAN.md` deletes this branch.
-    #   3. In-process (`AWFY_NO_ISOLATION=1`) — for debugging and
+    #   1. Bundle target mode (`AWFY_TARGET_ERL` set) — measure
+    #      under a different OTP via the target-Elixir bundle. Host
+    #      shells out to the bundle's pre-compiled
+    #      `Awfy.TargetRunner` script (in
+    #      `apps/awfy_target_runner/`) via `Awfy.Runner.run/4`. The
+    #      bundle writes a `.benchee` file directly that the host
+    #      reads back through `binary_to_term/1`. The previous
+    #      Erlang-only harness in `apps/awfy/src_target/` was
+    #      retired in Phase 3 of
+    #      `PLAN/TARGET_ELIXIR_RUNNER_PLAN.md`.
+    #   2. In-process (`AWFY_NO_ISOLATION=1`) — for debugging and
     #      doctests, where wrapping in a peer adds nothing.
-    #   4. Isolated peer (default) — every benchmark runs in a fresh
-    #      same-OTP peer per ISOLATION_POLICY.md.
+    #   3. Isolated peer (default, OTP ≥ 24) — every benchmark
+    #      runs in a fresh same-OTP peer per `ISOLATION_POLICY.md`.
     cond do
-      runner_mode == :bundle and Awfy.TargetRunner.enabled?() ->
+      target_runner_enabled?() ->
         run_bundle(name, entries, inner_iter, benchee_opts)
-
-      Awfy.TargetRunner.enabled?() ->
-        run_target(name, entries, inner_iter, benchee_opts)
 
       System.get_env("AWFY_NO_ISOLATION") == "1" ->
         run_in_process(name, entries, inner_iter, benchee_opts)
@@ -188,6 +185,13 @@ defmodule Awfy.BencheeRunner do
     end
 
     :ok
+  end
+
+  defp target_runner_enabled? do
+    case System.get_env("AWFY_TARGET_ERL") do
+      v when is_binary(v) and v != "" -> true
+      _ -> false
+    end
   end
 
   defp run_bundle(name, entries, inner_iter, benchee_opts) do
@@ -269,26 +273,6 @@ defmodule Awfy.BencheeRunner do
   # call. Erlang entries are `{:erlang, :bounce}`; Elixir are
   # `{:elixir, Bounce}`. Both map to a single benchmark module.
   defp target_module({_lang, mod}), do: mod
-
-  defp run_target(name, entries, inner_iter, benchee_opts) do
-    case Awfy.TargetRunner.run_benchmark(name, entries, inner_iter, benchee_opts) do
-      nil ->
-        IO.puts(:stderr, "[target] no compatible scenarios for #{name}, skipping")
-
-      %Benchee.Suite{} = suite ->
-        print_target_summary(suite)
-
-        case Keyword.get(benchee_opts, :save) do
-          nil ->
-            :ok
-
-          save_opts ->
-            path = save_opts |> Keyword.fetch!(:path) |> to_string()
-            File.mkdir_p!(Path.dirname(path))
-            File.write!(path, :erlang.term_to_binary(suite))
-        end
-    end
-  end
 
   defp print_target_summary(%Benchee.Suite{scenarios: scenarios}) do
     IO.puts("\nName                        median       mean        σ      n")
