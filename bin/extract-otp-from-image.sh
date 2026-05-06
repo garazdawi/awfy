@@ -90,6 +90,30 @@ rm -rf "$TMP"
   exit 1
 }
 
+# OTP bakes the original install prefix into bin/erl, bin/erlc, the
+# erts-VSN/bin scripts, etc. (ROOTDIR=/usr/local/lib/erlang). After
+# relocating the tree to $OUTPUT we have to re-run OTP's own
+# Install script to rewrite those paths, otherwise:
+#   $OUTPUT/bin/erl: exec: /usr/local/lib/erlang/erts-VSN/bin/erlexec: not found
+# The Install script lives at <rootdir>/Install and accepts the new
+# ROOTDIR as its arg. `-minimal` skips reinstalling man pages and
+# other niceties we don't need for benchmarking.
+ROOTDIR="$OUTPUT/lib/erlang"
+if [ -x "$ROOTDIR/Install" ]; then
+  echo "[extract-otp] rebaking install paths via $ROOTDIR/Install -minimal $ROOTDIR" >&2
+  ( cd "$ROOTDIR" && ./Install -minimal "$ROOTDIR" >/dev/null )
+else
+  echo "[extract-otp] $ROOTDIR/Install missing — bin/erl may reference the original install path" >&2
+  exit 1
+fi
+
+# Sanity-check: erl actually runs after relocation.
+if ! "$OUTPUT/bin/erl" -noshell -eval 'halt()' 2>/dev/null; then
+  echo "[extract-otp] $OUTPUT/bin/erl failed to start after rebake" >&2
+  "$OUTPUT/bin/erl" -noshell -eval 'halt()' >&2 || true
+  exit 1
+fi
+
 ABS="$(cd "$OUTPUT" && pwd)"
 echo "[extract-otp] OTP at $ABS" >&2
 echo "$ABS"
