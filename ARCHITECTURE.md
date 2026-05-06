@@ -230,25 +230,46 @@ pre-built target bundle with `erl -noshell -pa <ebins> -s
 reads that file via `:erlang.binary_to_term/1` — same shape as the
 peer flow's `.benchee`, no schema divergence.
 
-Per scenario:
+Two argv shapes flow through the same `Awfy.TargetRunner.main/0`,
+selected by a leading `--otp-benchmarks` flag:
 
-1. **Argv**: host marshals `[module, inner_iter, time_s, warmup_s,
-   out_path]` into `-extra` (synonym `--`). Target reads via
-   `:init.get_plain_arguments/0`. See `apps/awfy_target_runner/lib/awfy/target_runner.ex`
-   moduledoc for the contract.
-2. **Code path**: `-pa <bundle>/lib/*/ebin` plus `AWFY_TARGET_BEAMS`
-   (the target-erlc-compiled benchmark modules from
-   `Dockerfile.linux`'s build stage or `bin/install-otp-source-mac.sh`'s
-   target compile).
-3. **Measurement**: Benchee on the target VM. Native run-time
+* **AWFY shape** — `[module, inner_iter, time_s, warmup_s, out_path]`.
+  Five positional args. Target loads `module` and runs
+  `module.benchmark(inner_iter)` under Benchee. Used by
+  `Awfy.Runner.run/4` for AWFY-suite scenarios (one per
+  `{lang, module}` benchmark entry).
+* **OtpBenchmarks shape** — `[--otp-benchmarks, family, time_s,
+  warmup_s, out_path]`. One flag + four positional args. Target
+  calls `family.inputs/0` on the loaded family module and runs
+  Benchee with `inputs:` so every input variant becomes its own
+  scenario in the saved suite. `family.setup/1` and
+  `family.teardown/1` go through Benchee's `:before_scenario` /
+  `:after_scenario` hooks. Used by `Awfy.Runner.run_otp_family/3`
+  for `OtpBenchmarks.Benchmark`-implementing modules.
+
+Both shapes share the rest of the contract:
+
+1. **Code path**: `-pa <bundle>/lib/*/ebin` (auto-globs every
+   sub-app in the bundle, including the freshly-compiled
+   `otp_benchmarks/ebin/`) plus `AWFY_TARGET_BEAMS` (the
+   target-erlc-compiled AWFY Erlang benchmark modules from
+   `Dockerfile.linux`'s build stage or
+   `bin/install-otp-source-mac.sh`'s target compile).
+2. **Measurement**: Benchee on the target VM. Native run-time
    budgeting; no calibration pass to size warmup/measure counts.
-4. **Save**: `Benchee.run` with `save: [path: out, tag: "target"]`
-   writes `term_to_binary(%Benchee.Suite{})` directly.
+3. **Save**: `Benchee.run` with `save: [path: out, tag: "target"]`
+   writes `term_to_binary(%Benchee.Suite{})` directly. Host reads
+   the file via `:erlang.binary_to_term/1` — same shape as the
+   peer flow's `.benchee`, no schema divergence.
 
 Elixir scenarios run as long as `module.benchmark/1` is loadable on
 the target VM; for OTP < 24 the pinned Elixir (1.9.4 / 1.11.4 /
 1.13.4 / 1.14.5) is what gates compatibility. Erlang benchmarks
-work on every supported OTP back to OTP 20.
+work on every supported OTP back to OTP 20. OtpBenchmarks families
+ship in the bundle (compiled by `bin/build-target-bundle.sh` against
+the target Elixir + OTP) so phash2 / ETS / etc. data lands on every
+target the bundle covers — `apps/otp_benchmarks/mix.exs` floor is
+`~> 1.9` to keep all four legacy Elixir pins in scope.
 
 #### Why the bundle uses an Elixir wrapper, not raw `erl -eval`
 

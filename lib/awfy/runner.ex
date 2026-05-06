@@ -96,6 +96,74 @@ defmodule Awfy.Runner do
     time = Keyword.get(opts, :time, 5)
     warmup = Keyword.get(opts, :warmup, 2)
     out = Keyword.get(opts, :out, default_out_path())
+
+    bundle_argv_prefix(bundle_dir, opts) ++
+      [
+        module_arg(module),
+        Integer.to_string(inner_iter),
+        seconds_arg(time),
+        seconds_arg(warmup),
+        out
+      ]
+  end
+
+  @doc """
+  Run one OtpBenchmarks family against the target bundle. Returns
+  the loaded `%Benchee.Suite{}` on success, `{:error, reason}` on
+  any failure (env not configured, target erl exits non-zero,
+  bundle didn't write a suite file, etc.).
+
+  Mirror of `run/4` for the multi-input scenario shape — see the
+  AWFY-shape branch's docstring for the env-var contract; the only
+  argv differences are the leading `--otp-benchmarks` flag and the
+  absence of the `inner_iter` positional. Defaults: `time: 3`,
+  `warmup: 1`.
+  """
+  @spec run_otp_family(String.t() | nil, module(), opts()) ::
+          {:ok, Benchee.Suite.t()} | {:error, term()}
+  def run_otp_family(bundle_dir, family, opts \\ []) when is_atom(family) do
+    bundle_dir = bundle_dir || opts[:bundle_dir] || System.get_env("AWFY_TARGET_BUNDLE")
+    erl = opts[:erl] || System.get_env("AWFY_TARGET_ERL")
+
+    cond do
+      erl in [nil, ""] ->
+        {:error, :no_target_erl}
+
+      bundle_dir in [nil, ""] ->
+        {:error, :no_target_bundle}
+
+      not File.exists?(erl) ->
+        {:error, {:erl_not_found, erl}}
+
+      not File.dir?(bundle_dir) ->
+        {:error, {:bundle_not_found, bundle_dir}}
+
+      true ->
+        do_run_otp_family(bundle_dir, erl, family, opts)
+    end
+  end
+
+  @doc """
+  argv for `run_otp_family/3`. Public for inspection / testing
+  symmetric with `argv_for/4`.
+  """
+  @spec otp_argv_for(String.t(), module(), opts()) :: [String.t()]
+  def otp_argv_for(bundle_dir, family, opts \\ []) when is_atom(family) do
+    time = Keyword.get(opts, :time, 3)
+    warmup = Keyword.get(opts, :warmup, 1)
+    out = Keyword.get(opts, :out, default_out_path())
+
+    bundle_argv_prefix(bundle_dir, opts) ++
+      [
+        "--otp-benchmarks",
+        module_arg(family),
+        seconds_arg(time),
+        seconds_arg(warmup),
+        out
+      ]
+  end
+
+  defp bundle_argv_prefix(bundle_dir, opts) do
     extra_paths = Keyword.get(opts, :extra_paths, [])
 
     pa_flags =
@@ -112,12 +180,7 @@ defmodule Awfy.Runner do
         # tail into `:init.get_plain_arguments/0`. Use `-extra`
         # explicitly so older OTP 19/20 emulators that treated `--`
         # ambiguously stay on the unambiguous path.
-        "-extra",
-        module_arg(module),
-        Integer.to_string(inner_iter),
-        seconds_arg(time),
-        seconds_arg(warmup),
-        out
+        "-extra"
       ]
   end
 
@@ -127,6 +190,24 @@ defmodule Awfy.Runner do
     opts = Keyword.put(opts, :out, out)
 
     args = argv_for(bundle_dir, module, inner_iter, opts)
+    env = Keyword.get(opts, :extra_env, [])
+
+    case System.cmd(erl, args, env: env, stderr_to_stdout: true) do
+      {_output, 0} ->
+        decode_suite(out)
+
+      {output, status} ->
+        File.rm(out)
+        {:error, {:erl_exit, status, output}}
+    end
+  end
+
+  defp do_run_otp_family(bundle_dir, erl, family, opts) do
+    out = Keyword.get_lazy(opts, :out, &default_out_path/0)
+    File.mkdir_p!(Path.dirname(out))
+    opts = Keyword.put(opts, :out, out)
+
+    args = otp_argv_for(bundle_dir, family, opts)
     env = Keyword.get(opts, :extra_env, [])
 
     case System.cmd(erl, args, env: env, stderr_to_stdout: true) do

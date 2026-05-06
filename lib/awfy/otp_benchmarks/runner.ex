@@ -12,15 +12,12 @@ defmodule Awfy.OtpBenchmarks.Runner do
 
   Execution-mode dispatch matches the AWFY runner:
 
+    * `AWFY_TARGET_ERL` set → bundle-target shell-out via
+      `Awfy.Runner.run_otp_family/3` (cross-OTP path; suite
+      executed under the target erl, suite term shipped back via
+      `binary_to_term`).
     * `AWFY_NO_ISOLATION=1` → in-process (debug / doctest)
     * default (OTP ≥ 24)    → `Awfy.PeerRunner.run_mfa/4` per family
-
-  Cross-OTP / bundle-target mode is not wired here yet — extended
-  benchmarks ship inside `apps/otp_benchmarks/`, so the target
-  erlc compiles them alongside the AWFY suite, but the bundle
-  entry point still needs a sibling to `Awfy.TargetRunner` that
-  knows about the scenario-list shape. Tracked under
-  `PLAN/EXTENDED_BENCH_PLAN.md` step 8.
   """
 
   @type opts :: [
@@ -58,6 +55,9 @@ defmodule Awfy.OtpBenchmarks.Runner do
     IO.puts("\n=== #{name} (#{map_size(mod.inputs())} scenarios) ===")
 
     cond do
+      target_runner_enabled?() ->
+        run_bundle(mod, benchee_opts)
+
       System.get_env("AWFY_NO_ISOLATION") == "1" ->
         do_run(mod, benchee_opts)
 
@@ -90,6 +90,90 @@ defmodule Awfy.OtpBenchmarks.Runner do
 
     Benchee.run(%{mod.name() => fn input -> mod.run(input) end}, benchee_opts)
   end
+
+  defp target_runner_enabled? do
+    case System.get_env("AWFY_TARGET_ERL") do
+      v when is_binary(v) and v != "" -> true
+      _ -> false
+    end
+  end
+
+  defp run_bundle(mod, benchee_opts) do
+    bundle_dir = System.get_env("AWFY_TARGET_BUNDLE")
+
+    if bundle_dir in [nil, ""] do
+      Mix.raise(
+        "AWFY_TARGET_BUNDLE must be set to the extracted target-Elixir " <>
+          "bundle when AWFY_TARGET_ERL is set"
+      )
+    end
+
+    extra_paths =
+      case System.get_env("AWFY_TARGET_BEAMS") do
+        nil -> []
+        "" -> []
+        v -> String.split(v, [":", ";"], trim: true)
+      end
+
+    time = Keyword.get(benchee_opts, :time)
+    warmup = Keyword.get(benchee_opts, :warmup, 1)
+
+    case Awfy.Runner.run_otp_family(bundle_dir, mod,
+           time: time,
+           warmup: warmup,
+           extra_paths: extra_paths
+         ) do
+      {:ok, suite} ->
+        print_target_summary(suite)
+        maybe_save_suite(suite, benchee_opts)
+
+      {:error, reason} ->
+        IO.puts(
+          :stderr,
+          "[bundle] #{mod.name()} failed: #{inspect(reason)} — skipping family"
+        )
+    end
+  end
+
+  # Bundle's TargetRunner already wrote a `.benchee` to its tmp out
+  # path inside `Awfy.Runner.run_otp_family`; the host received the
+  # decoded suite struct. If the caller asked us to save (via
+  # `:save_dir` → benchee_opts.save), copy the suite to that path
+  # using the standard term_to_binary shape — same dance the AWFY
+  # bundle path does in `Awfy.BencheeRunner.run_bundle`.
+  defp maybe_save_suite(suite, benchee_opts) do
+    case Keyword.get(benchee_opts, :save) do
+      nil ->
+        :ok
+
+      opts ->
+        path = opts |> Keyword.fetch!(:path) |> to_string()
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, :erlang.term_to_binary(suite))
+    end
+  end
+
+  defp print_target_summary(%Benchee.Suite{scenarios: scenarios}) do
+    IO.puts("\nName                        median       mean        σ      n")
+
+    Enum.each(scenarios, fn s ->
+      st = s.run_time_data.statistics
+      label = scenario_label(s)
+
+      :io.format("~-26s ~9.3f ms ~7.3f ms ~7.3f ~6B~n", [
+        label,
+        (st.median || 0) / 1_000_000,
+        (st.average || 0) / 1_000_000,
+        (st.std_dev || 0) / 1_000_000,
+        st.sample_size || 0
+      ])
+    end)
+  end
+
+  defp scenario_label(%{name: name, input_name: input}) when is_binary(input),
+    do: "#{name}/#{input}"
+
+  defp scenario_label(%{name: name}), do: name
 
   defp build_benchee_opts(name, opts) do
     base =

@@ -24,6 +24,13 @@ defmodule OtpBenchmarks.MixProject do
   is compatible with the target OTP, all benchmark sources under
   `lib/`. Anything that needs Benchee / Jason / orchestration
   belongs in the runner project at the repo root, not here.
+
+  The Elixir floor is `~> 1.9` to cover the legacy bundle path's
+  target Elixirs (1.9.4 for OTP 20, 1.11.4 for OTP 21, 1.13.4 for
+  OTP 22, 1.14.5 for OTP 23). `bin/build-target-bundle.sh` mix-
+  compiles this app under whichever target Elixir matches the
+  target OTP, so the floor is load-bearing — bumping it narrows
+  the OTP range that can produce OtpBenchmarks data.
   """
   use Mix.Project
 
@@ -31,7 +38,7 @@ defmodule OtpBenchmarks.MixProject do
     [
       app: :otp_benchmarks,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      elixir: "~> 1.9",
       elixirc_paths: ["lib"],
       start_permanent: false,
       deps: []

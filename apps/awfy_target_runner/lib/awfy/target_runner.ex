@@ -3,20 +3,20 @@
 
 defmodule Awfy.TargetRunner do
   @moduledoc """
-  Target-side run script. Invoked by `Awfy.Runner` on the host via
-  `erl -s` against a target Elixir bundle:
+  Target-side run script. Invoked by the host via `erl -s` against
+  a target Elixir bundle in one of two argv shapes — AWFY (the
+  legacy single-benchmark form) or OtpBenchmarks (multi-input
+  family form). `main/0` reads `:init.get_plain_arguments/0`,
+  dispatches on the leading flag, runs `Benchee.run/2`, and
+  writes a `.benchee` file the host reads back via
+  `:erlang.binary_to_term/1`.
+
+  ## AWFY shape
 
       $TARGET/bin/erl -noshell \\
         -pa $BUNDLE/lib/*/ebin \\
         -s 'Elixir.Awfy.TargetRunner' main \\
         -extra <module> <inner_iter> <time_s> <warmup_s> <out_path>
-
-  `main/0` reads its config from `:init.get_plain_arguments/0`,
-  invokes `Benchee.run/2` against the named benchmark module, and
-  writes a `.benchee` file at `<out_path>` that the host's
-  `Awfy.Compare.Data.load/1` reads back without further conversion.
-
-  ## Argv contract
 
   Five positional args:
 
@@ -28,10 +28,25 @@ defmodule Awfy.TargetRunner do
   | 4        | warmup      | seconds | Benchee `:warmup` budget (int or float)          |
   | 5        | out         | path    | absolute path the `.benchee` file is written to  |
 
-  The benchmark module must export `benchmark/1` taking the inner
-  iteration count. For Erlang benchmarks (atom `:bounce`) that
-  resolves to `bounce:benchmark(InnerIter)`; for Elixir benchmarks
-  (atom `Bounce`) it resolves to `Bounce.benchmark(inner_iter)`.
+  ## OtpBenchmarks shape
+
+      $TARGET/bin/erl -noshell \\
+        -pa $BUNDLE/lib/*/ebin \\
+        -s 'Elixir.Awfy.TargetRunner' main \\
+        -extra --otp-benchmarks <family_module> <time_s> <warmup_s> <out_path>
+
+  One leading flag + four positional args. The family module is an
+  Elixir module implementing `OtpBenchmarks.Benchmark` (e.g.
+  `Elixir.OtpBenchmarks.Benchmarks.Phash2`). Inputs come from
+  `family.inputs/0` on the target VM — the family module's `.beam`
+  must be on the `-pa` path (via `AWFY_TARGET_BEAMS` carrying
+  `<prefix>/awfy_target/otp_benchmarks-0.1.0/ebin`).
+
+  Setup / teardown go through Benchee's `:before_scenario` /
+  `:after_scenario` hooks, mirroring the host-side
+  `Awfy.OtpBenchmarks.Runner.do_run/2` flow. Saved `.benchee` has
+  one scenario per input — the host reads it back identically to
+  any peer-mode OtpBenchmarks run.
 
   ## Why `main/0` reads `:init.get_plain_arguments/0`
 
@@ -50,20 +65,31 @@ defmodule Awfy.TargetRunner do
 
   @doc """
   Entry point invoked by `erl -s 'Elixir.Awfy.TargetRunner' main`.
+
+  Dispatches on the leading argv element:
+
+    * `--otp-benchmarks` → multi-input family shape via `run_otp_family/1`.
+    * anything else      → AWFY single-benchmark shape via `run/1`.
   """
   @spec main() :: no_return()
   def main do
-    :init.get_plain_arguments()
-    |> Enum.map(&List.to_string/1)
-    |> parse_args()
-    |> run()
+    args = :init.get_plain_arguments() |> Enum.map(&List.to_string/1)
+
+    case args do
+      ["--otp-benchmarks" | rest] ->
+        rest |> parse_otp_args() |> run_otp_family()
+
+      _ ->
+        args |> parse_args() |> run()
+    end
 
     :init.stop()
   end
 
   @doc """
-  Parse argv (a list of strings) into a config map. Public so
-  tests can exercise the contract without spinning up a target erl.
+  Parse AWFY-shape argv (a list of strings) into a config map.
+  Public so tests can exercise the contract without spinning up a
+  target erl.
   """
   @spec parse_args([String.t()]) :: %{
           module: atom(),
@@ -86,6 +112,33 @@ defmodule Awfy.TargetRunner do
     raise ArgumentError,
           "expected 5 plain args (module inner_iter time warmup out), got: " <>
             inspect(other)
+  end
+
+  @doc """
+  Parse OtpBenchmarks-shape argv (after the leading
+  `--otp-benchmarks` flag has been peeled off in `main/0`) into a
+  config map. Public so tests can exercise the parsing without
+  spinning up a target erl.
+  """
+  @spec parse_otp_args([String.t()]) :: %{
+          family: atom(),
+          time: number(),
+          warmup: number(),
+          out: String.t()
+        }
+  def parse_otp_args([family, time, warmup, out]) do
+    %{
+      family: String.to_atom(family),
+      time: parse_seconds("time", time),
+      warmup: parse_seconds("warmup", warmup),
+      out: out
+    }
+  end
+
+  def parse_otp_args(other) do
+    raise ArgumentError,
+          "expected 4 plain args after --otp-benchmarks " <>
+            "(family time warmup out), got: " <> inspect(other)
   end
 
   defp parse_seconds(field, raw) do
@@ -138,5 +191,30 @@ defmodule Awfy.TargetRunner do
 
   defp bench_fn(module, inner_iter) do
     fn -> module.benchmark(inner_iter) end
+  end
+
+  @doc """
+  Run one OtpBenchmarks family on the target VM. Mirrors
+  `Awfy.OtpBenchmarks.Runner.do_run/2` on the host: builds a single
+  Benchee scenario keyed by the family's `name/0` and runs it
+  across the inputs from `inputs/0`, with `setup/1` and
+  `teardown/1` wired into Benchee's per-scenario hooks. Public so
+  tests can drive the path with a stub family module.
+  """
+  @spec run_otp_family(map()) :: %Benchee.Suite{}
+  def run_otp_family(%{family: family, time: time, warmup: warmup, out: out}) do
+    Benchee.run(
+      %{family.name() => fn input -> family.run(input) end},
+      inputs: family.inputs(),
+      before_scenario: fn raw -> family.setup(raw) end,
+      after_scenario: fn state -> family.teardown(state) end,
+      time: time,
+      warmup: warmup,
+      memory_time: 0,
+      reduction_time: 0,
+      print: [benchmarking: false, configuration: false, fast_warning: false],
+      formatters: [],
+      save: [path: out, tag: "target"]
+    )
   end
 end

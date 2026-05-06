@@ -307,11 +307,28 @@ per Benchee iteration) rather than CLI-driven.
    is short.
 8. Port mnesia TPC-B `disc_only_copies`. Should be a one-line diff
    from #7 once the framework exists.
-9. Cross-OTP wiring for OtpBenchmarks: extend the target bundle
-   path so OTP < 24 measure jobs produce phash2/ETS/etc. data
-   (today they only emit AWFY). Touches
-   `apps/awfy_target_runner/`, `bin/install-otp-source-mac.sh`,
-   `Dockerfile.linux`, and `bin/build-target-bundle.sh`.
+9. ✅ Cross-OTP wiring for OtpBenchmarks. Bundle path now produces
+   phash2 (and any future OtpBenchmarks family) on legacy targets:
+     * `Awfy.TargetRunner` gained an `--otp-benchmarks` argv shape
+       (`family time warmup out`) that runs Benchee with
+       `inputs:` against the family's `inputs/0`.
+     * `Awfy.Runner.run_otp_family/3` shells out with that argv
+       shape (mirror of `Awfy.Runner.run/4`).
+     * `Awfy.OtpBenchmarks.Runner.run_one` detects
+       `AWFY_TARGET_ERL` and routes through the bundle path
+       instead of skipping; the host re-saves the loaded suite
+       to the run-dir's `<family>.benchee` path so the on-disk
+       shape matches peer-mode.
+     * `bin/build-target-bundle.sh` mix-compiles
+       `apps/otp_benchmarks/` under the target Elixir and copies
+       the resulting OTP-app dir into `bundle/lib/otp_benchmarks/`,
+       so every legacy bundle ships the suite. Sanity-checks the
+       phash2 family beam landed before tarring.
+     * `apps/otp_benchmarks/mix.exs` Elixir floor lowered to
+       `~> 1.9` so Elixir 1.9.4 / 1.11.4 / 1.13.4 / 1.14.5 (the
+       OTP 20 / 21 / 22 / 23 pins) compile the suite.
+     * `mix awfy.measure` no longer short-circuits OtpBenchmarks
+       when `AWFY_TARGET_ERL` is set.
 10. Per-benchmark `:time` calibration pass — same pattern as the
     compute calibration we did for AWFY.
 

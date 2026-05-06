@@ -96,4 +96,78 @@ defmodule Awfy.TargetRunnerTest do
                loaded.scenarios
     end
   end
+
+  describe "parse_otp_args/1" do
+    test "happy path: 4 positional args after the flag" do
+      assert %{
+               family: OtpBenchmarks.Benchmarks.Phash2,
+               time: 3,
+               warmup: 1,
+               out: "/tmp/phash2.benchee"
+             } ==
+               TargetRunner.parse_otp_args([
+                 "Elixir.OtpBenchmarks.Benchmarks.Phash2",
+                 "3",
+                 "1",
+                 "/tmp/phash2.benchee"
+               ])
+    end
+
+    test "fractional seconds for time/warmup" do
+      assert %{time: 0.5, warmup: 0.1} =
+               TargetRunner.parse_otp_args([
+                 "Elixir.OtpBenchmarks.Benchmarks.Phash2",
+                 "0.5",
+                 "0.1",
+                 "/tmp/x.benchee"
+               ])
+    end
+
+    test "bad arity raises with the OtpBenchmarks message" do
+      assert_raise ArgumentError, ~r/expected 4 plain args after --otp-benchmarks/, fn ->
+        TargetRunner.parse_otp_args(["only_three", "args", "here"])
+      end
+    end
+  end
+
+  describe "run_otp_family/1 — multi-input scenario shape" do
+    # Stub family used to exercise the multi-input shape without
+    # depending on apps/otp_benchmarks/ being on the test code path.
+    # Mirrors the OtpBenchmarks.Benchmark behaviour just enough for
+    # Benchee + the runner to dispatch through it.
+    defmodule StubFamily do
+      def name, do: "stub"
+      def inputs, do: %{"a" => 1, "b" => 2}
+      def setup(raw), do: raw
+      def teardown(_), do: :ok
+      def run(_input), do: :ok
+    end
+
+    test "writes a Benchee.Suite with one scenario per declared input" do
+      out =
+        Path.join(
+          System.tmp_dir!(),
+          "awfy-target-runner-otp-#{System.unique_integer([:positive])}.benchee"
+        )
+
+      on_exit(fn -> File.rm(out) end)
+
+      config = %{
+        family: StubFamily,
+        time: 0.05,
+        warmup: 0.01,
+        out: out
+      }
+
+      suite = TargetRunner.run_otp_family(config)
+      assert %Benchee.Suite{} = suite
+      assert File.exists?(out)
+
+      loaded = out |> File.read!() |> :erlang.binary_to_term()
+      input_names =
+        loaded.scenarios |> Enum.map(& &1.input_name) |> Enum.sort()
+
+      assert input_names == ["a", "b"]
+    end
+  end
 end

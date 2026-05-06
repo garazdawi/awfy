@@ -30,10 +30,10 @@ defmodule Mix.Tasks.Awfy.Measure do
   Each invocation runs both the AWFY cross-language suite and the
   OtpBenchmarks BEAM-internal suite (phash2 today, ETS / Mnesia /
   estone over time — see `PLAN/EXTENDED_BENCH_PLAN.md`). Outputs
-  land in the same run-dir; the OtpBenchmarks pass is skipped
-  automatically when bundle-target mode is active
-  (`AWFY_TARGET_ERL` set), since cross-OTP wiring for that suite
-  hasn't landed yet.
+  land in the same run-dir. Both suites run uniformly across the
+  modern peer flow (OTP ≥ 24, same-OTP) and the legacy bundle-target
+  flow (OTP < 24); the dispatch lives in each suite's runner and
+  is transparent to this task.
 
   `--benchmarks` filters across both suites by family name
   (`Bounce` matches the AWFY entry, `phash2` matches the
@@ -205,23 +205,20 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   # Compute the OtpBenchmarks families to measure in this run. Honors:
   #   * `--no-otp-benchmarks` — explicit opt-out.
-  #   * `AWFY_TARGET_ERL` — bundle-target mode, where OtpBenchmarks
-  #     can't run yet (no cross-OTP wiring; see
-  #     `PLAN/EXTENDED_BENCH_PLAN.md` step 8). Skip silently rather
-  #     than fail the whole legacy measure leg.
   #   * `--benchmarks <list>` — same name-set filter as AWFY uses; an
   #     empty filter (nil) means "every registered family".
+  #
+  # Bundle-target mode (`AWFY_TARGET_ERL` set) is no longer
+  # short-circuited — `Awfy.OtpBenchmarks.Runner.run_one` detects
+  # the env var and routes through `Awfy.Runner.run_otp_family/3`,
+  # so the same families measure across modern peer-flow and legacy
+  # bundle-target legs uniformly.
   defp otp_families_to_run(bench_filter, opts) do
-    cond do
-      opts[:no_otp_benchmarks] ->
-        []
-
-      System.get_env("AWFY_TARGET_ERL") not in [nil, ""] ->
-        []
-
-      true ->
-        OtpBenchmarks.benchmarks()
-        |> filter_otp_families(bench_filter)
+    if opts[:no_otp_benchmarks] do
+      []
+    else
+      OtpBenchmarks.benchmarks()
+      |> filter_otp_families(bench_filter)
     end
   end
 

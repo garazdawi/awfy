@@ -33,6 +33,11 @@
 #     lib/{eex,ex_unit,iex,logger,mix}/ebin/ # Elixir sub-apps
 #     lib/awfy_target_runner/{ebin,priv}/    # this sub-app
 #     lib/{benchee,deep_merge,statistex}/ebin/  # vendored deps
+#     lib/otp_benchmarks/ebin/               # OtpBenchmarks suite,
+#                                            # compiled under the target
+#                                            # Elixir+OTP so phash2 /
+#                                            # ETS / etc. families load
+#                                            # on legacy targets.
 #
 # All file paths inside the bundle are relative; extract anywhere
 # and invoke `bundle/bin/elixir` (target erl must be on PATH or
@@ -137,6 +142,38 @@ cp -R "$BUILD_LIB/." "$BUNDLE/lib/"
 RUNNER_BEAM="$BUNDLE/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"
 [ -f "$RUNNER_BEAM" ] || {
   echo "[build-target-bundle] runner beam missing: $RUNNER_BEAM" >&2
+  exit 1
+}
+
+# OtpBenchmarks suite — compile separately under the target Elixir
+# so the .beam files are loadable on the target VM, then copy the
+# resulting OTP-app directory into the bundle. We keep this as a
+# distinct mix invocation rather than a path-dep of the harness
+# sub-app: the harness ships its own pinned vendored deps and we
+# don't want apps/otp_benchmarks/'s evolution to drag those.
+#
+# The target Elixir's `~> 1.9` floor (apps/otp_benchmarks/mix.exs)
+# is what makes this compile work for OTP 20 / 21 / 22 / 23 —
+# bumping it would silently drop OtpBenchmarks data on those legs.
+echo "[build-target-bundle] compiling apps/otp_benchmarks under target Elixir" >&2
+OTP_BENCH_APP="$AWFY_ROOT/apps/otp_benchmarks"
+(
+  cd "$OTP_BENCH_APP"
+  mix compile >&2
+)
+OTP_BENCH_BUILD="$OTP_BENCH_APP/_build/prod/lib/otp_benchmarks"
+[ -d "$OTP_BENCH_BUILD" ] || {
+  echo "[build-target-bundle] expected $OTP_BENCH_BUILD after mix compile" >&2
+  exit 1
+}
+cp -R "$OTP_BENCH_BUILD" "$BUNDLE/lib/"
+
+# Sanity-check: the phash2 family beam landed in the bundle. If a
+# new family is added without the build picking it up (e.g. a
+# typo'd module name), this catches it before the bundle ships.
+PHASH2_BEAM="$BUNDLE/lib/otp_benchmarks/ebin/Elixir.OtpBenchmarks.Benchmarks.Phash2.beam"
+[ -f "$PHASH2_BEAM" ] || {
+  echo "[build-target-bundle] phash2 family beam missing: $PHASH2_BEAM" >&2
   exit 1
 }
 
