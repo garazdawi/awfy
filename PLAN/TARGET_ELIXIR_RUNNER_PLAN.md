@@ -335,13 +335,14 @@ Phases 0-3 landed (commits `2de710c6` plan resolutions, `55e5c99c` Phase 0, `b63
 
    One snag worth keeping noted for next time: `bin/build-target-bundle.sh` once exited 0 right after `install-elixir-source.sh` returned, without writing the tarball — couldn't reproduce. The script now ends with a `[ -s "$OUTPUT" ]` sanity check so a future silent regression fails loudly.
 
-2. **Phase 2/3 acceptance — first CI run on push.** The merged `bench.yml`'s push trigger fires the smoke automatically (`refs=21,28,master`, `runner_pool=gha`). The next push to master will exercise:
-   - `build-linux-target` (legacy SHAs through the same Dockerfile as modern).
-   - `prep-target-bundle`'s `docker pull` + `bin/extract-otp-from-image.sh` pipeline (the merge of `/usr/local` and `/opt/awfy_target` has never run in CI).
-   - Artifact name handshake between `prep-target-bundle` and the renamed `measure-*-target` jobs.
-   - The new env-var wiring (`AWFY_TARGET_BUNDLE`, the corrected `AWFY_TARGET_BEAMS` path).
-   - Cross-platform parity (Linux x86_64 + arm64, Windows, macOS — push covers all three).
-   First successful push run is the real Phase 3 acceptance.
+2. **Phase 2/3 acceptance — first CI run on push.** Modern path validated; legacy path in progress with two fixes in flight.
+
+   Run history so far (push trigger, `refs=21,28,master`, `runner_pool=gha`):
+   - **`25428842776`** (head `86703a4c`): modern path fully green (resolve, build-linux × 2 arches × 2 modern OTPs, measure-{linux,windows,macos} all green, publish green). Legacy `build-linux-target` failed because the merged Dockerfile.linux's `app` stage installs the precompiled `elixir-otp-${ELIXIR_OTP_MAJOR}.zip` and runs `mix deps.get`, but the resolve script picks `elixir_bundle=28` for OTP 21 (Elixir 1.19's OTP-28 build) which is incompatible with the OTP 21.3 emulator (`undef elixir:start_cli/0`). All legacy chain skipped.
+   - **`25429119193`** (head `790d9805`): fix — `build-linux-target` now passes `target: otp-build` to docker/build-push-action so the legacy build stops at the OTP stage instead of running through the Elixir-installing app stage. Legacy build-linux-target green on both arches; `prep-target-bundle` then failed with `bin/erl: exec: /usr/local/lib/erlang/erts-10.3.5.19/bin/erlexec: not found` — OTP bakes the install prefix into its wrapper scripts at build time, and after extracting from `/usr/local` in the image to `$PWD/otp` on the host, the scripts still reference the original path.
+   - **`25429667553`** (head `066fe3f6`, queued): fix — `bin/extract-otp-from-image.sh` now runs OTP's own `Install -minimal <new-rootdir>` script after relocation, which is the upstream-documented mechanism for re-baking ROOTDIR in every wrapper script under `<root>/bin` and `<root>/erts-*/bin`. Plus a `bin/erl -noshell -eval halt()` sanity check so future regressions fail loudly here.
+
+   What still needs to land green in the next run: `prep-target-bundle (21, 1.11.4)`, `measure-{linux,windows,macos}-target` for OTP-21, plus the artifact handshake between them.
 
 ### Plan items we deferred during implementation
 
