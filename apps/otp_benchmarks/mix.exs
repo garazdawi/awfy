@@ -46,6 +46,12 @@ defmodule OtpBenchmarks.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger]]
+    # `:mnesia` is loaded for the Mnesia TPC-B families'
+    # `:mnesia.start/0` setup; it has to be in the extra-apps list
+    # so the BEAM finds it without an explicit
+    # `Application.ensure_all_started/1`. Loading mnesia at app
+    # boot is cheap when no schema is configured (no on-disk dirs
+    # touched until create_schema is called).
+    [extra_applications: [:logger, :mnesia]]
   end
 end
