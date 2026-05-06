@@ -144,6 +144,18 @@ RUNNER_BEAM="$BUNDLE/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"
 mkdir -p "$(dirname "$OUTPUT")"
 tar czf "$OUTPUT" -C "$STAGE" bundle
 
+# Belt-and-braces: make sure the tarball actually materialised. Local
+# smoke-testing once hit a case where the script appeared to exit 0
+# right after install-elixir-source.sh returned, with no tar output
+# and no error — `set -e` should have caught it but didn't. Failing
+# loudly here means a silent regression next time gets caught at
+# the end of the build instead of in the smoke step that consumes
+# this bundle.
+[ -s "$OUTPUT" ] || {
+  echo "[build-target-bundle] expected tarball at $OUTPUT but file is missing or empty" >&2
+  exit 1
+}
+
 ABS_OUT="$(cd "$(dirname "$OUTPUT")" && pwd)/$(basename "$OUTPUT")"
 SIZE="$(du -h "$ABS_OUT" | awk '{print $1}')"
 echo "[build-target-bundle] wrote $ABS_OUT ($SIZE)" >&2

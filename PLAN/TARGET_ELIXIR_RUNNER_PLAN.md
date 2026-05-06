@@ -329,13 +329,19 @@ Phases 0-3 landed (commits `2de710c6` plan resolutions, `55e5c99c` Phase 0, `b63
 
 ### Validation we still owe
 
-1. **Phase 1 acceptance — local end-to-end smoke.** `bin/install-otp-source.sh OTP-20.3` → `bin/build-target-bundle.sh "$prefix" 1.9.4` → extract bundle → run a one-line benchmark via `erl -s 'Elixir.Awfy.TargetRunner' main` → load the resulting `.benchee` via `binary_to_term/1`. Highest-risk untested surface; everything later assumes this works. ~30-40 min cold-cache.
+1. ✅ **Phase 1 acceptance — local end-to-end smoke.** Done.
+   `bin/install-otp-source.sh OTP-20.3` source-built OTP 20.3 on macOS arm64 with the existing patch stack; `bin/build-target-bundle.sh` produced a 5.3 MB bundle; `erl -s 'Elixir.Awfy.TargetRunner' main -extra …` against a one-line `bench_smoke` benchmark wrote a `.benchee` file that `:erlang.binary_to_term/1` round-trips into a `%Benchee.Suite{}` via the host project's Benchee — schema match holds.
+   Also exercised `Awfy.Runner.run/4` (the host wrapper) directly: `{:ok, suite}`, median 1.0µs, n=1M.
 
-2. **Phase 2/3 acceptance — first CI dispatch.** `workflow_dispatch` of `bench.yml` with a tight scope (e.g. `otp_refs=21`, `runner_pool=gha`) to shake out:
-   - `prep-target-bundle`'s `docker pull` + `bin/extract-otp-from-image.sh` pipeline (the pipeline's never been exercised in CI — it merges `/usr/local` and `/opt/awfy_target` into one tree).
-   - Artifact name handshake between `prep-target-bundle` and the measure jobs.
-   - The new env-var wiring (`AWFY_TARGET_BUNDLE`, AWFY_TARGET_BEAMS path expectations).
-   First successful run is the real Phase 3 acceptance.
+   One snag worth keeping noted for next time: `bin/build-target-bundle.sh` once exited 0 right after `install-elixir-source.sh` returned, without writing the tarball — couldn't reproduce. The script now ends with a `[ -s "$OUTPUT" ]` sanity check so a future silent regression fails loudly.
+
+2. **Phase 2/3 acceptance — first CI run on push.** The merged `bench.yml`'s push trigger fires the smoke automatically (`refs=21,28,master`, `runner_pool=gha`). The next push to master will exercise:
+   - `build-linux-target` (legacy SHAs through the same Dockerfile as modern).
+   - `prep-target-bundle`'s `docker pull` + `bin/extract-otp-from-image.sh` pipeline (the merge of `/usr/local` and `/opt/awfy_target` has never run in CI).
+   - Artifact name handshake between `prep-target-bundle` and the renamed `measure-*-target` jobs.
+   - The new env-var wiring (`AWFY_TARGET_BUNDLE`, the corrected `AWFY_TARGET_BEAMS` path).
+   - Cross-platform parity (Linux x86_64 + arm64, Windows, macOS — push covers all three).
+   First successful push run is the real Phase 3 acceptance.
 
 ### Plan items we deferred during implementation
 
