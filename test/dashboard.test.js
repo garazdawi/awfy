@@ -115,6 +115,71 @@ describe("seriesAxis", () => {
   });
 });
 
+describe("foldMultiInputFamilies", () => {
+  it("passes AWFY rows through unchanged", () => {
+    const awfyRows = [
+      { lang: "erlang", input: null, median_ms: 100, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "Bounce", label: "v1", otp: "28.0", stddev_ms: 1 },
+      { lang: "elixir", input: null, median_ms: 110, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "Bounce", label: "v1", otp: "28.0", stddev_ms: 2 }
+    ];
+    const out = dash.foldMultiInputFamilies(awfyRows);
+    expect(out).toHaveLength(2);
+    expect(out).toEqual(expect.arrayContaining(awfyRows));
+  });
+
+  it("folds OtpBenchmarks rows into one geomean cell per (label, mc, otp, family)", () => {
+    const rows = [
+      { lang: null, input: "atom", median_ms: 100, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0", stddev_ms: 1 },
+      { lang: null, input: "binary_4k", median_ms: 400, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0", stddev_ms: 5 }
+    ];
+    const out = dash.foldMultiInputFamilies(rows);
+    expect(out).toHaveLength(1);
+    // Geomean of [100, 400] = sqrt(100*400) = 200.
+    expect(out[0].median_ms).toBeCloseTo(200, 4);
+    expect(out[0].input).toBeNull();
+    // Family-level cell has no per-call sigma; whisker bars
+    // would otherwise lie about confidence.
+    expect(out[0].stddev_ms).toBe(0);
+    // Other identifying fields preserved from the first row.
+    expect(out[0].benchmark).toBe("phash2");
+    expect(out[0].machine_class).toBe("macos-arm64");
+    expect(out[0].label).toBe("v1");
+    expect(out[0].otp).toBe("28.0");
+  });
+
+  it("keeps separate synthetic cells for different (label, mc) tuples", () => {
+    const rows = [
+      // Run v1 on macos-arm64.
+      { lang: null, input: "a", median_ms: 100, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0" },
+      { lang: null, input: "b", median_ms: 100, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0" },
+      // Run v1 on linux-x86_64 (different mc → different synthetic cell).
+      { lang: null, input: "a", median_ms: 200, machine_class: "linux-x86_64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0" }
+    ];
+    const out = dash.foldMultiInputFamilies(rows);
+    expect(out).toHaveLength(2);
+    const byMc = Object.fromEntries(out.map(r => [r.machine_class, r.median_ms]));
+    expect(byMc["macos-arm64"]).toBeCloseTo(100, 4);
+    expect(byMc["linux-x86_64"]).toBeCloseTo(200, 4);
+  });
+
+  it("drops a family from a (label, mc, otp) tuple when every input is missing/zero", () => {
+    const rows = [
+      { lang: null, input: "a", median_ms: null, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0" },
+      { lang: null, input: "b", median_ms: 0, machine_class: "macos-arm64",
+        emu_flavor: "jit", benchmark: "phash2", label: "v1", otp: "28.0" }
+    ];
+    const out = dash.foldMultiInputFamilies(rows);
+    expect(out).toEqual([]);
+  });
+});
+
 describe("seriesKey", () => {
   it("joins lang × machine_class × emu_flavor for AWFY rows", () => {
     expect(dash.seriesKey({

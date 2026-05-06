@@ -119,22 +119,44 @@ defmodule Awfy.Compare.DataTest do
       assert dropped == ["B"]
     end
 
-    test "multi-input rows (OtpBenchmarks) excluded from the suite geomean" do
-      # Otherwise phash2's 13 input cells would dominate the
-      # geomean against any AWFY 1-cell benchmark in the same run.
+    test "multi-input families contribute one geomean-of-inputs cell each" do
+      # phash2's two inputs collapse to a single per-family cell
+      # whose value is the geomean of the per-input medians. That
+      # cell weighs equally with Bounce in the suite-wide ratio.
+      # Without folding, phash2 would have dominated 2:1 against
+      # AWFY 1-cell benchmarks — or been dropped entirely under
+      # the previous reject_multi_input policy.
       base = [
         row(benchmark: "Bounce", median_ms: 100.0),
-        row(benchmark: "phash2", lang: nil, input: "atom", median_ms: 0.000012),
-        row(benchmark: "phash2", lang: nil, input: "binary_4k", median_ms: 0.001580)
+        row(benchmark: "phash2", lang: nil, input: "atom", median_ms: 100.0),
+        row(benchmark: "phash2", lang: nil, input: "binary_4k", median_ms: 400.0)
       ]
 
-      label =
-        Enum.map(base, fn r -> %{r | median_ms: r.median_ms * 2} end)
+      # Bounce 2× slower; phash2 unchanged per-input.
+      label = [
+        row(benchmark: "Bounce", median_ms: 200.0),
+        row(benchmark: "phash2", lang: nil, input: "atom", median_ms: 100.0),
+        row(benchmark: "phash2", lang: nil, input: "binary_4k", median_ms: 400.0)
+      ]
 
-      assert {gm, dropped} = Data.geomean_ratio(label, base)
-      # Only Bounce remains; ratio 200/100 = 2.0; phash2 doesn't contribute.
+      assert {gm, []} = Data.geomean_ratio(label, base)
+      # Bounce ratio = 2.0, phash2 family ratio = (200/200) = 1.0.
+      # Suite geomean = sqrt(2.0 × 1.0) = √2.
+      assert_in_delta gm, :math.sqrt(2.0), 0.0001
+    end
+
+    test "multi-input families with uniform per-input drift propagate cleanly" do
+      base = [
+        row(benchmark: "Bounce", median_ms: 100.0),
+        row(benchmark: "phash2", lang: nil, input: "atom", median_ms: 50.0),
+        row(benchmark: "phash2", lang: nil, input: "binary", median_ms: 200.0)
+      ]
+
+      # Both Bounce and every phash2 input 2× slower → suite ratio 2.0.
+      label = Enum.map(base, fn r -> %{r | median_ms: r.median_ms * 2} end)
+
+      assert {gm, []} = Data.geomean_ratio(label, base)
       assert_in_delta gm, 2.0, 0.0001
-      assert dropped == []
     end
 
     test "when both langs present, indexes by Erlang first" do

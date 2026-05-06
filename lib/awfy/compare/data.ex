@@ -238,17 +238,17 @@ defmodule Awfy.Compare.Data do
   language.
 
   Multi-input families (OtpBenchmarks scenarios where `input` is set)
-  are excluded from the geomean. Including them would over-weight
-  whichever family had the most input variants — `phash2` alone has
-  13 cells vs every AWFY benchmark's 1 — and silently shift the
-  headline number. The right aggregation for a multi-input family
-  is its own per-input geomean, exposed separately rather than mixed
-  into the suite-wide AWFY-style ratio.
+  contribute one cell each to the geomean, computed as the geomean
+  of their own input medians. So `phash2` weights equally with each
+  AWFY benchmark — instead of dominating with 13 cells, or being
+  excluded entirely. The trade-off: per-input regressions inside a
+  family wash out in the suite headline; the per-family page surfaces
+  them.
   """
   @spec geomean_ratio([map()], [map()]) :: {float(), [String.t()]}
   def geomean_ratio(label_rows, baseline_rows) do
-    label_by_bench = label_rows |> reject_multi_input() |> index_by_benchmark()
-    base_by_bench = baseline_rows |> reject_multi_input() |> index_by_benchmark()
+    label_by_bench = index_by_benchmark(label_rows)
+    base_by_bench = index_by_benchmark(baseline_rows)
 
     intersection =
       MapSet.intersection(
@@ -283,23 +283,48 @@ defmodule Awfy.Compare.Data do
     end
   end
 
-  defp reject_multi_input(rows) do
-    Enum.reject(rows, fn r -> Map.get(r, :input) end)
-  end
-
   defp index_by_benchmark(rows) do
     rows
     |> Enum.filter(& &1.median_ms)
     |> Enum.group_by(& &1.benchmark)
-    |> Map.new(fn {bench, rs} ->
-      # If both languages present, take erlang first (matches AWFY-style
-      # cross-language tables; users can pre-filter by lang if needed).
-      pick =
-        Enum.find(rs, &(&1.lang == "erlang")) ||
-          Enum.find(rs, &(&1.lang == "elixir")) ||
-          List.first(rs)
+    |> Map.new(fn {bench, rs} -> {bench, group_median(rs)} end)
+  end
 
-      {bench, pick.median_ms}
-    end)
+  # AWFY rows have one cell per (lang, benchmark) — pick the
+  # erlang cell to match the cross-language table convention.
+  # OtpBenchmarks rows are multi-input — collapse the family's
+  # cells into a single per-family geomean so the family weighs
+  # equally with each AWFY benchmark in the suite-wide ratio.
+  defp group_median(rows) do
+    if Enum.any?(rows, fn r -> Map.get(r, :input) end) do
+      family_geomean(rows)
+    else
+      pick =
+        Enum.find(rows, &(&1.lang == "erlang")) ||
+          Enum.find(rows, &(&1.lang == "elixir")) ||
+          List.first(rows)
+
+      pick.median_ms
+    end
+  end
+
+  # Geometric mean of the family's per-input medians, computed in
+  # log space so a 1 ns vs 6 µs spread doesn't lose precision.
+  # Filters out missing / zero medians so a single failed input
+  # doesn't sink the whole family to nil.
+  defp family_geomean(rows) do
+    medians =
+      rows
+      |> Enum.map(& &1.median_ms)
+      |> Enum.filter(&(is_number(&1) and &1 > 0))
+
+    case medians do
+      [] ->
+        nil
+
+      _ ->
+        sum_log = Enum.reduce(medians, 0.0, fn m, acc -> acc + :math.log(m) end)
+        :math.exp(sum_log / length(medians))
+    end
   end
 end
