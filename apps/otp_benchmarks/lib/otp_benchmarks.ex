@@ -20,7 +20,8 @@ defmodule OtpBenchmarks do
       OtpBenchmarks.Benchmarks.MapGet,
       OtpBenchmarks.Benchmarks.MapPut,
       OtpBenchmarks.Benchmarks.MapMerge,
-      OtpBenchmarks.Benchmarks.MapKeys
+      OtpBenchmarks.Benchmarks.MapKeys,
+      OtpBenchmarks.Benchmarks.IolistSize
     ]
   end
 
