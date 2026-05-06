@@ -106,6 +106,37 @@ defmodule OtpBenchmarksTest do
     end
   end
 
+  describe "time_for/1 calibration" do
+    # Pinning the table prevents accidental edits to the per-family
+    # `:time` budgets — those values are what determine how many
+    # samples the dashboard plots get for each family, so silent
+    # changes propagate into the published numbers.
+    test "phash2 / ets / estone / mnesia_tpcb get longer budgets" do
+      assert Runner.time_for("phash2") == 5
+      assert Runner.time_for("ets") == 5
+      assert Runner.time_for("estone") == 5
+      assert Runner.time_for("mnesia_tpcb") == 5
+    end
+
+    test "stdlib_bench-shaped families stay at the 3s default" do
+      assert Runner.time_for("maps") == 3
+      assert Runner.time_for("iolist_size") == 3
+      assert Runner.time_for("base64") == 3
+      assert Runner.time_for("binary_match") == 3
+      assert Runner.time_for("unicode") == 3
+      assert Runner.time_for("crypto_aead") == 3
+    end
+
+    test "unknown family name falls back to 3s" do
+      # Absent entries return the default; the fallback exists so a
+      # newly added family without a calibration entry doesn't crash
+      # `mix awfy.measure`. The intent is to add a calibrated entry
+      # before shipping the family — the fallback is a safety net,
+      # not a free pass.
+      assert Runner.time_for("not_a_real_family_yet") == 3
+    end
+  end
+
   describe "Awfy.OtpBenchmarks.Runner" do
     @tag :tmp_dir
     test "writes a saved Benchee suite covering every scenario", %{tmp_dir: dir} do

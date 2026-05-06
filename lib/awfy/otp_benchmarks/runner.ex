@@ -27,6 +27,44 @@ defmodule Awfy.OtpBenchmarks.Runner do
           benchmarks: [String.t()] | nil
         ]
 
+  # Per-family Benchee `:time` budgets — same calibration pattern
+  # as `Awfy.BencheeRunner.@default_time`. Families dominated by
+  # sub-microsecond inputs (phash2, ets) want more wall-clock time
+  # so the *number* of samples climbs, even though the per-sample
+  # *resolution* is capped by the hardware monotonic clock — on
+  # Apple Silicon that floor is ~42 ns (24 MHz timer base), so
+  # every BIF that returns in < 100 ns ends up bucketed at one
+  # multiple of 42 ns. Calibration via `:time` doesn't fix the
+  # floor; what it does is cut tail noise from intermittent OS
+  # spikes by giving more samples to dilute. Mnesia / estone get
+  # bumped time to compensate for high per-iteration cost yielding
+  # very few raw samples at the default 3 s.
+  #
+  # CLI `--time` overrides this table uniformly; tests pin it as
+  # the source of truth for per-family defaults.
+  @default_time %{
+    "phash2" => 5,
+    "maps" => 3,
+    "iolist_size" => 3,
+    "base64" => 3,
+    "binary_match" => 3,
+    "unicode" => 3,
+    "crypto_aead" => 3,
+    "ets" => 5,
+    "estone" => 5,
+    "mnesia_tpcb" => 5
+  }
+
+  @default_warmup 1
+
+  @doc """
+  Default Benchee `:time` (seconds) for a registered family name.
+  Falls back to 3 if the family isn't in the calibration table —
+  surfaces in tests via `every_family_has_time_entry?/0`.
+  """
+  @spec time_for(String.t()) :: pos_integer()
+  def time_for(name), do: Map.get(@default_time, name, 3)
+
   @doc """
   Run every registered benchmark family.
 
@@ -178,8 +216,8 @@ defmodule Awfy.OtpBenchmarks.Runner do
   defp build_benchee_opts(name, opts) do
     base =
       Keyword.get(opts, :benchee, default_benchee_opts())
-      |> Keyword.put_new(:time, 3)
-      |> Keyword.put_new(:warmup, 1)
+      |> Keyword.put_new(:time, time_for(name))
+      |> Keyword.put_new(:warmup, @default_warmup)
 
     case Keyword.get(opts, :save_dir) do
       nil ->
