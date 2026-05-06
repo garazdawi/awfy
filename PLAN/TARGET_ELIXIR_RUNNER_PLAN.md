@@ -243,27 +243,32 @@ The prep job and `build-linux` both stay on GHA-hosted Linux indefinitely — th
 | Cache invalidation produces 12-min cold builds when nobody expected one | Cache key includes patch hashes; only patch updates trigger rebuilds. Bumping a vendored dep triggers a rebuild. Both are intentional. Acceptable. |
 | Cross-platform `.beam` portability assumption fails on some platform | Confirmed in plan analysis — pure-Elixir deps + platform-independent BEAM bytecode + per-platform target OTP. No NIFs in Benchee/deep_merge/statistex. Phase 2 verifies in CI. |
 
-## Open questions for review
+## Resolved decisions
 
-1. **Where should `Awfy.Runner` live?** Options: `lib/awfy/runner.ex` (top-level, replacing both peer and target conceptually but only doing target), or `lib/awfy/target_runner.ex` (replace in place, keep the name). The first is cleaner; the second has less rename churn but invites confusion with the deleted module.
+These were open questions during plan drafting; recording the answers here so the implementing agent doesn't have to re-ask.
 
-Do the first.
+1. **`Awfy.Runner` lives at `lib/awfy/runner.ex` (top-level).** Cleaner than reusing `lib/awfy/target_runner.ex`, and the old `target_runner.ex` is being deleted in Phase 3 anyway — no rename collision.
 
-2. **Should the Phase 2 toggle be an env var (`AWFY_USE_TARGET_BUNDLE=1`), a `mix awfy.measure --runner=bundle` flag, or a workflow `inputs:`?** Env var is least intrusive; flag is most discoverable. Flag is probably right.
+2. **Phase 2 runner-selection is a `mix awfy.measure --runner=bundle` flag**, not an env var. Most discoverable, fits the existing CLI shape. Default value is the existing path until Phase 3 flips the dispatch.
 
-Do it as a flag.
+3. **Bundle distribution to AWS lands in Phase 1** alongside `prep-target-bundle`, not deferred. The `aws s3 cp` step is gated on `runner_pool == 'aws'` so it's a no-op while the default is `gha`. Wiring it now means flipping the default later is a one-line change.
 
-3. **Bundle distribution on AWS in Phase 1 or defer?** With the merged workflow from Phase 0, the `runner_pool=aws` branch already exists in the YAML — so the `aws s3 cp` upload/download step costs nothing to add now (skipped when `runner_pool=gha`). Slight preference to add it in Phase 1 alongside `prep-target-bundle` so the AWS path is fully wired the moment a runner pool comes online.
+4. **Windows pre-24 keeps `install-otp-windows.ps1` unchanged.** Only Elixir + deps come from the Linux-built bundle; target OTP on Windows still installs through the existing PowerShell path. Linux-built BEAM bytecode runs on Windows OTP without modification.
 
-do it now.
+5. **Concurrency groups are separated per event type and ref-set.** The merged workflow uses `concurrency: { group: bench-${{ github.event_name }}-${{ inputs.refs }}, cancel-in-progress: false }`. A long-running schedule run can't cancel an in-flight push smoke test, and two pushes for the same ref still queue rather than racing.
 
-4. **Windows pre-24 — confirm we keep building OTP on the Windows runner**, since only Elixir+deps come from the Linux-built bundle. The OTP install step on Windows is unchanged. Just want explicit sign-off that `install-otp-windows.ps1` is in scope as-is.
+6. **Bundle extraction from the Linux Docker image uses `docker create` + `docker cp`**, not `docker save | tar` and not a `FROM scratch` final stage. Reasoning: simplest mechanics, doesn't require restructuring `Dockerfile.linux`, and `docker rm` cleans up the throwaway container. `bin/extract-otp-from-image.sh` ships as a tiny wrapper:
+   ```sh
+   id=$(docker create "$IMAGE")
+   docker cp "$id":/opt/otp ./otp
+   docker rm "$id"
+   ```
 
-keep as is.
+7. **AWS runner labels follow the schema `["self-hosted", "aws", "linux", "<arch>"]`** where `<arch>` is `x86_64` or `arm64`. Terraform provisioning will register runners with these labels. The macOS leg stays on the user's M5 (per memory `project_macos_runner.md`); Windows stays on GHA-hosted Windows under `runner_pool=gha` until a Windows AWS pool is justified by demand.
 
-5. **Does the merged workflow keep separate `concurrency:` groups for push vs schedule events?** Today both files have their own `concurrency:` group; merging them into one workflow means a long-running schedule run could cancel an in-flight push smoke test if both share the workflow name. Probably want `concurrency: { group: bench-${{ github.event_name }}-${{ inputs.refs }}, cancel-in-progress: ... }` to keep them isolated. Not blocking but worth deciding before Phase 0 lands.
+8. **`bin/refresh-target-deps.sh` is a maintenance script** for upgrading the vendored target deps. Run from a TLS-current host (any modern Elixir), it: re-fetches the pinned versions of benchee/deep_merge/statistex from hex via `mix deps.get`, copies the new sources into `apps/awfy_target_runner/deps/`, re-applies the dev/test stripping (see Appendix), and verifies the resulting tree compiles under each pinned target Elixir. Idempotent — running it with no upstream changes is a no-op.
 
-use your suggestion
+9. **Parity-check methodology in Phase 2.** `bin/compare-target-paths.sh` (small new helper) takes two run-directories produced by the same OTP ref — one from `-target` (current), one from `-target-v2` (new) — and emits a per-benchmark median delta (`(new - old) / old`). Acceptance: aggregate geomean delta within ±5% across all benchmarks; no individual benchmark's |delta| exceeds 15%. Larger deltas mean the two paths are measuring different things and need investigation before Phase 3 lands.
 
 ## Files affected
 
@@ -303,3 +308,108 @@ use your suggestion
 | 3 | ~half day (dispatch flip, deletes, cleanup) | Hard — old code is gone |
 
 Total: ~3 days of focused work, with natural review/merge points after each phase.
+
+## Appendix — Prototype findings & gotchas
+
+These are facts established by the OTP-20.3 + Elixir-1.9.4 + Benchee-1.5 prototype that proved the proposition. Documented here so the implementing agent doesn't re-discover each one painfully (each took 5–30 min of detour during the prototype).
+
+### A. Vendored deps must drop their dev/test deps entirely
+
+Symptom: `mix deps.compile` fails with `Could not find Hex, which is needed to build dependency :credo` even with `MIX_ENV=prod`, even with `override: true` declared in the parent project's `mix.exs`. Mix 1.9 walks the full transitive `deps()` list of every dep regardless of `MIX_ENV` and `only:` modifiers — it only filters at *build* time, not *resolution* time, and resolution-time SCM lookup demands hex registry access. Target OTP was built `--without-ssl`, so `mix local.hex` can't fetch.
+
+Workaround (apply to vendored copies in `apps/awfy_target_runner/deps/`):
+
+- `deps/benchee/mix.exs` — replace the `defp deps` body with just the runtime deps; drop `credo, ex_doc, excoveralls, dialyxir, doctest_formatter, ex_guard`. Also remove the `Version.compare/2 > "1.7.0"` branch that conditionally adds `{:table, "~> 0.1.0", optional: true}` — table is unused in our path and re-introduces the SCM-lookup problem. The remaining body should be:
+  ```elixir
+  defp deps do
+    [
+      {:deep_merge, path: "../deep_merge"},
+      {:statistex, path: "../statistex"}
+    ]
+  end
+  ```
+- `deps/deep_merge/mix.exs` — replace `defp deps` body with `[]`. All entries are dev/test/docs.
+- `deps/statistex/mix.exs` — replace `defp deps` body with `[]`. Same reason.
+
+`bin/refresh-target-deps.sh` (deliverable in Phase 1) re-fetches and re-applies these edits programmatically — don't hand-edit each upgrade.
+
+### B. OTP-20.3 source must come from the canonical erlang.org tarball
+
+`https://github.com/erlang/otp/releases/download/OTP-20.3/otp_src_20.3.tar.gz` returns 404 — github releases only host pre-OTP-21 source on a few specific tags, and 20.3 isn't one of them.
+
+`https://github.com/erlang/otp/archive/refs/tags/OTP-20.3.tar.gz` exists but **lacks the pre-generated `configure` script**. Running `./otp_build autoconf` to regenerate it trips a BSD-`sed` locale issue on macOS ("RE error: illegal byte sequence") unless run with `LC_ALL=C ./otp_build autoconf`. Even then, some sub-`configure` scripts (e.g. `lib/asn1/configure`) silently fail to generate.
+
+The canonical path: `https://erlang.org/download/otp_src_20.3.tar.gz`. Has the pre-generated configure scripts intact. Caveat: the CDN is sometimes very slow (~10 KB/s sustained on bad-day nodes); a fresh `curl` connection often gets a different node and bursts to 2+ MB/s. Retry rather than wait.
+
+The existing `bin/install-otp-source.sh` already prefers github releases → erlang.org → prebuilt artifact — for OTP 20 it falls through to erlang.org and works once the network is cooperative. No script changes needed; just be aware the github path 404s.
+
+### C. System Hex archive incompatibility
+
+If a fresh Elixir 1.9 build is invoked with the user's existing `~/.mix/archives/hex-2.3.1-otp-28/` archive on the path, Mix tries to load it and fails with:
+
+```
+Error loading module 'Elixir.Hex':
+  This BEAM file was compiled for a later version of the run-time system than 20.
+  (Use of opcode 177; this emulator supports only up to 159.)
+```
+
+Workaround: `MIX_HOME=/tmp/elixir19_mix mix ...` to use a fresh archive directory. The build pipeline shouldn't need Hex at all (vendored deps), but mix loads installed archives unconditionally on startup. Always run target Elixir with an isolated `MIX_HOME`.
+
+### D. Target beams require OTP-app priv-dir layout
+
+`code:priv_dir(awfy)` in OTP only resolves if the beams sit in a directory shaped like an OTP app: `<libdir>/awfy-<vsn>/{ebin,priv}/`. If `AWFY_TARGET_BEAMS` points at a flat `ebin/` directory and `priv/` is a sibling instead of a peer-of-ebin, `priv_dir/1` returns `{:error, :bad_name}` and the Json benchmark function-clauses on `filename:join(priv_dir, ...)`.
+
+Concrete: target build output goes into `<bundle>/lib/awfy_target_runner/{ebin,priv}/`. `bin/build-target-bundle.sh` should validate the layout before tarballing.
+
+### E. `:erlang.system_info(:otp_release)` returns a charlist on OTP 20
+
+Binary on OTP 21+. Any code in `target_runner.ex` that does `<>` concatenation on it (e.g. for log lines) needs `List.to_string/1` first or it crashes with `:erlang.byte_size/1` ArgumentError. Single sharp edge but unmistakable when it bites.
+
+### F. Calibration-tax measurement (background for Phase 2 acceptance)
+
+Earlier benchmarking (3 reps × Bounce/Json/Sieve × time=2s warmup=1s, OTP 28 host, target erl=host erl):
+
+| Mode | Mean wall clock |
+|---|---|
+| Peer (current modern path) | 14.20s |
+| Target (current legacy harness) | 24.19s |
+
+Per-benchmark target-mode tax = ~3.4s, dominated by the 3-iteration calibration pass `Awfy.TargetRunner.run_raw(module, inner_iter, 3)`. For slow benchmarks (Sieve at 1.93s/iter) this is ~5.8s of pure overhead. The new bundle path **doesn't have this** — Benchee handles its own time budgeting natively, so the calibration disappears. Phase 2's parity check should see legacy-target wall clocks reduced by roughly this amount under the bundle path; if instead bundle-target is *slower*, something is wrong with the new path.
+
+### G. Reference: minimal probe project that compiled cleanly
+
+The prototype lived at `/tmp/elixir19_test/` (now gone — those paths are ephemeral). Its mix.exs:
+
+```elixir
+defmodule DepProbe.MixProject do
+  use Mix.Project
+  def project do
+    [app: :dep_probe, version: "0.1.0", elixir: "~> 1.9", deps: deps()]
+  end
+  def application, do: []
+  defp deps do
+    [
+      {:benchee,    path: "deps/benchee",    override: true},
+      {:deep_merge, path: "deps/deep_merge", override: true},
+      {:statistex,  path: "deps/statistex",  override: true}
+    ]
+  end
+end
+```
+
+Compile invocation that worked:
+```sh
+MIX_HOME=/tmp/elixir19_mix MIX_ENV=prod \
+  PATH=/tmp/otp20_install/bin:/tmp/elixir_proto/elixir/bin:$PATH \
+  /tmp/elixir_proto/elixir/bin/mix deps.compile
+```
+
+Output: `==> deep_merge … Generated deep_merge app / ==> statistex … Generated statistex app / ==> benchee … Generated benchee app`.
+
+Smoke test that ran end-to-end (2 trivial benchmarks, ~50k samples in 1s, valid statistics):
+```sh
+MIX_HOME=/tmp/elixir19_mix MIX_ENV=prod PATH=... \
+  /tmp/elixir_proto/elixir/bin/elixir smoke.exs
+```
+
+This is the exact shape Phase 1's `bin/build-target-bundle.sh` should reproduce, just with the smoke test replaced by the bundling step.
