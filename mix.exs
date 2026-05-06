@@ -54,6 +54,7 @@ defmodule AwfyRunner.MixProject do
       # depended on via its on-disk path. Compilation happens
       # transitively when this project compiles.
       {:awfy, path: "apps/awfy"},
+      {:otp_benchmarks, path: "apps/otp_benchmarks"},
 
       # Orchestration deps — these stay at the runner level so suites
       # don't pick up unwanted runtime libs.

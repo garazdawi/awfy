@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 _build/
+# Per-OTP build dirs created when measuring across multiple OTP
+# versions on one workstation (`MIX_BUILD_PATH=_build_otp27`
+# etc.). The catchall keeps `_build_*/` artifacts out of git and
+# out of `reuse lint`'s walk so a side-by-side toolchain doesn't
+# trip the SPDX gate.
+_build_*/
 # `deps/` is anchored to repo root so the sub-app's vendored deps
 # (apps/awfy_target_runner/deps/{benchee,...}/) stay tracked. Root
 # /deps/ is mix-managed; we still ignore it.

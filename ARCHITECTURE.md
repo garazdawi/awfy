@@ -62,11 +62,21 @@ These translate into a four-piece architecture:
 awfy/
 ├── apps/                   # Sibling apps — independently
 │   │                       # compilable mix projects, low Elixir floor.
-│   ├── awfy/               # AWFY suite (Stefan Marr's port)
+│   ├── awfy/               # AWFY suite (Stefan Marr's port — MIT)
 │   │   ├── mix.exs
 │   │   ├── src/            # Erlang benchmarks + helpers
 │   │   ├── lib/awfy/       # Elixir benchmarks + behaviour + registry
 │   │   └── priv/           # benchmark inputs (rap_benchmark.json)
+│   │
+│   ├── otp_benchmarks/     # OtpBenchmarks suite — BEAM-internal
+│   │   │                   # microbenchmarks (phash2 today; ETS,
+│   │   │                   # maps, Mnesia TPC-B, estone over time —
+│   │   │                   # PLAN/EXTENDED_BENCH_PLAN.md). Apache-2.0
+│   │   │                   # since they're ports of OTP source; in
+│   │   │                   # a separate app from `apps/awfy/` so
+│   │   │                   # the license boundary is structural.
+│   │   ├── mix.exs
+│   │   └── lib/otp_benchmarks/{benchmark.ex,benchmarks/}
 │   │
 │   └── awfy_target_runner/ # Target-side bundle (Phase 3 of
 │       │                   #   PLAN/TARGET_ELIXIR_RUNNER_PLAN.md).
