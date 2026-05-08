@@ -1094,6 +1094,13 @@ jobs:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ubuntu-latest
+    # Aggregation + push only — measure jobs are the long pole. We
+    # hit a one-hour stall on `git push` twice in a row publishing a
+    # 1+ GB fill onto gh-pages (the branch is multi-GB cumulatively).
+    # The retry loop in the push step has a generous per-attempt
+    # timeout, but cap the whole job so a permanently-wedged push
+    # fails fast rather than burning the 6h default.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1175,4 +1182,23 @@ jobs:
             exit 0
           fi
           git commit -m "bench: $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push origin gh-pages
+
+          # gh-pages is multi-GB; a fill that adds ~675 new blobs can
+          # spend tens of minutes uploading. We've seen GitHub's git
+          # RPC hang silently mid-push (no error, no progress) — the
+          # retry loop with --progress + a per-attempt timeout makes
+          # the stall observable and recoverable. `git fetch` +
+          # `rebase` between attempts handles the unlikely race
+          # where a parallel publish landed first.
+          for attempt in 1 2 3; do
+            echo "[publish] push attempt $attempt"
+            if timeout 1800 git push --progress origin gh-pages 2>&1; then
+              exit 0
+            fi
+            echo "[publish] attempt $attempt failed, refreshing and retrying"
+            git fetch origin gh-pages || true
+            git rebase origin/gh-pages || git rebase --abort || true
+            sleep $((attempt * 30))
+          done
+          echo "[publish] push failed after 3 attempts" >&2
+          exit 1
