@@ -338,7 +338,10 @@ describe("buildSeries", () => {
     expect(x86.data[1].y).toBeCloseTo(1.25, 4);
   });
 
-  it("inverts the whisker: yMin uses ms+σ, yMax uses ms−σ", () => {
+  it("inverts the whisker: yMin uses ms+σ, yMax uses ms−σ when samples_n is missing", () => {
+    // No samples_n → fallback to raw stddev (no √N reduction).
+    // Preserves the historical behavior for older runs that don't
+    // carry sample_size in their meta.
     const series = dash.buildSeries(rows, "otp");
     const x86 = series.find(s => s.data.some(d => d.run_label.includes("x86_64")));
     const p = x86.data[1]; // OTP-28: median 800, 2σ = 16
@@ -348,6 +351,28 @@ describe("buildSeries", () => {
     expect(p.yMin).toBeCloseTo(1000 / 816, 4);
     expect(p.yMax).toBeGreaterThan(p.y);
     expect(p.yMin).toBeLessThan(p.y);
+  });
+
+  it("uses standard error of the median (σ/√N) when samples_n is set", () => {
+    // SE collapses the whisker by √N. The σ-based whisker for a
+    // graphemes_bmp_4k-shaped row would extend ±150 μs around a
+    // 151 μs median; with N=10000 the SE-based whisker is ±3 μs.
+    // That's the "more iterations → tighter whisker" intuition the
+    // user expects, and it's the right statistic for "how confident
+    // are we in *this median*" (which is what the chart asks).
+    const seRows = [
+      { lang: "erlang", machine_class: "linux-x86_64", emu_flavor: "jit",
+        benchmark: "Phash2", otp: "27.0", median_ms: 1000, stddev_ms: 50, samples_n: 100,
+        label: "27.0-test", timestamp: "2026-01-01T00:00:00Z", inner_iter: null },
+      { lang: "erlang", machine_class: "linux-x86_64", emu_flavor: "jit",
+        benchmark: "Phash2", otp: "28.0", median_ms: 800, stddev_ms: 50, samples_n: 100,
+        label: "28.0-test", timestamp: "2026-02-01T00:00:00Z", inner_iter: null }
+    ];
+    const series = dash.buildSeries(seRows, "otp");
+    const p = series[0].data[1];
+    // SE = 50 / √100 = 5; 2·SE = 10. yMax = 1000 / (800 - 10) = 1000 / 790.
+    expect(p.yMax).toBeCloseTo(1000 / 790, 4);
+    expect(p.yMin).toBeCloseTo(1000 / 810, 4);
   });
 
   it("labels OtpBenchmarks series by input rather than machine_class", () => {

@@ -426,21 +426,29 @@ function buildSeries(rows, xAxis) {
       data: sorted.map(r => {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
         const ratio = (baseMs && r.median_ms) ? baseMs / r.median_ms : null;
-        // Cap 2σ at half the median for whisker math. Sub-µs
-        // benchmarks routinely show CV ≥ 50% (clock-floor noise),
-        // and the unbounded form `baseMs / (median - 2σ)` blows up
-        // toward Infinity as 2σ approaches median — a single such
-        // point dominates the chart's y range and crushes every
-        // other series. Capping at median/2 means a noisy point's
-        // upper whisker goes no higher than 2× the ratio, which
-        // keeps the chart readable while still telegraphing
-        // uncertainty (a tall whisker still says "noisy"; it just
-        // doesn't say "literally infinite"). Lower whisker is
-        // symmetric — yMin uses the same capped sigma.
-        const rawSigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
-        const sigma = (r.median_ms && rawSigma > r.median_ms / 2) ? r.median_ms / 2 : rawSigma;
-        const yMax = (baseMs && r.median_ms - sigma > 0) ? baseMs / (r.median_ms - sigma) : ratio;
-        const yMin = (baseMs && r.median_ms + sigma > 0) ? baseMs / (r.median_ms + sigma) : ratio;
+        // Whiskers represent the standard error of the median, not
+        // ±2σ of individual iterations. σ is the natural spread of
+        // per-iteration timings (set by clock resolution + OS jitter
+        // + inherent benchmark variance) and stays the same no matter
+        // how long Benchee samples — bumping `:time` doesn't tighten
+        // it. SE = σ/√N collapses with sample count, which is what
+        // we actually care about: "how confident are we in *this*
+        // median?". With 17K samples on graphemes_bmp_4k the σ-band
+        // is ±150 μs but SE is ±1 μs — and the median really is
+        // pinned that tightly because there are 17K independent
+        // observations. Using 2·SE keeps the visual "two-sigma"
+        // convention but on the right statistic.
+        //
+        // Fallback to capped-σ when sample_size is missing (defensive
+        // — older runs may not have populated it; cap at median/2 so
+        // even with N=1 the whisker can't blow up to ~Infinity).
+        const seMs = (typeof r.stddev_ms === "number" && r.samples_n > 0)
+          ? r.stddev_ms / Math.sqrt(r.samples_n)
+          : (typeof r.stddev_ms === "number" ? r.stddev_ms : 0);
+        const rawHalf = 2 * seMs;
+        const half = (r.median_ms && rawHalf > r.median_ms / 2) ? r.median_ms / 2 : rawHalf;
+        const yMax = (baseMs && r.median_ms - half > 0) ? baseMs / (r.median_ms - half) : ratio;
+        const yMin = (baseMs && r.median_ms + half > 0) ? baseMs / (r.median_ms + half) : ratio;
         return {
           x,
           y: ratio,
@@ -1104,13 +1112,19 @@ function renderSnapshot() {
           return { x: b, y: null, yMin: null, yMax: null, raw: r };
         }
         const ratio = base.ms / r.median_ms;
-        // Same noise-floor cap as the line chart's whisker math:
-        // bound 2σ at median/2 so a single high-CV bar can't push
-        // its yMax to ~Infinity and stretch the chart's y-axis.
-        const rawSigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
-        const sigma = rawSigma > r.median_ms / 2 ? r.median_ms / 2 : rawSigma;
-        const yMax = (r.median_ms - sigma > 0) ? base.ms / (r.median_ms - sigma) : ratio;
-        const yMin = (r.median_ms + sigma > 0) ? base.ms / (r.median_ms + sigma) : ratio;
+        // Same SE-based whisker as the line chart — see comment
+        // there. SE collapses with √N, so bars on
+        // well-replicated benchmarks show tiny whiskers and bars
+        // on undersampled / clock-floor-bound ones still flag
+        // uncertainty visibly. Cap at median/2 as a final
+        // defensive bound for missing-N rows.
+        const seMs = (typeof r.stddev_ms === "number" && r.samples_n > 0)
+          ? r.stddev_ms / Math.sqrt(r.samples_n)
+          : (typeof r.stddev_ms === "number" ? r.stddev_ms : 0);
+        const rawHalf = 2 * seMs;
+        const half = rawHalf > r.median_ms / 2 ? r.median_ms / 2 : rawHalf;
+        const yMax = (r.median_ms - half > 0) ? base.ms / (r.median_ms - half) : ratio;
+        const yMin = (r.median_ms + half > 0) ? base.ms / (r.median_ms + half) : ratio;
         return { x: b, y: ratio, yMin, yMax, raw: r, baseMs: base.ms };
       });
       const v = versionForMajor[m];
