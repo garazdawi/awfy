@@ -84,6 +84,18 @@ if [ -x "$PREFIX/bin/erl" ] && "$PREFIX/bin/erl" -noshell -eval 'halt()' >/dev/n
     OTP_INSTALLED=1
 fi
 
+# Coarse OTP-major derivation from $REF, used for the elixir-for-otp.sh
+# lookup at the tail of the script. Done BEFORE the OTP_INSTALLED
+# guard so re-running on a cached prefix still picks the right Elixir.
+# `master`/`maint` pass through verbatim — elixir-for-otp.sh treats
+# anything non-numeric as modern.
+case "$REF" in
+    OTP-*)         OTP_MAJOR="$(echo "${REF#OTP-}" | cut -d. -f1)" ;;
+    maint-*)       OTP_MAJOR="${REF#maint-}" ;;
+    master|maint)  OTP_MAJOR="$REF" ;;
+    *)             OTP_MAJOR="$REF" ;;
+esac
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -286,20 +298,14 @@ trap 'rm -rf "$WORK"' EXIT
         "$AWFY_ROOT"/apps/awfy/src/*.erl
     cp -R "$AWFY_ROOT"/apps/awfy/priv/. "$TARGET_LIB/priv/" 2>/dev/null || true
 
-    # Build/install Elixir alongside this OTP, with the same version
-    # bench.yml uses for that OTP major. Legacy mapping (≤23 → the
-    # last Elixir release that supported that OTP); modern → 1.19,
-    # matching the orchestrator pin in CI. install-elixir-source.sh
+    # Build/install Elixir alongside this OTP, version pinned by
+    # bin/elixir-for-otp.sh — single source of truth shared with
+    # bench.yml's "Pin Elixir version" steps. install-elixir-source
     # is idempotent and caches at $HOME/.local/elixir-src/<ver>, so
-    # multiple modern OTPs share one Elixir build.
-    OTP_MAJOR="$(echo "${MAJOR_MINOR:-master}" | cut -d. -f1)"
-    case "$OTP_MAJOR" in
-        20) ELIXIR_VERSION="1.9.4"  ;;
-        21) ELIXIR_VERSION="1.11.4" ;;
-        22) ELIXIR_VERSION="1.13.4" ;;
-        23) ELIXIR_VERSION="1.14.5" ;;
-        *)  ELIXIR_VERSION="1.19.5" ;;
-    esac
+    # multiple modern OTPs share one Elixir build. $OTP_MAJOR was
+    # derived earlier (before the OTP_INSTALLED guard) so this works
+    # on both fresh-build and cache-hit paths.
+    ELIXIR_VERSION="$("$SCRIPT_DIR/elixir-for-otp.sh" "$OTP_MAJOR")"
     "$SCRIPT_DIR/install-elixir-source.sh" "$ELIXIR_VERSION" "$PREFIX" >&2
 } >&2
 

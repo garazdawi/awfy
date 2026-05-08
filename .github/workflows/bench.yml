@@ -864,17 +864,11 @@ jobs:
           persist-credentials: false
       - name: Pick Elixir version for OTP ${{ matrix.target.major }}
         id: elixir
-        # Same pinned matrix as prep-target-bundle. Hardcoded here
-        # rather than threaded through resolve to keep the Phase 2
-        # surgery contained.
+        # Single source of truth lives in bin/elixir-for-otp.sh —
+        # shared with bin/install-otp-source-mac.sh.
         run: |
-          case "${{ matrix.target.major }}" in
-            20) echo "version=1.9.4"  >> "$GITHUB_OUTPUT" ;;
-            21) echo "version=1.11.4" >> "$GITHUB_OUTPUT" ;;
-            22) echo "version=1.13.4" >> "$GITHUB_OUTPUT" ;;
-            23) echo "version=1.14.5" >> "$GITHUB_OUTPUT" ;;
-            *)  echo "::error::no Elixir pin for OTP ${{ matrix.target.major }}"; exit 1 ;;
-          esac
+          v=$(bin/elixir-for-otp.sh "${{ matrix.target.major }}")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Login to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" \
