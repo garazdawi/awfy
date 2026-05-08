@@ -353,6 +353,18 @@ describe("buildSeries", () => {
     expect(p.yMin).toBeLessThan(p.y);
   });
 
+  it("nulls yMin/yMax when showWhiskers is false", () => {
+    // Display→Error bars toggle off: data points keep their `y`
+    // (the line still draws) but `yMin`/`yMax` become null so
+    // lineWithErrorBars skips the whisker render.
+    const series = dash.buildSeries(rows, "otp", false);
+    series.forEach(s => s.data.forEach(p => {
+      expect(p.yMin).toBeNull();
+      expect(p.yMax).toBeNull();
+      expect(typeof p.y).toBe("number");
+    }));
+  });
+
   it("uses standard error of the median (σ/√N) when samples_n is set", () => {
     // SE collapses the whisker by √N. The σ-based whisker for a
     // graphemes_bmp_4k-shaped row would extend ±150 μs around a

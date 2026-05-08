@@ -408,6 +408,10 @@ defmodule Mix.Tasks.Awfy.Compare do
         <div class="group" id="control-lang">
           <b>Language</b>
         </div>
+        <div class="group" id="control-display">
+          <b>Display</b>
+          <label><input type="checkbox" id="show-whiskers" checked> Error bars</label>
+        </div>
         <button id="reset-filters" type="button" class="reset-btn" title="Restore default tabs, language, and snapshot-major selections">Reset to defaults</button>
       </div>
 
