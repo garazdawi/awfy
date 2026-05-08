@@ -150,10 +150,12 @@ defmodule Awfy.BencheeRunner do
     # therefore overrides the per-benchmark defaults uniformly across
     # all benchmarks in the run, which is what users want when chasing
     # publication-quality numbers ("just measure everything for 30s").
-    base_opts = Keyword.put_new(base_opts, :time, time_for(name))
-    base_opts = Keyword.put_new(base_opts, :warmup, @default_warmup)
+    benchee_opts =
+      base_opts
+      |> Keyword.put_new(:time, time_for(name))
+      |> Keyword.put_new(:warmup, @default_warmup)
 
-    benchee_opts = maybe_add_save(base_opts, name, opts)
+    save_path = save_path(name, opts)
 
     IO.puts("\n=== #{name} (inner_iter=#{inner_iter}) ===")
 
@@ -175,13 +177,13 @@ defmodule Awfy.BencheeRunner do
     #      runs in a fresh same-OTP peer per `ISOLATION_POLICY.md`.
     cond do
       target_runner_enabled?() ->
-        run_bundle(name, entries, inner_iter, benchee_opts)
+        run_bundle(name, entries, inner_iter, benchee_opts, save_path)
 
       System.get_env("AWFY_NO_ISOLATION") == "1" ->
-        run_in_process(name, entries, inner_iter, benchee_opts)
+        run_in_process(name, entries, inner_iter, benchee_opts, save_path)
 
       true ->
-        run_isolated(name, entries, inner_iter, benchee_opts)
+        run_isolated(name, entries, inner_iter, benchee_opts, save_path)
     end
 
     :ok
@@ -194,7 +196,7 @@ defmodule Awfy.BencheeRunner do
     end
   end
 
-  defp run_bundle(name, entries, inner_iter, benchee_opts) do
+  defp run_bundle(name, entries, inner_iter, benchee_opts, save_path) do
     bundle_dir = System.get_env("AWFY_TARGET_BUNDLE")
 
     if bundle_dir in [nil, ""] do
@@ -203,8 +205,6 @@ defmodule Awfy.BencheeRunner do
           "bundle when --runner=bundle"
       )
     end
-
-    save_opts = Keyword.get(benchee_opts, :save)
 
     # Bundle path runs one Awfy.Runner.run/4 per language entry — the
     # target VM only knows how to invoke `module.benchmark(inner)`,
@@ -248,16 +248,7 @@ defmodule Awfy.BencheeRunner do
       [_ | _] ->
         merged = merge_bundle_suites(name, suites)
         print_target_summary(merged)
-
-        case save_opts do
-          nil ->
-            :ok
-
-          opts ->
-            path = opts |> Keyword.fetch!(:path) |> to_string()
-            File.mkdir_p!(Path.dirname(path))
-            File.write!(path, :erlang.term_to_binary(merged))
-        end
+        write_slim_suite(merged, save_path)
     end
   end
 
@@ -289,53 +280,75 @@ defmodule Awfy.BencheeRunner do
     end)
   end
 
-  defp run_in_process(name, entries, inner_iter, benchee_opts) do
+  defp run_in_process(name, entries, inner_iter, benchee_opts, save_path) do
     scenarios =
       Map.new(entries, fn {lang, mod} ->
         {"#{name}/#{lang}", fn -> run_scenario({lang, mod}, inner_iter) end}
       end)
 
-    Benchee.run(scenarios, benchee_opts)
+    suite = Benchee.run(scenarios, benchee_opts)
+    write_slim_suite(suite, save_path)
   end
 
-  defp run_isolated(name, entries, inner_iter, benchee_opts) do
+  defp run_isolated(name, entries, inner_iter, benchee_opts, save_path) do
     # Closure body uses only public `Awfy.verify/2` so the cross-node
     # RPC doesn't depend on internal-function dispatch surviving the
     # serialise/deserialise round-trip. (It does in practice when the
     # same .beam is loaded both sides via `-pa`, but using public
     # functions keeps the closure trivially safe to RPC.)
-    Awfy.PeerRunner.run(
-      fn ->
-        scenarios =
-          Map.new(entries, fn {lang, _mod} = entry ->
-            {"#{name}/#{lang}",
-             fn ->
-               case Awfy.verify(entry, inner_iter) do
-                 true ->
-                   :ok
+    #
+    # Slim happens INSIDE the closure so the suite that crosses the
+    # peer↔controller stdio pipe is already trimmed of raw samples —
+    # 60+ MB of integers per family otherwise.
+    suite =
+      Awfy.PeerRunner.run(
+        fn ->
+          scenarios =
+            Map.new(entries, fn {lang, _mod} = entry ->
+              {"#{name}/#{lang}",
+               fn ->
+                 case Awfy.verify(entry, inner_iter) do
+                   true ->
+                     :ok
 
-                 false ->
-                   raise "benchmark #{Awfy.name(entry)} produced an incorrect result"
-               end
-             end}
-          end)
+                   false ->
+                     raise "benchmark #{Awfy.name(entry)} produced an incorrect result"
+                 end
+               end}
+            end)
 
-        Benchee.run(scenarios, benchee_opts)
-      end,
-      name
-    )
+          scenarios
+          |> Benchee.run(benchee_opts)
+          |> Awfy.SuiteSlim.slim()
+        end,
+        name
+      )
+
+    write_slim_suite(suite, save_path)
   end
 
-  defp maybe_add_save(opts, name, run_opts) do
-    case Keyword.get(run_opts, :save_dir) do
-      nil ->
-        opts
-
-      dir ->
-        tag = Keyword.get(run_opts, :save_tag, "")
-        path = Path.join(dir, "#{name}.benchee")
-        Keyword.put(opts, :save, path: path, tag: tag)
+  # Resolve the on-disk save path for this benchmark from the run
+  # opts, returning nil when the caller didn't ask for a save (e.g.
+  # `mix awfy.benchee` without `--out`). nil short-circuits the
+  # write helper.
+  defp save_path(name, opts) do
+    case Keyword.get(opts, :save_dir) do
+      nil -> nil
+      dir -> Path.join(dir, "#{name}.benchee")
     end
+  end
+
+  # Write a slimmed `term_to_binary` of the suite, dropping raw
+  # per-iteration samples. Statistics + scenario metadata are
+  # preserved — the dashboard only ever reads
+  # `scenario.run_time_data.statistics`. See `Awfy.SuiteSlim`.
+  defp write_slim_suite(suite, nil), do: suite
+
+  defp write_slim_suite(%Benchee.Suite{} = suite, path) do
+    slim = Awfy.SuiteSlim.slim(suite)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, :erlang.term_to_binary(slim))
+    slim
   end
 
   defp filter_benchmarks(entries, nil), do: entries

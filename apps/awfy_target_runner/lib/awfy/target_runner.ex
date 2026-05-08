@@ -173,9 +173,9 @@ defmodule Awfy.TargetRunner do
       reduction_time: 0,
       # No console output — host scrapes the `.benchee` file.
       print: [benchmarking: false, configuration: false, fast_warning: false],
-      formatters: [],
-      save: [path: out, tag: "target"]
+      formatters: []
     )
+    |> write_slim_suite(out)
   end
 
   # Benchee 1.5 keys the suite by job name; we use the module's
@@ -213,8 +213,40 @@ defmodule Awfy.TargetRunner do
       memory_time: 0,
       reduction_time: 0,
       print: [benchmarking: false, configuration: false, fast_warning: false],
-      formatters: [],
-      save: [path: out, tag: "target"]
+      formatters: []
     )
+    |> write_slim_suite(out)
   end
+
+  # Drop raw `samples` lists from each scenario before writing the
+  # `.benchee` file the host reads back via `binary_to_term/1`.
+  # Mirrors `Awfy.SuiteSlim` in the runner project — kept inline
+  # here because awfy_target_runner is intentionally not a path-dep
+  # of the runner (per PLAN/TARGET_ELIXIR_RUNNER_PLAN.md decision
+  # #10), so we can't share the helper. The two implementations are
+  # tiny and stay trivially in sync.
+  defp write_slim_suite(%Benchee.Suite{scenarios: scenarios} = suite, out) do
+    slim = %{suite | scenarios: Enum.map(scenarios, &slim_scenario/1)}
+    File.mkdir_p!(Path.dirname(out))
+    File.write!(out, :erlang.term_to_binary(slim))
+    slim
+  end
+
+  defp slim_scenario(%Benchee.Scenario{} = s) do
+    %{
+      s
+      | run_time_data: clear_samples(s.run_time_data),
+        memory_usage_data: clear_samples(s.memory_usage_data),
+        reductions_data: clear_samples(s.reductions_data)
+    }
+  end
+
+  defp clear_samples(%Benchee.CollectionData{statistics: stats} = cd) do
+    %{cd | samples: [], statistics: clear_outliers(stats)}
+  end
+
+  defp clear_samples(other), do: other
+
+  defp clear_outliers(%Benchee.Statistics{} = stats), do: %{stats | outliers: []}
+  defp clear_outliers(other), do: other
 end

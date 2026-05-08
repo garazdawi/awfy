@@ -89,18 +89,21 @@ defmodule Awfy.OtpBenchmarks.Runner do
   def run_one(mod, opts \\ []) when is_atom(mod) do
     name = mod.name()
     benchee_opts = build_benchee_opts(name, opts)
+    save_path = save_path(name, opts)
 
     IO.puts("\n=== #{name} (#{map_size(mod.inputs())} scenarios) ===")
 
     cond do
       target_runner_enabled?() ->
-        run_bundle(mod, benchee_opts)
+        run_bundle(mod, benchee_opts, save_path)
 
       System.get_env("AWFY_NO_ISOLATION") == "1" ->
-        do_run(mod, benchee_opts)
+        suite = do_run(mod, benchee_opts)
+        write_slim_suite(suite, save_path)
 
       true ->
-        Awfy.PeerRunner.run_mfa(__MODULE__, :do_run, [mod, benchee_opts], name)
+        suite = Awfy.PeerRunner.run_mfa(__MODULE__, :do_run, [mod, benchee_opts], name)
+        write_slim_suite(suite, save_path)
     end
 
     :ok
@@ -111,6 +114,10 @@ defmodule Awfy.OtpBenchmarks.Runner do
   # ExUnit modules don't deserialise on the peer (same reason
   # PeerRunner.run_mfa exists). The name_hint of the peer is the
   # family name so crash dumps identify which family blew up.
+  #
+  # Slims the suite before returning so the cross-pipe trip back to
+  # the controller doesn't carry tens of MB of raw samples per
+  # family — see `Awfy.SuiteSlim`.
   def do_run(mod, benchee_opts) do
     inputs = mod.inputs()
 
@@ -126,7 +133,9 @@ defmodule Awfy.OtpBenchmarks.Runner do
       |> Keyword.put(:before_scenario, fn raw -> mod.setup(raw) end)
       |> Keyword.put(:after_scenario, fn state -> mod.teardown(state) end)
 
-    Benchee.run(%{mod.name() => fn input -> mod.run(input) end}, benchee_opts)
+    %{mod.name() => fn input -> mod.run(input) end}
+    |> Benchee.run(benchee_opts)
+    |> Awfy.SuiteSlim.slim()
   end
 
   defp target_runner_enabled? do
@@ -136,7 +145,7 @@ defmodule Awfy.OtpBenchmarks.Runner do
     end
   end
 
-  defp run_bundle(mod, benchee_opts) do
+  defp run_bundle(mod, benchee_opts, save_path) do
     bundle_dir = System.get_env("AWFY_TARGET_BUNDLE")
 
     if bundle_dir in [nil, ""] do
@@ -163,7 +172,7 @@ defmodule Awfy.OtpBenchmarks.Runner do
          ) do
       {:ok, suite} ->
         print_target_summary(suite)
-        maybe_save_suite(suite, benchee_opts)
+        write_slim_suite(suite, save_path)
 
       {:error, reason} ->
         IO.puts(
@@ -173,22 +182,23 @@ defmodule Awfy.OtpBenchmarks.Runner do
     end
   end
 
-  # Bundle's TargetRunner already wrote a `.benchee` to its tmp out
-  # path inside `Awfy.Runner.run_otp_family`; the host received the
-  # decoded suite struct. If the caller asked us to save (via
-  # `:save_dir` → benchee_opts.save), copy the suite to that path
-  # using the standard term_to_binary shape — same dance the AWFY
-  # bundle path does in `Awfy.BencheeRunner.run_bundle`.
-  defp maybe_save_suite(suite, benchee_opts) do
-    case Keyword.get(benchee_opts, :save) do
-      nil ->
-        :ok
-
-      opts ->
-        path = opts |> Keyword.fetch!(:path) |> to_string()
-        File.mkdir_p!(Path.dirname(path))
-        File.write!(path, :erlang.term_to_binary(suite))
+  # See `Awfy.BencheeRunner.write_slim_suite/2` — same shape, kept
+  # private here to avoid an awfy_target_runner-style cross-app
+  # dep just for one helper.
+  defp save_path(name, opts) do
+    case Keyword.get(opts, :save_dir) do
+      nil -> nil
+      dir -> Path.join(dir, "#{name}.benchee")
     end
+  end
+
+  defp write_slim_suite(suite, nil), do: suite
+
+  defp write_slim_suite(%Benchee.Suite{} = suite, path) do
+    slim = Awfy.SuiteSlim.slim(suite)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, :erlang.term_to_binary(slim))
+    slim
   end
 
   defp print_target_summary(%Benchee.Suite{scenarios: scenarios}) do
@@ -214,20 +224,9 @@ defmodule Awfy.OtpBenchmarks.Runner do
   defp scenario_label(%{name: name}), do: name
 
   defp build_benchee_opts(name, opts) do
-    base =
-      Keyword.get(opts, :benchee, default_benchee_opts())
-      |> Keyword.put_new(:time, time_for(name))
-      |> Keyword.put_new(:warmup, @default_warmup)
-
-    case Keyword.get(opts, :save_dir) do
-      nil ->
-        base
-
-      dir ->
-        tag = Keyword.get(opts, :save_tag, "")
-        path = Path.join(dir, "#{name}.benchee")
-        Keyword.put(base, :save, path: path, tag: tag)
-    end
+    Keyword.get(opts, :benchee, default_benchee_opts())
+    |> Keyword.put_new(:time, time_for(name))
+    |> Keyword.put_new(:warmup, @default_warmup)
   end
 
   defp default_benchee_opts do

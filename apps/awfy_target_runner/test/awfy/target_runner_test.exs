@@ -92,8 +92,21 @@ defmodule Awfy.TargetRunnerTest do
       loaded = out |> File.read!() |> :erlang.binary_to_term()
       assert %Benchee.Suite{} = loaded
 
-      assert [%Benchee.Scenario{job_name: "Awfy.TargetRunnerTest.StubBench"} | _] =
+      assert [%Benchee.Scenario{job_name: "Awfy.TargetRunnerTest.StubBench"} = scenario | _] =
                loaded.scenarios
+
+      # Slimmed before write: the dashboard reads only `.statistics`,
+      # so we drop the raw `samples` list (millions of integers per
+      # scenario at sub-µs iteration cost). Saved file size matters
+      # here — gh-pages is multi-GB and the publish-step `git push`
+      # has stalled an hour at a time on bloated `.benchee` artifacts.
+      assert scenario.run_time_data.samples == []
+      assert scenario.memory_usage_data.samples == []
+      assert scenario.reductions_data.samples == []
+
+      stats = scenario.run_time_data.statistics
+      assert is_integer(stats.sample_size) and stats.sample_size > 0
+      assert is_number(stats.median) and stats.median > 0
     end
   end
 
@@ -168,6 +181,15 @@ defmodule Awfy.TargetRunnerTest do
         loaded.scenarios |> Enum.map(& &1.input_name) |> Enum.sort()
 
       assert input_names == ["a", "b"]
+
+      # Multi-input families ship N scenarios; every one must be
+      # slimmed, not just the first — phash2 has 13 inputs and
+      # ets has 23, and the regression we saw was uniform across
+      # all of them.
+      Enum.each(loaded.scenarios, fn s ->
+        assert s.run_time_data.samples == []
+        assert s.run_time_data.statistics.sample_size > 0
+      end)
     end
   end
 end

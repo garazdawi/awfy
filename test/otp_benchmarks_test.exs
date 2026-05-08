@@ -166,6 +166,18 @@ defmodule OtpBenchmarksTest do
         |> MapSet.new()
 
       assert scenario_names == Phash2.inputs() |> Map.keys() |> MapSet.new()
+
+      # Saved suite must be slim: the dashboard reads only
+      # statistics, but Benchee's default `:save` keeps every raw
+      # sample (millions per scenario at sub-µs iteration cost,
+      # which is what blew gh-pages past 6 GB and stalled the
+      # publish-step `git push` for an hour). Slim drops samples,
+      # preserves statistics — assert both halves so a regression
+      # in either direction surfaces here, not on the next fill.
+      Enum.each(suite.scenarios, fn s ->
+        assert s.run_time_data.samples == []
+        assert s.run_time_data.statistics.sample_size > 0
+      end)
     end
   end
 end
