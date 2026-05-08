@@ -285,6 +285,22 @@ trap 'rm -rf "$WORK"' EXIT
     "$PREFIX/bin/erlc" -pa "$TARGET_LIB/ebin" -o "$TARGET_LIB/ebin" \
         "$AWFY_ROOT"/apps/awfy/src/*.erl
     cp -R "$AWFY_ROOT"/apps/awfy/priv/. "$TARGET_LIB/priv/" 2>/dev/null || true
+
+    # Build/install Elixir alongside this OTP, with the same version
+    # bench.yml uses for that OTP major. Legacy mapping (≤23 → the
+    # last Elixir release that supported that OTP); modern → 1.19,
+    # matching the orchestrator pin in CI. install-elixir-source.sh
+    # is idempotent and caches at $HOME/.local/elixir-src/<ver>, so
+    # multiple modern OTPs share one Elixir build.
+    OTP_MAJOR="$(echo "${MAJOR_MINOR:-master}" | cut -d. -f1)"
+    case "$OTP_MAJOR" in
+        20) ELIXIR_VERSION="1.9.4"  ;;
+        21) ELIXIR_VERSION="1.11.4" ;;
+        22) ELIXIR_VERSION="1.13.4" ;;
+        23) ELIXIR_VERSION="1.14.5" ;;
+        *)  ELIXIR_VERSION="1.19.5" ;;
+    esac
+    "$SCRIPT_DIR/install-elixir-source.sh" "$ELIXIR_VERSION" "$PREFIX" >&2
 } >&2
 
 echo "$PREFIX"
