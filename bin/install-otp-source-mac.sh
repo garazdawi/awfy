@@ -172,6 +172,22 @@ trap 'rm -rf "$WORK"' EXIT
     # at all suppresses its built-in `-g -O2` injection, and OTP's
     # configure tests depend on optimisation being on. No-op for
     # OTP ≥ 23 where the declarations are properly extern-qualified.
+    # OpenSSL location: Homebrew installs to a non-default prefix
+    # on Apple Silicon (/opt/homebrew/opt/openssl@3). Without
+    # `--with-ssl=...`, configure default-skipped the crypto NIF on
+    # legacy OTPs (20-24), leaving the prefixes without a crypto
+    # module — `crypto:hash/2` and friends became `undef`, and the
+    # crypto_aead benchmark family can't run on those refs.
+    # Auto-detect via `brew --prefix`; CI macos-latest does the
+    # same in bench.yml.
+    SSL_FLAG=""
+    if command -v brew >/dev/null 2>&1; then
+        SSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || true)"
+        if [ -n "$SSL_PREFIX" ] && [ -d "$SSL_PREFIX" ]; then
+            SSL_FLAG="--with-ssl=$SSL_PREFIX"
+        fi
+    fi
+
     # shellcheck disable=SC2086
     CFLAGS="-O2 -fcommon ${CFLAGS:-}" \
     ./configure \
@@ -185,6 +201,7 @@ trap 'rm -rf "$WORK"' EXIT
         --without-megaco \
         --without-et \
         --without-jinterface \
+        ${SSL_FLAG} \
         ${AWFY_OTP_EXTRA_CONFIGURE:-}
 
     # macOS reports CPU count via sysctl; Linux via nproc.

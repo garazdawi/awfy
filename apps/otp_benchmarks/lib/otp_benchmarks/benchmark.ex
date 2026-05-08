@@ -46,6 +46,15 @@ defmodule OtpBenchmarks.Benchmark do
     * `teardown/1` — runs once per scenario after timing finishes,
       with whatever `setup/1` returned. Use for cleanup
       (`:ets.delete/1`, `:mnesia.stop/0`). Default: no-op.
+    * `supported?/0` — runtime gate for "this family can run on
+      the current OTP." Returns `true` if the BIFs / modules the
+      family depends on are present, `false` otherwise. Default:
+      `true`. Examples where this matters: `crypto_aead` calls
+      `:crypto.crypto_one_time_aead/6`, which only exists on
+      OTP ≥ 22; running it on the bundle path under OTP-20 or
+      OTP-21 aborts the whole VM with an `undef` from inside
+      Benchee's calibration loop. The runner filters unsupported
+      families before dispatch so legacy refs simply skip them.
   """
 
   @doc "Display name (e.g. `\"phash2\"`)."
@@ -67,7 +76,15 @@ defmodule OtpBenchmarks.Benchmark do
   @doc "Optional per-scenario cleanup. Default: no-op."
   @callback teardown(scenario_state :: term()) :: term()
 
-  @optional_callbacks setup: 1, teardown: 1
+  @doc """
+  Optional runtime check that the current OTP supports the
+  family's BIFs. Default `true`. Override and return `false` on
+  OTPs that lack a required function so the runner skips the
+  family rather than crashing the target VM with `undef`.
+  """
+  @callback supported?() :: boolean()
+
+  @optional_callbacks setup: 1, teardown: 1, supported?: 0
 
   defmacro __using__(_) do
     quote do
@@ -75,8 +92,9 @@ defmodule OtpBenchmarks.Benchmark do
 
       def setup(raw), do: raw
       def teardown(_), do: :ok
+      def supported?, do: true
 
-      defoverridable setup: 1, teardown: 1
+      defoverridable setup: 1, teardown: 1, supported?: 0
     end
   end
 end

@@ -26,6 +26,13 @@ defmodule OtpBenchmarks.Benchmarks.CryptoAead do
 
   def name, do: "crypto_aead"
 
+  # `:crypto.crypto_one_time_aead/6` was added in OTP 22.0; on
+  # OTP-20 and OTP-21 the BIF is undef and Benchee's calibration
+  # loop aborts the whole target VM with an init-terminating
+  # crash. Runtime gate so the runner skips the family on those
+  # legacy refs rather than taking down the measurement run.
+  def supported?, do: function_exported?(:crypto, :crypto_one_time_aead, 6)
+
   @aad <<"awfy">>
   @iv_12 :binary.copy(<<0>>, 12)
   @key_16 :binary.copy(<<1>>, 16)

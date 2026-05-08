@@ -119,6 +119,20 @@ defmodule Awfy.OtpBenchmarks.Runner do
   # the controller doesn't carry tens of MB of raw samples per
   # family — see `Awfy.SuiteSlim`.
   def do_run(mod, benchee_opts) do
+    if not mod.supported?() do
+      # Family declared itself unsupported on this OTP (e.g.
+      # crypto_aead on OTP < 22 lacking crypto_one_time_aead/6).
+      # Return an empty suite rather than letting Benchee call
+      # run/1 — Benchee aborts the whole VM via init terminating
+      # on undef, taking the entire measurement run with it.
+      IO.puts("\n[#{mod.name()}] unsupported on this OTP — skipping family")
+      %Benchee.Suite{scenarios: [], configuration: %Benchee.Configuration{}}
+    else
+      do_run_supported(mod, benchee_opts)
+    end
+  end
+
+  defp do_run_supported(mod, benchee_opts) do
     inputs = mod.inputs()
 
     # Wire setup / teardown through Benchee's per-scenario hooks. The

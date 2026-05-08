@@ -203,19 +203,35 @@ defmodule Awfy.TargetRunner do
   """
   @spec run_otp_family(map()) :: %Benchee.Suite{}
   def run_otp_family(%{family: family, time: time, warmup: warmup, out: out}) do
-    Benchee.run(
-      %{family.name() => fn input -> family.run(input) end},
-      inputs: family.inputs(),
-      before_scenario: fn raw -> family.setup(raw) end,
-      after_scenario: fn state -> family.teardown(state) end,
-      time: time,
-      warmup: warmup,
-      memory_time: 0,
-      reduction_time: 0,
-      print: [benchmarking: false, configuration: false, fast_warning: false],
-      formatters: []
-    )
-    |> write_slim_suite(out)
+    if function_exported?(family, :supported?, 0) and not family.supported?() do
+      # Family declared itself unsupported on this OTP — write an
+      # empty suite so the host's `Awfy.OtpBenchmarks.Runner.run_bundle`
+      # sees a normal :ok return and proceeds, instead of the target
+      # VM aborting with `undef` mid-Benchee-calibration and the host
+      # logging "[bundle] X failed: erl_exit". The host treats an
+      # empty suite as "no scenarios" — the dashboard simply has no
+      # rows for this family on this ref.
+      empty = %Benchee.Suite{
+        scenarios: [],
+        configuration: %Benchee.Configuration{}
+      }
+
+      write_slim_suite(empty, out)
+    else
+      Benchee.run(
+        %{family.name() => fn input -> family.run(input) end},
+        inputs: family.inputs(),
+        before_scenario: fn raw -> family.setup(raw) end,
+        after_scenario: fn state -> family.teardown(state) end,
+        time: time,
+        warmup: warmup,
+        memory_time: 0,
+        reduction_time: 0,
+        print: [benchmarking: false, configuration: false, fast_warning: false],
+        formatters: []
+      )
+      |> write_slim_suite(out)
+    end
   end
 
   # Drop raw `samples` lists from each scenario before writing the
