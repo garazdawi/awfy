@@ -172,6 +172,12 @@ jobs:
               - 'priv/dashboard.css'
               - 'lib/awfy/compare/**'
               - 'lib/mix/tasks/awfy.compare.ex'
+              # Tests for the dashboard / compare formatter — they
+              # exercise the same code, so editing them in tandem
+              # with the implementation is normal and shouldn't
+              # force a full smoke matrix.
+              - 'test/compare/**'
+              - 'test/dashboard.test.js'
       - id: r
         env:
           # Three triggers, three default scopes:
