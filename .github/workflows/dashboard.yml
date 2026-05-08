@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Fast-path dashboard regenerator. Runs `mix awfy.compare` against
+# the existing gh-pages dataset and pushes the regenerated HTML —
+# no measurement, no benchmark matrix, no setup-beam-on-windows.
+# Typically lands in ~90 seconds end-to-end.
+#
+# Triggers only on changes to the dashboard / compare code, since
+# anything that affects the *measurement* path needs the full
+# smoke run in `bench.yml`. The complementary `paths-ignore` in
+# bench.yml skips its push-event smoke for the same set, so a
+# dashboard-only commit only fires this one workflow.
+#
+# Manual `workflow_dispatch` lets you re-publish HTML on demand
+# (e.g., after a hotfix to dashboard.js or a CDN cache anomaly)
+# without pushing a no-op commit.
+name: dashboard
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'priv/dashboard.js'
+      - 'priv/dashboard.css'
+      - 'lib/awfy/compare/**'
+      - 'lib/mix/tasks/awfy.compare.ex'
+      - '.github/workflows/dashboard.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # push to gh-pages
+
+# A previous regenerate that's still pushing should finish first
+# rather than being overwritten — the gh-pages branch is the
+# shared resource. Cancel-in-progress would lose the push, so
+# queue instead.
+concurrency:
+  group: dashboard-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: Check out gh-pages worktree
+        run: |
+          git fetch origin gh-pages
+          git worktree add -B gh-pages _pages origin/gh-pages
+
+      - name: Regenerate dashboard
+        run: |
+          mix deps.get
+          mix compile
+          mix awfy.compare --out _pages
+
+      - name: Disable Jekyll on Pages
+        run: touch _pages/.nojekyll
+
+      - name: Commit + push
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        run: |
+          cd _pages
+          git add -A
+          if git diff --staged --quiet; then
+            echo "[dashboard] no changes"
+            exit 0
+          fi
+          git commit -m "dashboard: $(date -u +%Y-%m-%dT%H:%MZ)"
+
+          # Same retry shape as bench.yml's publish step — the gh-pages
+          # branch is multi-GB and GitHub's git RPC has stalled push
+          # attempts in the past. Per-attempt timeout fails fast and
+          # we get another chance instead of riding out the job-level
+          # cap.
+          for attempt in 1 2 3; do
+            echo "[dashboard] push attempt $attempt"
+            if timeout 1800 git push --progress origin gh-pages 2>&1; then
+              exit 0
+            fi
+            echo "[dashboard] attempt $attempt failed, refreshing and retrying"
+            git fetch origin gh-pages || true
+            git rebase origin/gh-pages || git rebase --abort || true
+            sleep $((attempt * 30))
+          done
+          echo "[dashboard] push failed after 3 attempts" >&2
+          exit 1

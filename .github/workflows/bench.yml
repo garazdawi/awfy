@@ -55,6 +55,16 @@ name: bench
 
 on:
   push:
+    # Dashboard-only changes get a faster, narrower workflow
+    # (.github/workflows/dashboard.yml) — no need to spin up the
+    # full smoke matrix when nothing executable was touched. Both
+    # workflows still publish to gh-pages, but the dashboard.yml
+    # path is the one that fires for these commits.
+    paths-ignore:
+      - 'priv/dashboard.js'
+      - 'priv/dashboard.css'
+      - 'lib/awfy/compare/**'
+      - 'lib/mix/tasks/awfy.compare.ex'
   schedule:
     # Weekly Monday 06:00 UTC — fill-mode catch-up against gh-pages.
     - cron: "0 6 * * 1"
