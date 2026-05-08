@@ -190,5 +190,56 @@ defmodule Awfy.Compare.DataTest do
 
       assert %{runs: [], rows: []} = Data.load(tmp)
     end
+
+    test "drops scenarios with median = 0 — sub-clock-floor noise" do
+      # Windows' QueryPerformanceCounter has ~102 μs granularity. For
+      # sub-µs benchmarks the median can collapse to exactly 0 ns when
+      # half or more of the batch samples land below one clock tick.
+      # Plotting the resulting `median_ms = 0` gives `baseline / 0 =
+      # Infinity` and breaks every chart it lands on. Asserts the
+      # loader filters them before they enter the dataset.
+      tmp = "tmp/awfy_zero_median_test_#{System.unique_integer([:positive])}"
+      run_dir = Path.join(tmp, "20260101T0000_otp28_elixir1.19.5_test-test-linux-x86_64-jit")
+      File.mkdir_p!(run_dir)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+
+      File.write!(Path.join(run_dir, "meta.json"), ~s({
+        "version": 1,
+        "label": "test",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "otp": "28",
+        "elixir": "1.19.5",
+        "machine": {},
+        "runtime": {"emu_flavor": "jit"},
+        "benchmarks": [],
+        "otp_benchmarks": []
+      }))
+
+      ok_stats = %Benchee.Statistics{median: 1234.0, sample_size: 1000}
+      zero_stats = %Benchee.Statistics{median: 0.0, sample_size: 1000}
+
+      suite = %Benchee.Suite{
+        scenarios: [
+          %Benchee.Scenario{
+            name: "fixture",
+            job_name: "fixture",
+            input_name: "ok",
+            run_time_data: %Benchee.CollectionData{statistics: ok_stats}
+          },
+          %Benchee.Scenario{
+            name: "fixture",
+            job_name: "fixture",
+            input_name: "zero",
+            run_time_data: %Benchee.CollectionData{statistics: zero_stats}
+          }
+        ]
+      }
+
+      File.write!(Path.join(run_dir, "fixture.benchee"), :erlang.term_to_binary(suite))
+
+      %{rows: rows} = Data.load(tmp)
+      input_names = rows |> Enum.map(& &1.input) |> Enum.sort()
+      assert input_names == ["ok"], "zero-median row should be filtered out"
+    end
   end
 end

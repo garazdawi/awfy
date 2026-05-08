@@ -124,7 +124,17 @@ defmodule Awfy.Compare.Data do
           # that metadata (e.g. a phash2.benchee dropped in by hand).
           otp_family_meta = otp_family_meta(run.otp_benchmarks_meta, bench_name)
 
-          Enum.map(suite.scenarios, fn scenario ->
+          # Drop scenarios with a 0 ns median — those are sub-clock-floor
+          # results (Windows' QueryPerformanceCounter has a ~102 μs
+          # granularity, so for sub-µs benchmarks half or more of the
+          # batch samples land on 0 ticks and the median collapses to
+          # 0). Plotting them yields `baseline / 0 = Infinity`, which
+          # spikes the chart's y-axis and visually crowds every other
+          # series down to a flat line near zero. The data is real
+          # noise, not a real measurement, so don't propagate it.
+          suite.scenarios
+          |> Enum.reject(fn s -> sub_clock_floor?(s.run_time_data.statistics) end)
+          |> Enum.map(fn scenario ->
             {bname, lang} = parse_name(scenario.name)
             # Benchee sets `input_name` only when the suite was run
             # with `inputs: %{...}` — that's the OtpBenchmarks shape.
@@ -215,6 +225,18 @@ defmodule Awfy.Compare.Data do
   # scale lose nothing — the trailing zeros are noise.
   defp ns_to_ms(nil), do: nil
   defp ns_to_ms(ns) when is_number(ns), do: Float.round(ns / 1_000_000, 6)
+
+  # A scenario is sub-clock-floor when its median run-time is 0 ns
+  # — which only happens when more than half of the batch samples
+  # finished within zero clock ticks. Treated as "no usable
+  # measurement" since it neither plots nor folds into a geomean
+  # cleanly. Conservative on purpose: legitimately fast benchmarks
+  # on Apple Silicon (42 ns clock floor) still show up with a
+  # nonzero multiple-of-floor median; only the truly-zero cases
+  # are dropped.
+  defp sub_clock_floor?(%Benchee.Statistics{median: m}) when is_number(m) and m <= 0, do: true
+  defp sub_clock_floor?(%Benchee.Statistics{median: nil}), do: true
+  defp sub_clock_floor?(_), do: false
 
   # Benchee fills `scenario.input_name` only when the suite was run
   # with an `inputs: %{...}` map. AWFY-shape suites (one timed
