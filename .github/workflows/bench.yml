@@ -55,16 +55,6 @@ name: bench
 
 on:
   push:
-    # Dashboard-only changes get a faster, narrower workflow
-    # (.github/workflows/dashboard.yml) — no need to spin up the
-    # full smoke matrix when nothing executable was touched. Both
-    # workflows still publish to gh-pages, but the dashboard.yml
-    # path is the one that fires for these commits.
-    paths-ignore:
-      - 'priv/dashboard.js'
-      - 'priv/dashboard.css'
-      - 'lib/awfy/compare/**'
-      - 'lib/mix/tasks/awfy.compare.ex'
   schedule:
     # Weekly Monday 06:00 UTC — fill-mode catch-up against gh-pages.
     - cron: "0 6 * * 1"
@@ -149,10 +139,39 @@ jobs:
       # to GHA regardless of the dispatch input — pushes don't pay
       # AWS bills.
       runner_pool: ${{ steps.r.outputs.runner_pool }}
+      # `true` when this is a push event whose entire diff lives
+      # inside the dashboard / compare-formatter code paths. The
+      # measure / build jobs gate on this so a CSS tweak doesn't
+      # spin up the full smoke matrix; the publish job still runs
+      # so the regenerated HTML lands on gh-pages. Schedule and
+      # workflow_dispatch always get the full pipeline (the
+      # paths-filter step is push-only, leaving this output empty
+      # — `!= 'true'` in the gates below catches both `false` and
+      # the empty string).
+      dashboard_only: ${{ steps.dashboard_check.outputs.dashboard_only || 'false' }}
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # Detect dashboard-only pushes via dorny/paths-filter. The
+      # `predicate-quantifier: every` flag turns the filter into
+      # "every changed file matches one of these patterns" — exactly
+      # the "skip the smoke matrix when only HTML/JS/CSS changed"
+      # check we want. Action handles first-push (before=000…000)
+      # and force-push edge cases via the GitHub API; no manual
+      # shell required. Schedule / workflow_dispatch don't fire
+      # this step (the job-level `if:` below is push-only).
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'push'
+        id: dashboard_check
+        with:
+          predicate-quantifier: every
+          filters: |
+            dashboard_only:
+              - 'priv/dashboard.js'
+              - 'priv/dashboard.css'
+              - 'lib/awfy/compare/**'
+              - 'lib/mix/tasks/awfy.compare.ex'
       - id: r
         env:
           # Three triggers, three default scopes:
@@ -213,7 +232,7 @@ jobs:
   # tag from GHCR.
   build-linux:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_linux == 'true'
+    if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: write   # push image to GHCR
@@ -286,7 +305,7 @@ jobs:
   # the OTP we just installed.
   build-linux-target:
     needs: resolve
-    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: write
@@ -363,7 +382,7 @@ jobs:
     # majors / Elixir versions, not target entries. The whole-job
     # gate on `has_legacy_linux` is sufficient: if no legacy targets
     # made the cut, no bundle needs building.
-    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: read
@@ -455,7 +474,7 @@ jobs:
   # tenancy and pinning there gives us nothing.
   measure-linux:
     needs: [resolve, build-linux]
-    if: needs.resolve.outputs.has_modern_linux == 'true'
+    if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: read
@@ -533,7 +552,7 @@ jobs:
   # version where WMIC is still present.
   measure-windows:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_windows == 'true'
+    if: needs.resolve.outputs.has_modern_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
@@ -694,7 +713,7 @@ jobs:
   # of `runner_pool`.
   measure-macos:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_macos == 'true'
+    if: needs.resolve.outputs.has_modern_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
     strategy:
@@ -819,7 +838,7 @@ jobs:
   # ---------------------------------------------------------------
   measure-linux-target:
     needs: [resolve, build-linux-target, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_linux == 'true'
+    if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: read
@@ -908,7 +927,7 @@ jobs:
 
   measure-windows-target:
     needs: [resolve, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_windows == 'true'
+    if: needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       actions: read
@@ -1005,7 +1024,7 @@ jobs:
 
   measure-macos-target:
     needs: [resolve, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_macos == 'true'
+    if: needs.resolve.outputs.has_legacy_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       actions: read
