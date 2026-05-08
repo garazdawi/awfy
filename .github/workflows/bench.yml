@@ -1168,6 +1168,14 @@ jobs:
           mix compile
           mix awfy.compare --out _pages
 
+      # Skip Jekyll: site is pure static HTML/JS/CSS from
+      # `mix awfy.compare`, so Jekyll's processing pass adds zero
+      # value and slows the deploy by 5-15 min for a multi-MB
+      # dashboard. Idempotent — touch is a no-op if the marker
+      # already exists from a prior publish.
+      - name: Disable Jekyll on Pages
+        run: touch _pages/.nojekyll
+
       - name: Commit + push
         env:
           GIT_AUTHOR_NAME: github-actions[bot]
