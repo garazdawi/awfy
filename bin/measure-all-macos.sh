@@ -9,7 +9,12 @@
 # driven from a single weekend script instead of the GHA matrix.
 #
 # Usage:
-#   bin/measure-all-macos.sh [--refs OTP-28.5,master,...] [--flavors jit,emu]
+#   bin/measure-all-macos.sh [--refs OTP-28.5,master,...] [--flavors jit,emu] [--build-only]
+#
+# `--build-only` builds every OTP prefix + target bundle but skips
+# `mix awfy.measure`. Useful for pre-warming during a workweek so
+# the actual benchmark run on the weekend hits cached prefixes
+# (build is the slow part — 5–10 min per ref × ~30 refs).
 #
 # By default runs every ref `bin/expand-otp-refs.sh all` produces
 # (~30 refs covering OTP-20 through master) at both jit and emu
@@ -54,13 +59,15 @@ cd "$PROJECT_ROOT"
 
 REFS=""
 FLAVORS="jit,emu"
+BUILD_ONLY=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --refs)    REFS="$2"; shift 2 ;;
-    --flavors) FLAVORS="$2"; shift 2 ;;
+    --refs)       REFS="$2"; shift 2 ;;
+    --flavors)    FLAVORS="$2"; shift 2 ;;
+    --build-only) BUILD_ONLY=1; shift ;;
     -h|--help)
-      sed -n '/^#/p' "$0" | head -50
+      sed -n '/^#/p' "$0" | head -55
       exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
@@ -172,6 +179,7 @@ echo "[measure-all-macos] refs:"
 # shellcheck disable=SC2086 # intentional word-splitting on whitespace.
 printf '  %s\n' $REFS
 echo "[measure-all-macos] flavors: $FLAVORS"
+[ -n "$BUILD_ONLY" ] && echo "[measure-all-macos] --build-only: skipping mix awfy.measure"
 
 for ref in $REFS; do
   echo
@@ -182,6 +190,24 @@ for ref in $REFS; do
 
   prefix=$(bin/install-otp-source-mac.sh "$ref")
   echo "  prefix=$prefix"
+
+  # Pre-warm the legacy bundle too so a `--build-only` pass leaves
+  # nothing slow for the weekend measurement run. Modern path
+  # doesn't need a bundle.
+  if [ "$major" -lt 24 ] && [ "$major" != "99" ]; then
+    elixir_ver=$(elixir_for_major "$major")
+    if [ -n "$elixir_ver" ]; then
+      bundle_tar="$PROJECT_ROOT/target_bundle_${elixir_ver}.tar.gz"
+      if [ ! -f "$bundle_tar" ]; then
+        echo "  pre-building target bundle for Elixir $elixir_ver"
+        bin/build-target-bundle.sh "$prefix" "$elixir_ver" "$bundle_tar"
+      fi
+    fi
+  fi
+
+  if [ -n "$BUILD_ONLY" ]; then
+    continue
+  fi
 
   if [ "$major" -ge 24 ] || [ "$major" = "99" ]; then
     for flavor in $(echo "$FLAVORS" | tr ',' ' '); do
