@@ -97,6 +97,26 @@ defmodule Awfy.SuiteSlimTest do
       assert slim_s.tag == "test-1"
     end
 
+    test "clears scenario.input and configuration.inputs" do
+      # iolist_size's `huge_16mb` ships a 16 MB binary as the input
+      # value on every scenario. The dashboard reads `input_name`
+      # (the map key) but not the value, so dropping the value cuts
+      # tens of MB per file with no observable impact.
+      huge = :binary.copy(<<0>>, 16 * 1024 * 1024)
+
+      suite = %Benchee.Suite{
+        configuration: %Benchee.Configuration{inputs: %{"huge" => huge}},
+        scenarios: [
+          %{fixture_scenario(samples_n: 3) | input_name: "huge", input: huge}
+        ]
+      }
+
+      slim = SuiteSlim.slim(suite)
+      assert slim.configuration.inputs == nil
+      assert hd(slim.scenarios).input == nil
+      assert hd(slim.scenarios).input_name == "huge"
+    end
+
     test "term_to_binary of slim suite is dramatically smaller than the original" do
       # Fixture: 100k samples per scenario × 5 scenarios ≈ what a
       # single phash2 family looks like on disk. Slim should cut

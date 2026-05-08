@@ -226,7 +226,13 @@ defmodule Awfy.TargetRunner do
   # #10), so we can't share the helper. The two implementations are
   # tiny and stay trivially in sync.
   defp write_slim_suite(%Benchee.Suite{scenarios: scenarios} = suite, out) do
-    slim = %{suite | scenarios: Enum.map(scenarios, &slim_scenario/1)}
+    slim =
+      %{
+        suite
+        | scenarios: Enum.map(scenarios, &slim_scenario/1),
+          configuration: clear_configuration_inputs(suite.configuration)
+      }
+
     File.mkdir_p!(Path.dirname(out))
     File.write!(out, :erlang.term_to_binary(slim))
     slim
@@ -235,7 +241,8 @@ defmodule Awfy.TargetRunner do
   defp slim_scenario(%Benchee.Scenario{} = s) do
     %{
       s
-      | run_time_data: clear_samples(s.run_time_data),
+      | input: nil,
+        run_time_data: clear_samples(s.run_time_data),
         memory_usage_data: clear_samples(s.memory_usage_data),
         reductions_data: clear_samples(s.reductions_data)
     }
@@ -249,4 +256,7 @@ defmodule Awfy.TargetRunner do
 
   defp clear_outliers(%Benchee.Statistics{} = stats), do: %{stats | outliers: []}
   defp clear_outliers(other), do: other
+
+  defp clear_configuration_inputs(%Benchee.Configuration{} = cfg), do: %{cfg | inputs: nil}
+  defp clear_configuration_inputs(other), do: other
 end
