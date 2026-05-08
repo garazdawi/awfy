@@ -147,6 +147,10 @@ code { font-family: var(--mono); background: var(--er-tint); padding: 0.05em 0.3
     <div class="group" id="control-lang">
       <b>Language</b>
     </div>
+    <div class="group" id="control-display">
+      <b>Display</b>
+      <label><input type="checkbox" id="show-whiskers" checked> Error bars</label>
+    </div>
     <button id="reset-filters" type="button" class="reset-btn" title="Restore default tabs, language, and snapshot-major selections">Reset to defaults</button>
   </div>
 
@@ -521,18 +525,25 @@ function readUIState() {
   const lang = isCheckboxLang
     ? [...langInputs].filter(i => i.checked).map(i => i.value)
     : (document.querySelector('input[name="lang"]:checked') || {}).value;
+  // Whiskers default on; toggle persists across reloads. The
+  // checkbox lives in #control-display and is rendered server-side
+  // already-checked, so an unset state means "show".
+  const whiskerEl = document.getElementById("show-whiskers");
+  const show_whiskers = whiskerEl ? whiskerEl.checked : true;
   if (PAGE_KIND === "bench") {
     return {
       machine_class: [...document.querySelectorAll('input[name="machine"]:checked')].map(c => c.value),
       emu_flavor: flavor,
-      lang
+      lang,
+      show_whiskers
     };
   }
   const activeTab = document.querySelector("#machine-tabs .tab.active");
   return {
     machine_class: activeTab ? activeTab.dataset.value : null,
     emu_flavor: flavor,
-    lang
+    lang,
+    show_whiskers
   };
 }
 
@@ -556,7 +567,12 @@ function applyFilters(rows, state) {
    so platforms with slower hardware would dominate the visual
    range and obscure the speedup trend.)
 */
-function buildSeries(rows, xAxis) {
+// `showWhiskers` lets the caller suppress yMin/yMax — unchecking
+// the Display→Error bars toggle. Defaults to true so existing
+// callers (tests, internal callers without state) keep their
+// historical behavior.
+function buildSeries(rows, xAxis, showWhiskers) {
+  if (showWhiskers === undefined) showWhiskers = true;
   const groups = {};
   rows.forEach(row => {
     const key = seriesKey(row);
@@ -625,8 +641,11 @@ function buildSeries(rows, xAxis) {
         return {
           x,
           y: ratio,
-          yMin,
-          yMax,
+          // null yMin/yMax tells lineWithErrorBars to skip drawing
+          // the whisker — that's what the Display→Error bars toggle
+          // requests. y itself stays so the line still renders.
+          yMin: showWhiskers ? yMin : null,
+          yMax: showWhiskers ? yMax : null,
           median_ms: r.median_ms,
           stddev: r.stddev_ms,
           run_label: r.label,
@@ -937,7 +956,7 @@ function renderChart() {
   const state = readUIState();
   const series = PAGE_KIND === "suite"
     ? buildSuiteGeomeanSeries()
-    : buildSeries(applyFilters(DATASET.rows, state), xAxis);
+    : buildSeries(applyFilters(DATASET.rows, state), xAxis, state.show_whiskers);
 
   const datasets = series.map((s, i) => {
     const baseColor = s.borderColor || colorFor(i);
@@ -1298,7 +1317,14 @@ function renderSnapshot() {
         const half = rawHalf > r.median_ms / 2 ? r.median_ms / 2 : rawHalf;
         const yMax = (r.median_ms - half > 0) ? base.ms / (r.median_ms - half) : ratio;
         const yMin = (r.median_ms + half > 0) ? base.ms / (r.median_ms + half) : ratio;
-        return { x: b, y: ratio, yMin, yMax, raw: r, baseMs: base.ms };
+        return {
+          x: b,
+          y: ratio,
+          yMin: state.show_whiskers ? yMin : null,
+          yMax: state.show_whiskers ? yMax : null,
+          raw: r,
+          baseMs: base.ms
+        };
       });
       const v = versionForMajor[m];
       const labelOtp = (v === "master" || v === "main") ? v : "OTP " + v;
@@ -1442,6 +1468,16 @@ if (typeof document !== "undefined") (function () {
   // skip on per-bench pages where the snapshot doesn't render.
   if (PAGE_KIND === "suite") {
     buildSnapshotMajorCheckboxes();
+  }
+
+  // Display→Error bars toggle. Default checked (whiskers on);
+  // persisted false hides them. Same `onFilterChange` flow as the
+  // other controls — readUIState picks up `.show_whiskers` and the
+  // chart renderers honor it.
+  const whiskerEl = document.getElementById("show-whiskers");
+  if (whiskerEl) {
+    if (state.show_whiskers === false) whiskerEl.checked = false;
+    whiskerEl.addEventListener("change", onFilterChange);
   }
 
   // Reset wipes this page's filter state and reloads. Per-page
