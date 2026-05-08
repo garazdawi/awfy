@@ -28,3 +28,4 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/terraform.tfvars
 terraform/.terraform.lock.hcl
+target_bundle_*.tar.gz

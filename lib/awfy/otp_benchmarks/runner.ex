@@ -49,7 +49,6 @@ defmodule Awfy.OtpBenchmarks.Runner do
     "base64" => 3,
     "binary_match" => 3,
     "unicode" => 3,
-    "crypto_aead" => 3,
     "ets" => 5,
     "estone" => 5,
     "mnesia_tpcb" => 5
@@ -120,9 +119,9 @@ defmodule Awfy.OtpBenchmarks.Runner do
   # family — see `Awfy.SuiteSlim`.
   def do_run(mod, benchee_opts) do
     if not mod.supported?() do
-      # Family declared itself unsupported on this OTP (e.g.
-      # crypto_aead on OTP < 22 lacking crypto_one_time_aead/6).
-      # Return an empty suite rather than letting Benchee call
+      # Family declared itself unsupported on this OTP (e.g. a
+      # BIF added in a later OTP minor than the target). Return
+      # an empty suite rather than letting Benchee call
       # run/1 — Benchee aborts the whole VM via init terminating
       # on undef, taking the entire measurement run with it.
       IO.puts("\n[#{mod.name()}] unsupported on this OTP — skipping family")

@@ -49,10 +49,9 @@ defmodule OtpBenchmarks.Benchmark do
     * `supported?/0` — runtime gate for "this family can run on
       the current OTP." Returns `true` if the BIFs / modules the
       family depends on are present, `false` otherwise. Default:
-      `true`. Examples where this matters: `crypto_aead` calls
-      `:crypto.crypto_one_time_aead/6`, which only exists on
-      OTP ≥ 22; running it on the bundle path under OTP-20 or
-      OTP-21 aborts the whole VM with an `undef` from inside
+      `true`. Override on families that call BIFs introduced in
+      a specific OTP minor — without the gate, running on a too-
+      old target aborts the whole VM with an `undef` from inside
       Benchee's calibration loop. The runner filters unsupported
       families before dispatch so legacy refs simply skip them.
   """

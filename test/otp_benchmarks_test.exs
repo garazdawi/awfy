@@ -124,7 +124,6 @@ defmodule OtpBenchmarksTest do
       assert Runner.time_for("base64") == 3
       assert Runner.time_for("binary_match") == 3
       assert Runner.time_for("unicode") == 3
-      assert Runner.time_for("crypto_aead") == 3
     end
 
     test "unknown family name falls back to 3s" do

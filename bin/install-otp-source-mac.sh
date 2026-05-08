@@ -176,10 +176,9 @@ trap 'rm -rf "$WORK"' EXIT
     # on Apple Silicon (/opt/homebrew/opt/openssl@3). Without
     # `--with-ssl=...`, configure default-skipped the crypto NIF on
     # legacy OTPs (20-24), leaving the prefixes without a crypto
-    # module — `crypto:hash/2` and friends became `undef`, and the
-    # crypto_aead benchmark family can't run on those refs.
-    # Auto-detect via `brew --prefix`; CI macos-latest does the
-    # same in bench.yml.
+    # module — `crypto:hash/2` and friends became `undef`. Auto-
+    # detect via `brew --prefix`; CI macos-latest does the same in
+    # bench.yml.
     SSL_FLAG=""
     if command -v brew >/dev/null 2>&1; then
         SSL_PREFIX="$(brew --prefix openssl@3 2>/dev/null || true)"
