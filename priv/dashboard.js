@@ -425,8 +425,20 @@ function buildSeries(rows, xAxis) {
         (PAGE_KIND === "bench" ? items[0].machine_class : items[0].lang),
       data: sorted.map(r => {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
-        const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
         const ratio = (baseMs && r.median_ms) ? baseMs / r.median_ms : null;
+        // Cap 2σ at half the median for whisker math. Sub-µs
+        // benchmarks routinely show CV ≥ 50% (clock-floor noise),
+        // and the unbounded form `baseMs / (median - 2σ)` blows up
+        // toward Infinity as 2σ approaches median — a single such
+        // point dominates the chart's y range and crushes every
+        // other series. Capping at median/2 means a noisy point's
+        // upper whisker goes no higher than 2× the ratio, which
+        // keeps the chart readable while still telegraphing
+        // uncertainty (a tall whisker still says "noisy"; it just
+        // doesn't say "literally infinite"). Lower whisker is
+        // symmetric — yMin uses the same capped sigma.
+        const rawSigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
+        const sigma = (r.median_ms && rawSigma > r.median_ms / 2) ? r.median_ms / 2 : rawSigma;
         const yMax = (baseMs && r.median_ms - sigma > 0) ? baseMs / (r.median_ms - sigma) : ratio;
         const yMin = (baseMs && r.median_ms + sigma > 0) ? baseMs / (r.median_ms + sigma) : ratio;
         return {
@@ -1092,7 +1104,11 @@ function renderSnapshot() {
           return { x: b, y: null, yMin: null, yMax: null, raw: r };
         }
         const ratio = base.ms / r.median_ms;
-        const sigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
+        // Same noise-floor cap as the line chart's whisker math:
+        // bound 2σ at median/2 so a single high-CV bar can't push
+        // its yMax to ~Infinity and stretch the chart's y-axis.
+        const rawSigma = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
+        const sigma = rawSigma > r.median_ms / 2 ? r.median_ms / 2 : rawSigma;
         const yMax = (r.median_ms - sigma > 0) ? base.ms / (r.median_ms - sigma) : ratio;
         const yMin = (r.median_ms + sigma > 0) ? base.ms / (r.median_ms + sigma) : ratio;
         return { x: b, y: ratio, yMin, yMax, raw: r, baseMs: base.ms };
