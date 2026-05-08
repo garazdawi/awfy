@@ -438,26 +438,19 @@ function buildSeries(rows, xAxis, showWhiskers) {
       data: sorted.map(r => {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
         const ratio = (baseMs && r.median_ms) ? baseMs / r.median_ms : null;
-        // Whiskers represent the standard error of the median, not
-        // ±2σ of individual iterations. σ is the natural spread of
-        // per-iteration timings (set by clock resolution + OS jitter
-        // + inherent benchmark variance) and stays the same no matter
-        // how long Benchee samples — bumping `:time` doesn't tighten
-        // it. SE = σ/√N collapses with sample count, which is what
-        // we actually care about: "how confident are we in *this*
-        // median?". With 17K samples on graphemes_bmp_4k the σ-band
-        // is ±150 μs but SE is ±1 μs — and the median really is
-        // pinned that tightly because there are 17K independent
-        // observations. Using 2·SE keeps the visual "two-sigma"
-        // convention but on the right statistic.
-        //
-        // Fallback to capped-σ when sample_size is missing (defensive
-        // — older runs may not have populated it; cap at median/2 so
-        // even with N=1 the whisker can't blow up to ~Infinity).
-        const seMs = (typeof r.stddev_ms === "number" && r.samples_n > 0)
-          ? r.stddev_ms / Math.sqrt(r.samples_n)
-          : (typeof r.stddev_ms === "number" ? r.stddev_ms : 0);
-        const rawHalf = 2 * seMs;
+        // Whisker = ±2σ of per-iteration timings, capped at half
+        // the median. σ tells the story we want — "this benchmark
+        // has high spread per iteration" — and stays visible across
+        // sample counts. (We tried SE = σ/√N, which is the right
+        // statistic for "how confident are we in *this* median",
+        // but at our typical N≥10⁴ the SE-derived whisker collapses
+        // to sub-pixel and the chart looks like there's zero
+        // uncertainty anywhere. Visible noise indication beats
+        // statistical purity for this view.)
+        // Cap kicks in when 2σ ≥ median/2 (CV ≥ 25%): keeps the
+        // upper whisker bounded at 2× the ratio so a single noisy
+        // point can't push yMax toward Infinity.
+        const rawHalf = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
         const half = (r.median_ms && rawHalf > r.median_ms / 2) ? r.median_ms / 2 : rawHalf;
         const yMax = (baseMs && r.median_ms - half > 0) ? baseMs / (r.median_ms - half) : ratio;
         const yMin = (baseMs && r.median_ms + half > 0) ? baseMs / (r.median_ms + half) : ratio;
@@ -899,29 +892,11 @@ function renderChart() {
               grid: { color: "#eee" }
             },
         y: {
-          // Logarithmic — speedups are inherently multiplicative,
-          // and the OtpBenchmarks families covering a decade of OTP
-          // optimizations span 30×+ in some cases (base64 encode_n64k
-          // went 3.5 ms → 0.1 ms between OTP-20 and OTP-28). Linear
-          // scale would crush the early-OTP curve into a flat line at
-          // the bottom, hiding everything below ~3×. Log lays the
-          // 1× line at the visual midline with symmetric headroom
-          // for slowdowns and speedups. Ratios are always positive
-          // in our data prep (yMin/yMax guard against zero), so log
-          // is safe.
-          type: "logarithmic",
           title: { display: true, text: yLabel, font: titleFont },
-          ticks: {
-            font: tickFont,
-            // Auto-tick on log scale otherwise emits 0.1, 1, 10 only,
-            // which loses resolution in the 0.5×–3× range that holds
-            // most measurements. Format every tick the scale draws —
-            // chart.js picks 1-2-5 multiples per decade — so e.g.
-            // 0.5, 1, 2, 5, 10, 20 get drawn explicitly.
-            callback: function(v) {
-              return Number(v.toFixed(2)).toString() + "×";
-            }
-          },
+          ticks: { font: tickFont },
+          // Both modes are now ratios; let the axis breathe so
+          // the spread above/below 1× is readable.
+          beginAtZero: false,
           grid: { color: "#eee" }
         }
       },
@@ -1127,16 +1102,13 @@ function renderSnapshot() {
           return { x: b, y: null, yMin: null, yMax: null, raw: r };
         }
         const ratio = base.ms / r.median_ms;
-        // Same SE-based whisker as the line chart — see comment
-        // there. SE collapses with √N, so bars on
-        // well-replicated benchmarks show tiny whiskers and bars
-        // on undersampled / clock-floor-bound ones still flag
-        // uncertainty visibly. Cap at median/2 as a final
-        // defensive bound for missing-N rows.
-        const seMs = (typeof r.stddev_ms === "number" && r.samples_n > 0)
-          ? r.stddev_ms / Math.sqrt(r.samples_n)
-          : (typeof r.stddev_ms === "number" ? r.stddev_ms : 0);
-        const rawHalf = 2 * seMs;
+        // Same 2σ-with-cap whisker as the line chart — visible
+        // even at high N (we tried SE = σ/√N and the whiskers
+        // collapsed sub-pixel on well-replicated benchmarks).
+        // Cap at median/2 keeps the upper bound bounded at 2×
+        // the ratio so a single high-CV bar can't push yMax
+        // toward Infinity.
+        const rawHalf = (typeof r.stddev_ms === "number") ? 2 * r.stddev_ms : 0;
         const half = rawHalf > r.median_ms / 2 ? r.median_ms / 2 : rawHalf;
         const yMax = (r.median_ms - half > 0) ? base.ms / (r.median_ms - half) : ratio;
         const yMin = (r.median_ms + half > 0) ? base.ms / (r.median_ms + half) : ratio;
@@ -1183,18 +1155,9 @@ function renderSnapshot() {
           grid: { display: false }
         },
         y: {
-          // Same logarithmic rationale as the line chart above —
-          // bars are speedup ratios (`baseline / median`), and a
-          // 30× bar in base64/encode_n64k otherwise crushes every
-          // bar between 1×–3× into a flat strip near the x axis.
-          type: "logarithmic",
-          title: { display: true, text: "speedup × over baseline (log scale)", font: titleFont },
-          ticks: {
-            font: tickFont,
-            callback: function(v) {
-              return Number(v.toFixed(2)).toString() + "×";
-            }
-          },
+          title: { display: true, text: "speedup × over baseline", font: titleFont },
+          ticks: { font: tickFont },
+          beginAtZero: true,
           grid: { color: "#eee" }
         }
       },
