@@ -1383,7 +1383,7 @@ function renderRunsMeta() {
     "  otp=" + r.otp + "  elixir=" + r.elixir +
     "  " + (r.machine_class || r.hostname || "?") + " (" + (r.cpu || "?") + ")  emu=" + (r.emu_flavor || "?")
   );
-  document.getElementById("runs-meta").textContent = lines.join("\\n");
+  document.getElementById("runs-meta").textContent = lines.join("\n");
 }
 
 /* Init */
