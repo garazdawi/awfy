@@ -1059,7 +1059,7 @@ function renderHeadline() {
     const word = pct >= 0 ? "faster" : "slower";
     const cls = pct >= 0 ? "speedup" : "slowdown";
     return '<span class="num ' + cls + '">' + speedup.toFixed(2) + '×</span> ' +
-           '<span class="' + cls + '">' + word + '</span> than Erlang/OTP ' + anchor.x;
+           '<span class="' + cls + '">' + word + '</span> than ' + anchor.x;
   };
 
   const parts = anchorList.map(fmtAnchor);
