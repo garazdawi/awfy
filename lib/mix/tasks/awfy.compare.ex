@@ -92,7 +92,12 @@ defmodule Mix.Tasks.Awfy.Compare do
       render_index(data, bench_names, baseline_label)
     )
 
-    Mix.shell().info("Wrote #{out_dir}/index.html (#{length(bench_names)} benchmark pages)")
+    File.write!(
+      Path.join(out_dir, "stability.html"),
+      render_stability(data)
+    )
+
+    Mix.shell().info("Wrote #{out_dir}/index.html (#{length(bench_names)} benchmark pages, plus stability.html)")
   end
 
   defp parse_csv(nil), do: nil
@@ -218,9 +223,150 @@ defmodule Mix.Tasks.Awfy.Compare do
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
       <ul class="bench-links">#{bench_links}</ul>
+      """,
+      extra_links_html: """
+      <h3>More</h3>
+      <ul class="bench-links">
+        <li><a href="stability.html">Benchmark stability on master</a> — sorted by noise (highest CV first)</li>
+      </ul>
       """
     })
   end
+
+  # =====================================================================
+  # Stability page — coefficient-of-variation table for master runs
+  # =====================================================================
+  defp render_stability(data) do
+    # Pick one row per (machine_class, emu_flavor, lang, input, bench)
+    # bucket — latest timestamp wins so re-measurement supersedes a
+    # stale row. Only consider master runs; older OTPs have their own
+    # noise profile that mixes with hardware drift across the matrix.
+    rows =
+      data.rows
+      |> Enum.filter(fn r ->
+        r.otp == "master" and
+          is_number(r.median_ms) and r.median_ms > 0 and
+          is_number(r.stddev_ms) and r.stddev_ms >= 0
+      end)
+      |> Enum.group_by(fn r ->
+        {machine_class(%{"arch" => r.arch}), r.emu_flavor, r.lang, Map.get(r, :input), r.benchmark}
+      end)
+      |> Enum.map(fn {_k, rs} ->
+        Enum.max_by(rs, & &1.timestamp)
+      end)
+
+    table_rows =
+      rows
+      |> Enum.map(fn r ->
+        cv = r.stddev_ms / r.median_ms * 100
+        Map.put(r, :cv_pct, cv)
+      end)
+      |> Enum.sort_by(& &1.cv_pct, :desc)
+      |> Enum.with_index(1)
+      |> Enum.map(fn {r, rank} ->
+        scenario =
+          case Map.get(r, :input) do
+            nil -> r.benchmark
+            "" -> r.benchmark
+            input -> "#{r.benchmark}/#{input}"
+          end
+
+        # Tier the CV cell so visual scan tracks magnitudes:
+        # <1 % calm, 1–5 % yellow, >5 % red. Tuned to AWFY's typical
+        # spread on the publish host.
+        cv_class =
+          cond do
+            r.cv_pct >= 5.0 -> "stability-bad"
+            r.cv_pct >= 1.0 -> "stability-warn"
+            true -> "stability-good"
+          end
+
+        ~s"""
+        <tr>
+          <td class="rank">#{rank}</td>
+          <td>#{scenario}</td>
+          <td>#{r.lang || "—"}</td>
+          <td>#{machine_class(%{"arch" => r.arch})}</td>
+          <td>#{r.emu_flavor}</td>
+          <td class="num">#{format_ms(r.median_ms)}</td>
+          <td class="num">#{format_ms(r.stddev_ms)}</td>
+          <td class="num #{cv_class}">#{:io_lib.format(~c"~.2f", [r.cv_pct]) |> List.to_string()} %</td>
+          <td class="num">#{r.samples_n || "—"}</td>
+        </tr>
+        """
+      end)
+      |> Enum.join("\n")
+
+    """
+    <!doctype html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AWFY — Benchmark stability on master</title>
+    <style>
+    #{@dashboard_css}
+    table.stability {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.9rem;
+    }
+    table.stability th, table.stability td {
+      padding: 0.4rem 0.6rem;
+      border-bottom: 1px solid var(--er-border);
+      text-align: left;
+    }
+    table.stability th { background: var(--er-tint); font-weight: 600; }
+    table.stability td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+    table.stability td.rank { color: var(--er-muted); width: 3em; text-align: right; }
+    .stability-good { color: var(--er-good); }
+    .stability-warn { color: #b58900; }
+    .stability-bad { color: var(--er-bad); font-weight: 600; }
+    </style>
+    </head>
+    <body>
+    <header class="site-header">
+      <span class="brand"><a href="../">AWFY · Erlang/OTP</a></span>
+      <span class="breadcrumb"><a href="index.html">&larr; Suite</a> · Stability</span>
+    </header>
+    <h1>Benchmark stability on master</h1>
+    <p class="sub">Coefficient of variation (σ / median × 100 %) for every scenario measured on the master branch, latest run per (platform × flavor × language × benchmark). Higher means the median moves around more between samples, so smaller speedup changes need more replication before they're trustworthy.</p>
+    <p class="sub">Heuristic thresholds: <span class="stability-good">&lt; 1 %</span> calm, <span class="stability-warn">1 – 5 %</span> watch, <span class="stability-bad">&gt; 5 %</span> noisy.</p>
+
+    <table class="stability">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>scenario</th>
+          <th>lang</th>
+          <th>platform</th>
+          <th>flavor</th>
+          <th>median (ms)</th>
+          <th>σ (ms)</th>
+          <th>CV</th>
+          <th>samples</th>
+        </tr>
+      </thead>
+      <tbody>
+    #{table_rows}
+      </tbody>
+    </table>
+    </body>
+    </html>
+    """
+  end
+
+  defp format_ms(ms) when is_number(ms) do
+    # 4 significant figures: AWFY medians span ms→sec, OtpBenchmarks
+    # span ns→µs. ~r format keeps the precision without trailing zeros.
+    cond do
+      ms == 0 -> "0"
+      ms >= 1 -> :erlang.float_to_binary(ms * 1.0, decimals: 3)
+      true -> :erlang.float_to_binary(ms * 1.0, decimals: 6)
+    end
+  end
+
+  defp format_ms(_), do: "—"
 
   # =====================================================================
   # Warnings (Q4, Q5, Q4b mismatches)
@@ -435,6 +581,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       #{if ctx.page_kind != "suite", do: ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
 
       #{Map.get(ctx, :benchmarks_list_html, "")}
+
+      #{Map.get(ctx, :extra_links_html, "")}
 
       <details>
         <summary>Run metadata</summary>
