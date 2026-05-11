@@ -197,6 +197,7 @@ defmodule Awfy.Runner do
 
     args = argv_for(bundle_dir, module, inner_iter, opts)
     env = Keyword.get(opts, :extra_env, [])
+    log_erl_invocation(erl, args, bundle_dir)
 
     case System.cmd(erl, args, env: env, stderr_to_stdout: true) do
       {_output, 0} ->
@@ -215,6 +216,7 @@ defmodule Awfy.Runner do
 
     args = otp_argv_for(bundle_dir, family, opts)
     env = Keyword.get(opts, :extra_env, [])
+    log_erl_invocation(erl, args, bundle_dir)
 
     case System.cmd(erl, args, env: env, stderr_to_stdout: true) do
       {_output, 0} ->
@@ -223,6 +225,30 @@ defmodule Awfy.Runner do
       {output, status} ->
         File.rm(out)
         {:error, {:erl_exit, status, output}}
+    end
+  end
+
+  # One-time diagnostic per process: log the first erl invocation so a
+  # missing `-pa` or mis-quoted bundle path is visible in CI without
+  # spamming every per-scenario call. Gated on a process-dictionary
+  # flag so the per-bundle-dir line lands once even when called from
+  # the AWFY+OTP entry-point pair within the same VM.
+  defp log_erl_invocation(erl, args, bundle_dir) do
+    if Process.get(:awfy_runner_logged_invocation) != true do
+      Process.put(:awfy_runner_logged_invocation, true)
+
+      pa_paths =
+        args
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.flat_map(fn
+          ["-pa", p] -> [p]
+          _ -> []
+        end)
+
+      IO.puts(:stderr, "[bundle] erl=#{erl}")
+      IO.puts(:stderr, "[bundle] bundle_dir=#{bundle_dir}")
+      IO.puts(:stderr, "[bundle] -pa paths (#{length(pa_paths)}):")
+      Enum.each(pa_paths, &IO.puts(:stderr, "  #{&1}"))
     end
   end
 
