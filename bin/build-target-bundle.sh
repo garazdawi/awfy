@@ -199,13 +199,9 @@ AWFY_BUILD="$AWFY_APP/_build/prod/lib/awfy"
   echo "[build-target-bundle] expected $AWFY_BUILD after mix compile" >&2
   exit 1
 }
-# `-L` so the mix-created `priv -> ../../../../priv` symlink is
-# dereferenced and real fixture files (rap_benchmark.json etc.)
-# land in the bundle. Without it the tarball ships a symlink whose
-# relative target doesn't resolve after extraction (broken on every
-# OS and outright dropped by Windows tar.exe), making
-# `code:priv_dir(awfy)` an empty directory and benchmarks like
-# `awfy_json` crash at `file:read_file/1` with `{error, enoent}`.
+# `-L` dereferences mix's `priv -> ../../../../priv` symlink so the
+# fixture files end up as real files in the tarball — relative-path
+# symlinks don't resolve inside the extracted bundle.
 cp -RL "$AWFY_BUILD" "$BUNDLE/lib/"
 
 # Sanity-check: a representative Elixir AWFY benchmark beam
@@ -218,11 +214,8 @@ BOUNCE_BEAM="$BUNDLE/lib/awfy/ebin/Elixir.Awfy.Benchmarks.Bounce.beam"
   exit 1
 }
 
-# priv must be a real directory containing the fixture files the
-# Erlang/Elixir benchmarks read at startup — not the symlink mix
-# leaves behind. Belt-and-braces check the canonical fixture is
-# materialised; catches future cp invocations that drop `-L` and a
-# symlink slipping in.
+# Belt-and-braces: the canonical priv fixture is a real file, not
+# the symlink mix leaves behind. Catches a future cp dropping `-L`.
 RAP_JSON="$BUNDLE/lib/awfy/priv/rap_benchmark.json"
 [ -f "$RAP_JSON" ] || {
   echo "[build-target-bundle] priv fixture missing: $RAP_JSON" >&2

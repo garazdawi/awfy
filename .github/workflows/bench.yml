@@ -119,10 +119,8 @@ jobs:
       targets_legacy_linux:   ${{ steps.r.outputs.targets_legacy_linux }}
       targets_legacy_macos:   ${{ steps.r.outputs.targets_legacy_macos }}
       targets_legacy_windows: ${{ steps.r.outputs.targets_legacy_windows }}
-      # Union by major of the three legacy_* arrays. Drives
-      # build-linux-target + prep-target-bundle so a fill that needs
-      # only legacy windows (or only macos) still triggers the
-      # shared bundle every legacy measure job consumes.
+      # Union-by-major of the three legacy_* arrays; see
+      # bin/resolve-fill-needs.sh for why.
       targets_legacy_build:   ${{ steps.r.outputs.targets_legacy_build }}
       has_modern_linux:   ${{ steps.r.outputs.has_modern_linux }}
       has_modern_macos:   ${{ steps.r.outputs.has_modern_macos }}
@@ -317,10 +315,8 @@ jobs:
   # the OTP we just installed.
   build-linux-target:
     needs: resolve
-    # Gate on `has_legacy_build` (= any legacy platform has work) so a
-    # fill that needs only legacy windows or macos for a major still
-    # rebuilds the linux image prep-target-bundle extracts OTP from.
-    # Matrix iterates the union-by-major list for the same reason.
+    # `has_legacy_build` covers any legacy platform — prep-target-bundle
+    # extracts from this image regardless of which platform queued the work.
     if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
@@ -394,12 +390,9 @@ jobs:
   # within an OTP major).
   prep-target-bundle:
     needs: [resolve, build-linux-target]
-    # No matrix.target.mode filter — this job's matrix is over OTP
-    # majors / Elixir versions, not target entries. The whole-job
-    # gate on `has_legacy_build` (= any legacy platform has work) is
-    # sufficient: macOS / Windows legacy measure jobs both consume
-    # the bundle, so prep must fire whenever any of the three needs
-    # to run, not only when legacy linux does.
+    # Matrix is over OTP majors / Elixir versions, not target entries.
+    # Gate on has_legacy_build because macOS/Windows legacy measure
+    # jobs both consume the bundle prep produces.
     if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
@@ -905,24 +898,8 @@ jobs:
           path: bundle-tar/
       - name: Extract bundle
         run: |
-          mkdir -p bundle
-          tar xzf "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" -C bundle --strip-components=1
-          echo "[extract] bundle/ top-level entries:"
-          ls -la bundle/ | head -20
-          echo "[extract] bundle/lib/ entries:"
-          ls -la bundle/lib/ 2>/dev/null | head -25
-          # Post-extract sanity check — without it, a layout mismatch
-          # lets every benchmark abort with `undef Elixir.Awfy.TargetRunner`
-          # while the job stays green because errors are caught
-          # per-scenario in `Awfy.BencheeRunner`.
-          runner="bundle/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"
-          if [ ! -f "$runner" ]; then
-            echo "::error::bundle extract: runner beam missing at $runner"
-            echo "::group::bundle/ contents (recursive, max-depth 4)"
-            find bundle -maxdepth 4 -print
-            echo "::endgroup::"
-            exit 1
-          fi
+          ./bin/extract-target-bundle.sh \
+            "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" bundle
           echo "AWFY_TARGET_BUNDLE=$PWD/bundle" >> "$GITHUB_ENV"
       - uses: erlef/setup-beam@v1
         with:
@@ -1130,24 +1107,8 @@ jobs:
           path: bundle-tar/
       - name: Extract bundle
         run: |
-          mkdir -p bundle
-          tar xzf "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" -C bundle --strip-components=1
-          echo "[extract] bundle/ top-level entries:"
-          ls -la bundle/ | head -20
-          echo "[extract] bundle/lib/ entries:"
-          ls -la bundle/lib/ 2>/dev/null | head -25
-          # Post-extract sanity check — without it, a layout mismatch
-          # lets every benchmark abort with `undef Elixir.Awfy.TargetRunner`
-          # while the job stays green because errors are caught
-          # per-scenario in `Awfy.BencheeRunner`.
-          runner="bundle/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"
-          if [ ! -f "$runner" ]; then
-            echo "::error::bundle extract: runner beam missing at $runner"
-            echo "::group::bundle/ contents (recursive, max-depth 4)"
-            find bundle -maxdepth 4 -print
-            echo "::endgroup::"
-            exit 1
-          fi
+          ./bin/extract-target-bundle.sh \
+            "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" bundle
           echo "AWFY_TARGET_BUNDLE=$PWD/bundle" >> "$GITHUB_ENV"
       - uses: erlef/setup-beam@v1
         with:

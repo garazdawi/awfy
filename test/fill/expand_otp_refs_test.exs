@@ -15,6 +15,9 @@ defmodule Awfy.Fill.ExpandOtpRefsTest do
 
   use ExUnit.Case, async: true
 
+  Code.require_file("shell_test_helper.exs", __DIR__)
+  alias Awfy.Fill.ShellTestHelper
+
   @script Path.expand("../../bin/expand-otp-refs.sh", __DIR__)
 
   # Trimmed otp_versions.table covering the cases we want to exercise.
@@ -42,14 +45,7 @@ defmodule Awfy.Fill.ExpandOtpRefsTest do
   """
 
   setup do
-    tmp =
-      Path.join(
-        System.tmp_dir!(),
-        "awfy-expand-test-#{System.unique_integer([:positive, :monotonic])}"
-      )
-
-    File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
+    tmp = ShellTestHelper.setup_stub_dir("awfy-expand-test")
     install_curl_stub(tmp, @table)
     {:ok, tmp: tmp}
   end
@@ -152,8 +148,6 @@ defmodule Awfy.Fill.ExpandOtpRefsTest do
     exit 99
     """
 
-    path = Path.join(dir, "curl")
-    File.write!(path, "#!/usr/bin/env bash\nset -eu\n" <> body)
-    File.chmod!(path, 0o755)
+    ShellTestHelper.write_stub(dir, "curl", body)
   end
 end

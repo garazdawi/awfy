@@ -18,6 +18,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
 
   use ExUnit.Case, async: true
 
+  Code.require_file("shell_test_helper.exs", __DIR__)
+  alias Awfy.Fill.ShellTestHelper
+
   @script Path.expand("../../bin/resolve-fill-needs.sh", __DIR__)
 
   # Realistic-ish SHAs so the per-(ref, platform) skip-check grep
@@ -32,15 +35,7 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   }
 
   setup do
-    tmp =
-      Path.join(
-        System.tmp_dir!(),
-        "awfy-resolve-test-#{System.unique_integer([:positive, :monotonic])}"
-      )
-
-    File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
-    {:ok, tmp: tmp}
+    {:ok, tmp: ShellTestHelper.setup_stub_dir("awfy-resolve-test")}
   end
 
   describe "modern/legacy partition" do
@@ -306,9 +301,5 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     write_stub(tmp, "curl", curl_body)
   end
 
-  defp write_stub(dir, name, body) do
-    path = Path.join(dir, name)
-    File.write!(path, "#!/usr/bin/env bash\nset -eu\n" <> body)
-    File.chmod!(path, 0o755)
-  end
+  defp write_stub(dir, name, body), do: ShellTestHelper.write_stub(dir, name, body)
 end

@@ -174,14 +174,7 @@ defmodule Awfy.RunnerTest do
     bundle
   end
 
-  defp pa_args(argv) do
-    argv
-    |> Enum.chunk_every(2, 1, :discard)
-    |> Enum.flat_map(fn
-      ["-pa", path] -> [path]
-      _ -> []
-    end)
-  end
+  defp pa_args(argv), do: Runner.pa_paths(argv)
 
   defp drop_until([h | t], h), do: t
   defp drop_until([_ | t], target), do: drop_until(t, target)

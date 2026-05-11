@@ -228,27 +228,31 @@ defmodule Awfy.Runner do
     end
   end
 
-  # One-time diagnostic per process: log the first erl invocation so a
-  # missing `-pa` or mis-quoted bundle path is visible in CI without
-  # spamming every per-scenario call. Gated on a process-dictionary
-  # flag so the per-bundle-dir line lands once even when called from
-  # the AWFY+OTP entry-point pair within the same VM.
+  @doc """
+  Extract the `-pa <path>` entries from an erl argv list. Public so
+  the diagnostic logger and tests can share one extractor instead of
+  parallel reimplementations.
+  """
+  @spec pa_paths(argv :: [String.t()]) :: [String.t()]
+  def pa_paths(argv) do
+    argv
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn
+      ["-pa", p] -> [p]
+      _ -> []
+    end)
+  end
+
+  # Log once per VM so CI shows the -pa wiring without per-scenario spam.
   defp log_erl_invocation(erl, args, bundle_dir) do
     if Process.get(:awfy_runner_logged_invocation) != true do
       Process.put(:awfy_runner_logged_invocation, true)
-
-      pa_paths =
-        args
-        |> Enum.chunk_every(2, 1, :discard)
-        |> Enum.flat_map(fn
-          ["-pa", p] -> [p]
-          _ -> []
-        end)
+      paths = pa_paths(args)
 
       IO.puts(:stderr, "[bundle] erl=#{erl}")
       IO.puts(:stderr, "[bundle] bundle_dir=#{bundle_dir}")
-      IO.puts(:stderr, "[bundle] -pa paths (#{length(pa_paths)}):")
-      Enum.each(pa_paths, &IO.puts(:stderr, "  #{&1}"))
+      IO.puts(:stderr, "[bundle] -pa paths (#{length(paths)}):")
+      Enum.each(paths, &IO.puts(:stderr, "  #{&1}"))
     end
   end
 
@@ -317,6 +321,21 @@ defmodule Awfy.Runner do
       ebins = bundle_ebins(bundle_dir)
       {:error, {:bundle_missing_runner, %{expected: path, ebins_found: ebins}}}
     end
+  end
+
+  @doc """
+  Human-readable diagnostic for the `:bundle_missing_runner` error
+  tuple. Both bundle-path entry points (AWFY suite and OtpBenchmarks)
+  raise with this message rather than logging-and-skipping — a
+  broken bundle is a setup failure, not a per-benchmark crash.
+  """
+  @spec bundle_missing_runner_message(%{expected: String.t(), ebins_found: [String.t()]}) ::
+          String.t()
+  def bundle_missing_runner_message(%{expected: expected, ebins_found: ebins}) do
+    "bundle is broken: Elixir.Awfy.TargetRunner.beam not found.\n" <>
+      "  expected: #{expected}\n" <>
+      "  ebins found: #{inspect(ebins)}\n" <>
+      "Check the extract step's printout for the actual layout."
   end
 
   defp default_out_path do

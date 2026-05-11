@@ -318,10 +318,7 @@ defmodule Awfy.OtpBenchmarks.Runner do
       # mirror in Awfy.BencheeRunner. Raise so the host job exits
       # non-zero instead of uploading a results dir with nothing in it.
       {:error, {:bundle_missing_runner, info}} ->
-        raise "bundle is broken: Elixir.Awfy.TargetRunner.beam not found.\n" <>
-                "  expected: #{info.expected}\n" <>
-                "  ebins found: #{inspect(info.ebins_found)}\n" <>
-                "Check the extract step's printout for the actual layout."
+        raise Awfy.Runner.bundle_missing_runner_message(info)
 
       {:error, reason} ->
         IO.puts(
