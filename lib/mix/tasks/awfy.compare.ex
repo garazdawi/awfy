@@ -290,8 +290,26 @@ defmodule Mix.Tasks.Awfy.Compare do
 
         mc = machine_class(%{"arch" => r.arch})
 
+        # Inline per-row distribution stats so the click handler can
+        # draw the box plot from data attributes (no second fetch).
+        # Older runs without percentiles fall through to empty
+        # strings and the click handler hides the drill-down row.
+        dist =
+          [
+            {"min", r.min_ms},
+            {"p25", r.p25_ms},
+            {"median", r.median_ms},
+            {"p75", r.p75_ms},
+            {"p99", r.p99_ms},
+            {"max", r.max_ms},
+            {"mean", r.mean_ms},
+            {"stddev", r.stddev_ms}
+          ]
+          |> Enum.map(fn {k, v} -> ~s|data-#{k}="#{v || ""}"| end)
+          |> Enum.join(" ")
+
         ~s"""
-        <tr data-platform="#{mc}" data-flavor="#{r.emu_flavor}" data-group="#{r.group}">
+        <tr class="stability-row" data-platform="#{mc}" data-flavor="#{r.emu_flavor}" data-group="#{r.group}" #{dist}>
           <td class="rank">#{rank}</td>
           <td>#{scenario}</td>
           <td>#{r.lang || "—"}</td>
@@ -339,6 +357,13 @@ defmodule Mix.Tasks.Awfy.Compare do
     .stability-filters .opts { display: flex; flex-wrap: wrap; column-gap: 0.85rem; row-gap: 0.2rem; }
     .stability-filters label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
     .stability-row-count { color: var(--er-muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
+    table.stability tr.stability-row { cursor: pointer; }
+    table.stability tr.stability-row:hover { background: var(--er-tint); }
+    table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.7rem 1rem; border-bottom: 1px solid var(--er-border); }
+    .boxplot-wrap { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
+    .boxplot-wrap dl { margin: 0; display: grid; grid-template-columns: max-content max-content; gap: 0.1rem 0.85rem; font-size: 0.8rem; }
+    .boxplot-wrap dt { color: var(--er-muted); }
+    .boxplot-wrap dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
     </style>
     </head>
     <body>
@@ -427,6 +452,119 @@ defmodule Mix.Tasks.Awfy.Compare do
       });
 
       apply();
+
+      // -- Click-to-expand box plot ---------------------------------
+      // Per-row drill-down: clicking a stability-row toggles a detail
+      // row immediately below with min / p25 / median / p75 / p99 /
+      // max as a horizontal box plot, plus the numeric values.
+      // Distribution data comes from data-* attributes baked into
+      // each row server-side; older runs that lack percentiles render
+      // a "no distribution data" line.
+      const fmtMs = (n) => {
+        if (n === null || isNaN(n)) return "—";
+        if (n >= 1) return n.toFixed(3) + " ms";
+        if (n >= 0.001) return (n * 1000).toFixed(2) + " µs";
+        return (n * 1_000_000).toFixed(2) + " ns";
+      };
+      const readNum = (el, key) => {
+        const v = el.dataset[key];
+        if (v === undefined || v === "") return null;
+        const n = parseFloat(v);
+        return isNaN(n) ? null : n;
+      };
+      const boxplotSVG = (min, p25, med, p75, p99, max) => {
+        // Layout in a 480 × 60 viewbox. Use min/max as the scale so
+        // the whole spread is visible; pin at the lower bound 0 if
+        // min is non-negative (avoids the box drifting away from the
+        // axis on very-small-variance runs).
+        const lo = (min !== null && min > 0) ? min * 0.95 : 0;
+        const hi = (max !== null) ? max * 1.02 : (p99 || med || 1);
+        const range = Math.max(hi - lo, 1e-12);
+        const x = (v) => 30 + ((v - lo) / range) * 420;
+        const yMid = 28, boxTop = 14, boxBot = 42;
+        const parts = [];
+        // axis
+        parts.push('<line x1="30" y1="55" x2="450" y2="55" stroke="#bbb" stroke-width="1"/>');
+        // ticks: min / median / max
+        const tick = (v, label) => {
+          if (v === null) return "";
+          const tx = x(v);
+          return '<line x1="' + tx + '" y1="55" x2="' + tx + '" y2="58" stroke="#888"/>' +
+                 '<text x="' + tx + '" y="58" font-size="9" fill="#666" text-anchor="middle" dy="0.9em">' + label + '</text>';
+        };
+        parts.push(tick(min, fmtMs(min)));
+        parts.push(tick(med, fmtMs(med)));
+        parts.push(tick(max, fmtMs(max)));
+        // whiskers: min — p25, p75 — max
+        if (min !== null && p25 !== null) {
+          parts.push('<line x1="' + x(min) + '" y1="' + yMid + '" x2="' + x(p25) + '" y2="' + yMid + '" stroke="#888" stroke-width="1"/>');
+          parts.push('<line x1="' + x(min) + '" y1="' + (yMid - 6) + '" x2="' + x(min) + '" y2="' + (yMid + 6) + '" stroke="#888"/>');
+        }
+        if (max !== null && p75 !== null) {
+          parts.push('<line x1="' + x(p75) + '" y1="' + yMid + '" x2="' + x(max) + '" y2="' + yMid + '" stroke="#888" stroke-width="1"/>');
+          parts.push('<line x1="' + x(max) + '" y1="' + (yMid - 6) + '" x2="' + x(max) + '" y2="' + (yMid + 6) + '" stroke="#888"/>');
+        }
+        // box: p25 — p75
+        if (p25 !== null && p75 !== null) {
+          parts.push('<rect x="' + x(p25) + '" y="' + boxTop + '" width="' + (x(p75) - x(p25)) + '" height="' + (boxBot - boxTop) + '" fill="#a2003e22" stroke="#a2003e" stroke-width="1.5"/>');
+        }
+        // median line
+        if (med !== null) {
+          parts.push('<line x1="' + x(med) + '" y1="' + boxTop + '" x2="' + x(med) + '" y2="' + boxBot + '" stroke="#a2003e" stroke-width="2"/>');
+        }
+        // p99 dot
+        if (p99 !== null) {
+          parts.push('<circle cx="' + x(p99) + '" cy="' + yMid + '" r="3" fill="#a2003e"/>');
+        }
+        return '<svg width="480" height="70" viewBox="0 0 480 70" role="img" aria-label="distribution">' + parts.join("") + '</svg>';
+      };
+
+      const buildDetail = (row) => {
+        const min = readNum(row, "min");
+        const p25 = readNum(row, "p25");
+        const med = readNum(row, "median");
+        const p75 = readNum(row, "p75");
+        const p99 = readNum(row, "p99");
+        const max = readNum(row, "max");
+        const mean = readNum(row, "mean");
+        const stddev = readNum(row, "stddev");
+        const tr = document.createElement("tr");
+        tr.className = "stability-detail";
+        const td = document.createElement("td");
+        td.colSpan = 9;
+        if (med === null || p25 === null || p75 === null) {
+          td.innerHTML = '<em style="color: var(--er-muted)">No distribution data — older Benchee save format. Re-run on the latest measure to populate percentiles.</em>';
+        } else {
+          td.innerHTML =
+            '<div class="boxplot-wrap">' +
+              boxplotSVG(min, p25, med, p75, p99, max) +
+              '<dl>' +
+                '<dt>min</dt><dd>' + fmtMs(min) + '</dd>' +
+                '<dt>p25</dt><dd>' + fmtMs(p25) + '</dd>' +
+                '<dt>median</dt><dd>' + fmtMs(med) + '</dd>' +
+                '<dt>mean</dt><dd>' + fmtMs(mean) + '</dd>' +
+                '<dt>p75</dt><dd>' + fmtMs(p75) + '</dd>' +
+                '<dt>p99</dt><dd>' + fmtMs(p99) + '</dd>' +
+                '<dt>max</dt><dd>' + fmtMs(max) + '</dd>' +
+                '<dt>σ</dt><dd>' + fmtMs(stddev) + '</dd>' +
+              '</dl>' +
+            '</div>';
+        }
+        tr.appendChild(td);
+        return tr;
+      };
+
+      tbody.addEventListener("click", (e) => {
+        const row = e.target.closest("tr.stability-row");
+        if (!row) return;
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains("stability-detail")) {
+          next.remove();
+          return;
+        }
+        const detail = buildDetail(row);
+        row.parentNode.insertBefore(detail, row.nextSibling);
+      });
     })();
     </script>
     </body>

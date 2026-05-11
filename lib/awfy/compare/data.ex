@@ -181,6 +181,11 @@ defmodule Awfy.Compare.Data do
               median_ms: ns_to_ms(stats.median),
               mean_ms: ns_to_ms(stats.average),
               stddev_ms: ns_to_ms(stats.std_dev),
+              min_ms: ns_to_ms(Map.get(stats, :minimum)),
+              max_ms: ns_to_ms(Map.get(stats, :maximum)),
+              p25_ms: ns_to_ms(get_percentile(stats, 25)),
+              p75_ms: ns_to_ms(get_percentile(stats, 75)),
+              p99_ms: ns_to_ms(get_percentile(stats, 99)),
               samples_n: stats.sample_size,
               inner_iter: inner_iter,
               source_sha256: source_sha256,
@@ -265,6 +270,17 @@ defmodule Awfy.Compare.Data do
   # scale lose nothing — the trailing zeros are noise.
   defp ns_to_ms(nil), do: nil
   defp ns_to_ms(ns) when is_number(ns), do: Float.round(ns / 1_000_000, 6)
+
+  # Benchee's :percentiles map is keyed by integer percent (25, 50,
+  # 75, 99). Older Benchee versions don't emit it at all — return
+  # nil so the dashboard / stability page degrade gracefully on
+  # legacy saves.
+  defp get_percentile(stats, p) do
+    case Map.get(stats, :percentiles) do
+      %{^p => v} -> v
+      _ -> nil
+    end
+  end
 
   # A scenario is sub-clock-floor when its median run-time is 0 ns
   # — which only happens when more than half of the batch samples
