@@ -57,7 +57,7 @@ defmodule Awfy.TargetRunnerTest do
     # round-trip the saved suite through Benchee.load/1 and verify
     # the host's compare-data path can read the same shape.
     defmodule StubBench do
-      def benchmark(_inner_iter), do: :ok
+      def inner_benchmark_loop(_inner_iter), do: true
     end
 
     test "writes a Benchee.Suite that the host's binary_to_term path can read" do

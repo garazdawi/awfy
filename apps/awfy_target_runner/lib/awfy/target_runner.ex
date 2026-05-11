@@ -23,7 +23,7 @@ defmodule Awfy.TargetRunner do
   | position | name        | type    | meaning                                          |
   | -------- | ----------- | ------- | ------------------------------------------------ |
   | 1        | module      | atom    | Erlang or Elixir benchmark module name           |
-  | 2        | inner_iter  | int     | inner iteration count passed to `module.benchmark/1` |
+  | 2        | inner_iter  | int     | iteration count passed to `module.inner_benchmark_loop/1` |
   | 3        | time        | seconds | Benchee `:time` budget (int or float)            |
   | 4        | warmup      | seconds | Benchee `:warmup` budget (int or float)          |
   | 5        | out         | path    | absolute path the `.benchee` file is written to  |
@@ -189,8 +189,15 @@ defmodule Awfy.TargetRunner do
     end
   end
 
+  # AWFY contract (apps/awfy/lib/awfy/benchmark.ex,
+  # apps/awfy/src/awfy_benchmark.erl): every benchmark module
+  # exports `inner_benchmark_loop/1` — the `use Awfy.Benchmark`
+  # macro provides the default that runs `benchmark/0` +
+  # `verify_result/1` `inner_iter` times. `benchmark/0` is the
+  # raw payload, NOT the entry point. Calling `benchmark(inner_iter)`
+  # blew up every legacy bundle run with `undef benchmark/1`.
   defp bench_fn(module, inner_iter) do
-    fn -> module.benchmark(inner_iter) end
+    fn -> module.inner_benchmark_loop(inner_iter) end
   end
 
   @doc """

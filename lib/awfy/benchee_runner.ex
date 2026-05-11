@@ -207,7 +207,7 @@ defmodule Awfy.BencheeRunner do
     end
 
     # Bundle path runs one Awfy.Runner.run/4 per language entry — the
-    # target VM only knows how to invoke `module.benchmark(inner)`,
+    # target VM only knows how to invoke `module.inner_benchmark_loop(inner)`,
     # so each `{lang, mod}` is a separate target invocation. Merge
     # the resulting suites under one save path so the on-disk shape
     # matches the peer flow's "one .benchee per benchmark name".
