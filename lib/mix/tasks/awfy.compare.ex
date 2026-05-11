@@ -202,7 +202,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       baseline_label: baseline_label || "",
       snapshot_html: """
       <h3 class="snapshot-heading">Latest snapshot — per-benchmark across versions</h3>
-      <p class="sub">Speedup (×) over the earliest recorded run for each (lang × machine_class × benchmark) baseline, evaluated at each major's latest patch. Bars above 1× are faster than baseline. Whiskers show ± 2σ. Bars with diagonal stripes and an "(emu)" legend suffix are emulator measurements shown in place of JIT, because that platform's BeamAsm JIT wasn't yet available at that OTP.</p>
+      <p class="sub">Speedup (×) over the earliest recorded run for each (lang × machine_class × benchmark) baseline, evaluated at each major's latest patch. Bars above 1× are faster than baseline. Whiskers show ± 2σ. Bars with diagonal stripes and an "(emu)" legend suffix are emulator measurements shown in place of JIT, because that platform's BeamAsm JIT wasn't yet available at that version.</p>
       <div class="snapshot-majors" id="control-snapshot-majors"></div>
       <div class="chart-wrap snapshot"><canvas id="snapshot"></canvas></div>
       """,
