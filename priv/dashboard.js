@@ -1206,8 +1206,20 @@ function renderSnapshot() {
       });
       const color = colorFor(mi * langs.length + li);
       const suffix = fallback ? " (emu)" : "";
+      // Elixir scenarios run under a per-OTP-major Elixir version
+      // (24→1.16.3, 25→1.17.3, … see bin/elixir-for-otp.sh) — show
+      // it in the legend so the reader can tell that an OTP-25 bar
+      // for elixir is really "Elixir 1.17.3 on OTP-25". Erlang
+      // scenarios don't depend on the Elixir version, so skip.
+      let langLabel = lang;
+      if (lang === "elixir") {
+        const sampleRow = benches
+          .map(b => latest[m + "|" + lang + "|" + b])
+          .find(r => r && r.elixir);
+        if (sampleRow) langLabel = "elixir " + sampleRow.elixir;
+      }
       datasets.push({
-        label: labelOtp + " · " + lang + suffix,
+        label: labelOtp + " · " + langLabel + suffix,
         data,
         backgroundColor: fallback ? stripePatternFor(color) : color,
         borderColor: color,
