@@ -84,10 +84,10 @@ if [ -x "$PREFIX/bin/erl" ] && "$PREFIX/bin/erl" -noshell -eval 'halt()' >/dev/n
     OTP_INSTALLED=1
 fi
 
-# Coarse OTP-major derivation from $REF, used for the elixir-for-otp.sh
+# Coarse OTP-major derivation from $REF, used for the priv/elixir-for-otp.sh
 # lookup at the tail of the script. Done BEFORE the OTP_INSTALLED
 # guard so re-running on a cached prefix still picks the right Elixir.
-# `master`/`maint` pass through verbatim — elixir-for-otp.sh treats
+# `master`/`maint` pass through verbatim — priv/elixir-for-otp.sh treats
 # anything non-numeric as modern.
 case "$REF" in
     OTP-*)         OTP_MAJOR="$(echo "${REF#OTP-}" | cut -d. -f1)" ;;
@@ -331,13 +331,13 @@ trap 'rm -rf "$WORK"' EXIT
     cp -R "$AWFY_ROOT"/apps/awfy/priv/. "$TARGET_LIB/priv/" 2>/dev/null || true
 
     # Build/install Elixir alongside this OTP, version pinned by
-    # bin/elixir-for-otp.sh — single source of truth shared with
+    # priv/elixir-for-otp.sh — single source of truth shared with
     # bench.yml's "Pin Elixir version" steps. install-elixir-source
     # is idempotent and caches at $HOME/.local/elixir-src/<ver>, so
     # multiple modern OTPs share one Elixir build. $OTP_MAJOR was
     # derived earlier (before the OTP_INSTALLED guard) so this works
     # on both fresh-build and cache-hit paths.
-    ELIXIR_VERSION="$("$SCRIPT_DIR/elixir-for-otp.sh" "$OTP_MAJOR")"
+    ELIXIR_VERSION="$("$SCRIPT_DIR/../priv/elixir-for-otp.sh" "$OTP_MAJOR")"
     "$SCRIPT_DIR/install-elixir-source.sh" "$ELIXIR_VERSION" "$PREFIX" >&2
 } >&2
 

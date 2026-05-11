@@ -80,14 +80,14 @@ else
 fi
 
 # Per-major Elixir pin — single source of truth in
-# bin/elixir-for-otp.sh, shared with bench.yml and
+# priv/elixir-for-otp.sh, shared with bench.yml and
 # install-otp-source-mac.sh. Modern path needs this too: Elixir 1.19
 # dropped OTP < 26, so OTP 24/25 boot dies with `undef
 # elixir:start_cli/0` if the host's 1.19 is on PATH. Picking the
 # per-major version (24→1.16.3, 25→1.17.3, 26→1.18.4, 27+→1.19.5)
 # keeps both legs alive.
 elixir_for_major() {
-  bin/elixir-for-otp.sh "$1"
+  priv/elixir-for-otp.sh "$1"
 }
 
 ref_major() {

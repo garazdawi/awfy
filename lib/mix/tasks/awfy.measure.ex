@@ -415,7 +415,7 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   # The legacy bundle path (AWFY_TARGET_BUNDLE set, used for OTP < 24)
   # compiles benchmarks under a different Elixir than the host
-  # orchestrator — see bin/build-target-bundle.sh + bin/elixir-for-otp.sh.
+  # orchestrator — see bin/build-target-bundle.sh + priv/elixir-for-otp.sh.
   # The host's `System.version/0` reports the orchestrator (always
   # recent), which is the wrong number to record for a legacy run.
   # Read the target bundle's stamped Elixir version when present.

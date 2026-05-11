@@ -152,12 +152,12 @@ otp_major_for_ref() {
 # bundle-target path (the `apps/awfy_target_runner/` source-built
 # Elixir against the target OTP — pinned per-major below).
 #
-# Single source of truth lives in bin/elixir-for-otp.sh; bench.yml's
+# Single source of truth lives in priv/elixir-for-otp.sh; bench.yml's
 # Pin Elixir steps, install-otp-source-mac.sh's post-build install,
 # and measure-all-macos.sh's modern-path PATH all read the same file.
 SCRIPT_DIR_FOR_ELIXIR_LOOKUP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 elixir_version_for_major() {
-  "$SCRIPT_DIR_FOR_ELIXIR_LOOKUP/elixir-for-otp.sh" "$1"
+  "$SCRIPT_DIR_FOR_ELIXIR_LOOKUP/../priv/elixir-for-otp.sh" "$1"
 }
 
 # Map an OTP major to the OTP suffix on the elixir-otp-XX.zip bundle

@@ -460,14 +460,14 @@ defmodule Mix.Tasks.Awfy.Compare do
   defp dashboard_js, do: @dashboard_js
 
   # Build a {major => target_elixir_version} map by invoking
-  # bin/elixir-for-otp.sh — the single source of truth for OTP →
+  # priv/elixir-for-otp.sh — the single source of truth for OTP →
   # Elixir pairings shared with bench.yml, the install scripts, and
   # measure-all-macos.sh. The script is the API; we don't parse it.
   # 20..30 covers everything we currently expose; extend the range
   # when a new major lands. Falls back to script's default branch
   # for any non-numeric major (master, maint).
   defp target_elixir_by_major do
-    script = Path.expand("../../../bin/elixir-for-otp.sh", __DIR__)
+    script = Path.join(:code.priv_dir(:awfy_runner), "elixir-for-otp.sh")
 
     Enum.reduce(20..30, %{}, fn major, acc ->
       case System.cmd(script, [to_string(major)], stderr_to_stdout: true) do

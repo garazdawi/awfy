@@ -19,14 +19,14 @@
 # Elixir cuts a release that nominally supports the new OTP.
 #
 # Usage:
-#   bin/elixir-for-otp.sh <otp_major>
+#   priv/elixir-for-otp.sh <otp_major>
 #
 # Examples:
-#   bin/elixir-for-otp.sh 22         # → 1.13.4
-#   bin/elixir-for-otp.sh 24         # → 1.16.3
-#   bin/elixir-for-otp.sh 28         # → 1.19.5
-#   bin/elixir-for-otp.sh master     # → 1.19.5
-#   bin/elixir-for-otp.sh maint-25   # → 1.19.5  (non-numeric → latest)
+#   priv/elixir-for-otp.sh 22         # → 1.13.4
+#   priv/elixir-for-otp.sh 24         # → 1.16.3
+#   priv/elixir-for-otp.sh 28         # → 1.19.5
+#   priv/elixir-for-otp.sh master     # → 1.19.5
+#   priv/elixir-for-otp.sh maint-25   # → 1.19.5  (non-numeric → latest)
 
 set -euo pipefail
 

@@ -26,7 +26,7 @@ defmodule Awfy.MixProject do
       # ~> 1.9 floor matches apps/otp_benchmarks/ — the legacy
       # bundle path compiles this app under the target Elixir
       # (1.9.4 for OTP 20, 1.11.4 for OTP 21, …, see
-      # bin/elixir-for-otp.sh). Anything that needs a newer
+      # priv/elixir-for-otp.sh). Anything that needs a newer
       # Elixir feature has to move to apps/runner/ or be guarded
       # on Code.ensure_loaded?, otherwise the Elixir-side
       # benchmarks silently disappear from legacy legs.

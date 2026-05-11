@@ -864,10 +864,10 @@ jobs:
           persist-credentials: false
       - name: Pick Elixir version for OTP ${{ matrix.target.major }}
         id: elixir
-        # Single source of truth lives in bin/elixir-for-otp.sh —
+        # Single source of truth lives in priv/elixir-for-otp.sh —
         # shared with bin/install-otp-source-mac.sh.
         run: |
-          v=$(bin/elixir-for-otp.sh "${{ matrix.target.major }}")
+          v=$(priv/elixir-for-otp.sh "${{ matrix.target.major }}")
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Login to GHCR
         run: |
