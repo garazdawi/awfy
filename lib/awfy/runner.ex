@@ -272,7 +272,25 @@ defmodule Awfy.Runner do
   end
 
   defp bundle_ebins(bundle_dir) do
-    Path.wildcard(Path.join(bundle_dir, "lib/*/ebin"))
+    # File.ls + File.dir? rather than Path.wildcard("lib/*/ebin"):
+    # on Windows, :filelib.wildcard silently returns [] when the
+    # pattern is built by joining a backslash-bearing bundle_dir
+    # with a forward-slash glob (the sibling :file BIFs that back
+    # File.exists?/1 normalise separators, but filelib.wildcard
+    # tokenises before normalising). The explicit ls + dir? approach
+    # works identically on every platform.
+    lib = Path.join(bundle_dir, "lib")
+
+    case File.ls(lib) do
+      {:ok, children} ->
+        Enum.flat_map(children, fn child ->
+          ebin = Path.join([lib, child, "ebin"])
+          if File.dir?(ebin), do: [ebin], else: []
+        end)
+
+      _ ->
+        []
+    end
   end
 
   # Pre-flight: the canonical TargetRunner beam must be present under
