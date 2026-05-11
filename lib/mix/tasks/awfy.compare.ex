@@ -227,7 +227,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       extra_links_html: """
       <h3>More</h3>
       <ul class="bench-links">
-        <li><a href="stability.html">Benchmark stability on master</a> — sorted by noise (highest CV first)</li>
+        <li><a href="stability.html">Benchmark stability on master</a></li>
       </ul>
       """
     })
