@@ -79,11 +79,16 @@ expand_ref() {
   local r="$1"
   case "$r" in
     2[0-9]|3[0-9])
-      grep -m1 -E "^OTP-$r\\.[0-9.]+ " "$TABLE" | awk '{print $1}'
+      # `|| true` so a grep no-match (e.g. shorthand 35 against a
+      # table with no 35.x entries) returns an empty string instead
+      # of tripping `set -o pipefail` + `set -e` and tearing down
+      # the script before the "could not expand" diagnostic below
+      # gets a chance to print.
+      grep -m1 -E "^OTP-$r\\.[0-9.]+ " "$TABLE" | awk '{print $1}' || true
       ;;
     [0-9][0-9].[0-9]|[0-9][0-9].[0-9][0-9])
       local re="OTP-${r//./\\.}"
-      grep -m1 -E "^${re}(\\.|[ ])" "$TABLE" | awk '{print $1}'
+      grep -m1 -E "^${re}(\\.|[ ])" "$TABLE" | awk '{print $1}' || true
       ;;
     *) echo "$r" ;;
   esac
