@@ -79,15 +79,15 @@ else
   REFS=$(echo "$REFS" | tr ',' '\n')
 fi
 
-# Per-major Elixir pin for the legacy bundle path (matches bench.yml).
+# Per-major Elixir pin — single source of truth in
+# bin/elixir-for-otp.sh, shared with bench.yml and
+# install-otp-source-mac.sh. Modern path needs this too: Elixir 1.19
+# dropped OTP < 26, so OTP 24/25 boot dies with `undef
+# elixir:start_cli/0` if the host's 1.19 is on PATH. Picking the
+# per-major version (24→1.16.3, 25→1.17.3, 26→1.18.4, 27+→1.19.5)
+# keeps both legs alive.
 elixir_for_major() {
-  case "$1" in
-    20) echo "1.9.4"  ;;
-    21) echo "1.11.4" ;;
-    22) echo "1.13.4" ;;
-    23) echo "1.14.5" ;;
-    *)  echo ""       ;;
-  esac
+  bin/elixir-for-otp.sh "$1"
 }
 
 ref_major() {
@@ -116,21 +116,55 @@ already_measured() {
 }
 
 run_modern() {
-  local ref="$1" prefix="$2" sha10="$3" flavor="$4"
+  local ref="$1" prefix="$2" sha10="$3" flavor="$4" major="$5"
   local existing
   existing=$(already_measured "$sha10" "$flavor")
   if [ -n "$existing" ]; then
     echo "  skip [$flavor]: $existing"
     return 0
   fi
-  echo "  measure [$flavor]"
+  # Pick the target-paired Elixir. install-otp-source-mac.sh has
+  # already source-built it against this prefix and cached it at
+  # $HOME/.local/elixir-src/<ver>/ via bin/install-elixir-source.sh.
+  # Putting that bin/ on PATH ahead of the asdf-managed host Elixir
+  # is what makes `mix awfy.measure` find an Elixir that can load
+  # under this OTP's emulator — Elixir 1.19's beams won't load on
+  # OTP 24/25, the host crashes with `undef elixir:start_cli/0`.
+  local elixir_ver elixir_dir
+  elixir_ver=$(elixir_for_major "$major")
+  elixir_dir="$HOME/.local/elixir-src/$elixir_ver"
+  if [ ! -x "$elixir_dir/bin/elixir" ]; then
+    echo "  error: target Elixir $elixir_ver not built at $elixir_dir" >&2
+    return 1
+  fi
+  echo "  measure [$flavor] elixir=$elixir_ver"
   (
-    export PATH="$prefix/bin:$PATH"
+    export PATH="$prefix/bin:$elixir_dir/bin:$PATH"
+    # Isolate MIX_HOME so a stale `~/.mix/archives/hex-X.Y.Z` (which
+    # was compiled against whatever OTP installed it) doesn't get
+    # auto-loaded by the per-major Elixir. Hex 2.4.x in particular
+    # crashes on OTP 28 with "Hex.Repo was given as a child to a
+    # supervisor but it does not exist" — the archive's compiled
+    # bytecode references stdlib modules the new emulator no longer
+    # provides at the same arity. The clean MIX_HOME has no archives
+    # so mix skips the auto-load and starts cleanly. Same isolation
+    # build-target-bundle.sh uses for the legacy bundle build.
+    export MIX_HOME="$(mktemp -d -t awfy-mix-home-XXXXXX)"
+    trap 'rm -rf "$MIX_HOME"' EXIT
     # +JMsingle false disables the JIT in OTP ≥24 → forces the
     # interpreter so we get an apples-to-apples emu measurement
-    # even on a JIT-capable runtime.
+    # even on a JIT-capable runtime. But OTP builds with
+    # `--disable-jit` (e.g. Group B's OTP-25.0/25.1/25.2 with the
+    # ARM-W^X workaround) reject the flag with "JIT is not supported
+    # on this system (option -JMsingle)" and abort. Probe first;
+    # if the flag isn't accepted we're already on the interpreter
+    # by virtue of the build, so no flag is needed.
     if [ "$flavor" = "emu" ]; then
-      export ERL_FLAGS="+JMsingle false"
+      if "$prefix/bin/erl" +JMsingle false -noshell -eval 'halt().' >/dev/null 2>&1; then
+        export ERL_FLAGS="+JMsingle false"
+      else
+        unset ERL_FLAGS
+      fi
     else
       unset ERL_FLAGS
     fi
@@ -209,12 +243,19 @@ for ref in $REFS; do
     continue
   fi
 
+  # Per-ref `|| true` keeps a single bad ref from killing the whole
+  # sweep — 30+ refs * jit/emu = 60+ measurements; one Hex/OpenSSL/
+  # libc landmine shouldn't waste the rest. Failures show up as the
+  # absence of a result dir under results/2026*; the next pass will
+  # re-attempt them after fixes land.
   if [ "$major" -ge 24 ] || [ "$major" = "99" ]; then
     for flavor in $(echo "$FLAVORS" | tr ',' ' '); do
-      run_modern "$ref" "$prefix" "$sha10" "$flavor"
+      run_modern "$ref" "$prefix" "$sha10" "$flavor" "$major" || \
+        echo "  [warn] $ref [$flavor] failed — continuing"
     done
   else
-    run_legacy "$ref" "$prefix" "$sha10" "$major"
+    run_legacy "$ref" "$prefix" "$sha10" "$major" || \
+      echo "  [warn] $ref legacy failed — continuing"
   fi
 done
 
