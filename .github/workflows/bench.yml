@@ -719,7 +719,12 @@ jobs:
   # of `runner_pool`.
   measure-macos:
     needs: resolve
-    if: needs.resolve.outputs.has_modern_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # Temporarily disabled — re-measuring macos-arm64 locally on M5
+    # hardware after the OtpBenchmarks auto-batching change so the
+    # GHA leg doesn't race the local run for the same labels. Revert
+    # to the commented condition below when the local sweep is in.
+    if: false
+    # if: needs.resolve.outputs.has_modern_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
     strategy:
@@ -1024,7 +1029,10 @@ jobs:
 
   measure-macos-target:
     needs: [resolve, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # Temporarily disabled — see measure-macos above. Revert
+    # together when the local sweep is in.
+    if: false
+    # if: needs.resolve.outputs.has_legacy_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       actions: read
