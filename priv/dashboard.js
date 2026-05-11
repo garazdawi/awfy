@@ -701,34 +701,44 @@ function buildSuiteGeomeanSeries() {
 let chart = null;
 let snapshotChart = null;
 
-/* Chart.js plugin: vertical dashed line + "BeamAsm JIT" label at the
-   OTP-24 x position. The trend chart uses emu rows for OTP < 24 and
-   jit rows from 24 onwards, so this marker is where the line data
-   itself flips emulator → JIT. Only meaningful on the suite chart's
-   linear-OTP axis; skipped on per-bench / timestamp axes. */
+/* Chart.js plugin: vertical dashed lines marking BeamAsm JIT debuts.
+   BeamAsm landed in OTP-24 for x86_64 (linux/windows/macos-x86_64)
+   and in OTP-26 for ARM64 (linux-arm64, macos-arm64), so the trend
+   chart's per-platform lines flip emu → jit at different x positions
+   depending on the platform's architecture. Draw both transitions so
+   readers don't mistake the step change for a single release win.
+   Only meaningful on the suite chart's linear OTP axis. */
+const JIT_MARKERS = [
+  { x: 24, label: "JIT (x86_64)" },
+  { x: 26, label: "JIT (ARM64)" }
+];
 const jitMarkerPlugin = {
   id: "jitMarker",
   afterDatasetsDraw(chart) {
     const xScale = chart.scales.x;
     const yScale = chart.scales.y;
     if (!xScale || !yScale || xScale.type !== "linear") return;
-    const xPx = xScale.getPixelForValue(24);
-    if (xPx < xScale.left || xPx > xScale.right) return;
     const ctx = chart.ctx;
     ctx.save();
-    ctx.strokeStyle = "#888";
-    ctx.setLineDash([4, 4]);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(xPx, yScale.top);
-    ctx.lineTo(xPx, yScale.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#555";
     ctx.font = "12px Montserrat, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText(" BeamAsm JIT", xPx, yScale.top + 4);
+    JIT_MARKERS.forEach((m, i) => {
+      const xPx = xScale.getPixelForValue(m.x);
+      if (xPx < xScale.left || xPx > xScale.right) return;
+      ctx.strokeStyle = "#888";
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xPx, yScale.top);
+      ctx.lineTo(xPx, yScale.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#555";
+      // Stagger labels vertically so they don't overlap when zoomed
+      // tight enough to bring x=24 and x=26 close together.
+      ctx.fillText(" " + m.label, xPx, yScale.top + 4 + (i % 2) * 14);
+    });
     ctx.restore();
   }
 };
