@@ -635,38 +635,104 @@ function buildSuiteGeomeanSeries() {
   // "23.3.4.20" tick when linux/macos are on the patch tip and
   // windows is on the bare "23.3", so the all-platforms marker
   // visually coincides with linux/macos's per-platform markers.
-  // Skip any bucket where not every platform contributed: a
-  // single-platform geomean masquerading as cross-platform
-  // would be misleading.
+  //
+  // Include any bucket where at least one platform contributed —
+  // earlier this required every platform, which silently dropped
+  // legacy refs where some platforms (windows pre-24) have no
+  // data. The line is labelled as a cross-platform aggregate,
+  // not "complete cross-platform", and the tooltip's n_benchmarks
+  // count makes the contribution depth visible.
+  //
+  // Pre-24 fallback: BeamAsm JIT was added in OTP 24, so any
+  // bucket older than 24.0 has no JIT data anywhere. Use the
+  // emu rows for those buckets instead, anchored to the same
+  // emu baseline at the pinnedBucket. The line then extends back
+  // through the OTP-20/21/22/23 range showing emu speedups,
+  // joining the JIT line at the 24.0 pin.
+  const emuRows = foldMultiInputFamilies(
+    DATASET.rows.filter(r => r.emu_flavor === "emu")
+  );
+  const emuPinnedBaseIdx = {};
+  if (pinnedBucket) {
+    emuRows.forEach(r => {
+      const otp = runOtp[r.label];
+      if (!otp) return;
+      // Reuse the jit-chart's canonByMcBucket so the emu baseline
+      // is anchored to the same OTP-24.0 (or whichever pinned
+      // bucket the jit chart converged on). Match against the
+      // platform's canonical pinned-bucket OTP; emu rows at
+      // other OTPs feed the per-bucket ratios below, not the
+      // baseline.
+      const canon = canonByMcBucket[r.machine_class] &&
+                    canonByMcBucket[r.machine_class][pinnedBucket];
+      if (!canon || otp !== canon) return;
+      if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
+      const k = r.lang + "|" + r.machine_class + "|" + r.benchmark;
+      if (!emuPinnedBaseIdx[k] || r.timestamp < emuPinnedBaseIdx[k].ts) {
+        emuPinnedBaseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
+      }
+    });
+  }
+
+  function bucketMajor(b) {
+    if (b === "master" || b === "maint") return Infinity;
+    const m = parseInt(String(b).split(".")[0], 10);
+    return Number.isFinite(m) ? m : 0;
+  }
+
   const allByBucket = {};
-  const allMcsAtBucket = {};
   const xLabelByBucket = {};
   if (pinnedBucket) {
-    rows.forEach(r => {
+    const pushBucket = (r, baseLookup) => {
       const otp = runOtp[r.label];
       if (!otp || !r.median_ms) return;
       const b = bucketFor(otp);
-      if (compareBuckets(b, pinnedBucket) < 0) return;
-      if (otp !== canonByMcBucket[r.machine_class][b]) return;
       const bk = r.lang + "|" + r.machine_class + "|" + r.benchmark;
-      const base = pinnedBaseIdx[bk];
+      const base = baseLookup[bk];
       if (!base || !base.ms) return;
       const ratio = base.ms / r.median_ms;
       if (!allByBucket[b]) allByBucket[b] = [];
       allByBucket[b].push(ratio);
-      if (!allMcsAtBucket[b]) allMcsAtBucket[b] = new Set();
-      allMcsAtBucket[b].add(r.machine_class);
       if (!xLabelByBucket[b] || compareOtpVersions(otp, xLabelByBucket[b]) > 0) {
         xLabelByBucket[b] = otp;
       }
+    };
+
+    // 24+: jit rows with jit baseline.
+    rows.forEach(r => {
+      const otp = runOtp[r.label];
+      if (!otp || !r.median_ms) return;
+      const b = bucketFor(otp);
+      if (bucketMajor(b) < 24) return;
+      if (otp !== canonByMcBucket[r.machine_class][b]) return;
+      pushBucket(r, pinnedBaseIdx);
     });
-    const numMcs = mcs.length;
-    for (const b of Object.keys(allByBucket)) {
-      if ((allMcsAtBucket[b] && allMcsAtBucket[b].size) !== numMcs) {
-        delete allByBucket[b];
-        delete xLabelByBucket[b];
+
+    // <24: emu rows with emu baseline anchored at the pin. The
+    // canonByMcBucket index only covers jit, so pick the platform's
+    // most-specific emu OTP for each pre-24 bucket on the fly.
+    const emuCanonByMcBucket = {};
+    emuRows.forEach(r => {
+      const otp = runOtp[r.label];
+      if (!otp) return;
+      const b = bucketFor(otp);
+      if (bucketMajor(b) >= 24) return;
+      if (!emuCanonByMcBucket[r.machine_class]) emuCanonByMcBucket[r.machine_class] = {};
+      const cur = emuCanonByMcBucket[r.machine_class][b];
+      if (!cur || compareOtpVersions(otp, cur) > 0) {
+        emuCanonByMcBucket[r.machine_class][b] = otp;
       }
-    }
+    });
+    emuRows.forEach(r => {
+      const otp = runOtp[r.label];
+      if (!otp || !r.median_ms) return;
+      const b = bucketFor(otp);
+      if (bucketMajor(b) >= 24) return;
+      const canon = emuCanonByMcBucket[r.machine_class] &&
+                    emuCanonByMcBucket[r.machine_class][b];
+      if (!canon || otp !== canon) return;
+      pushBucket(r, emuPinnedBaseIdx);
+    });
   }
 
   const geomean = (ratios) => {
