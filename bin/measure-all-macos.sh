@@ -109,26 +109,15 @@ ref_major() {
 # OTP_VERSION file, which the install script generates at build
 # time.
 ref_full_version() {
-  local ref="$1" prefix="$2"
+  local ref="$1"
+  # Mirror GHA's `otp_label` contract (see resolve-fill-needs.sh): tags
+  # collapse to the version, branches pass through verbatim so master /
+  # maint land at the right edge of the trend chart and aren't filtered
+  # out by the stability page's `r.otp == "master"` check.
   case "$ref" in
-    OTP-*)
-      echo "${ref#OTP-}" ;;
-    *)
-      # prefix-based fallback for master/maint/maint-NN
-      if [ -n "$prefix" ]; then
-        local rel
-        rel="$("$prefix/bin/erl" -noshell -eval \
-          'io:format("~s",[erlang:system_info(otp_release)]),halt().' 2>/dev/null)"
-        if [ -n "$rel" ]; then
-          local f="$prefix/lib/erlang/releases/$rel/OTP_VERSION"
-          if [ -f "$f" ]; then
-            tr -d '[:space:]' < "$f"
-            return 0
-          fi
-          echo "$rel"
-        fi
-      fi
-      ;;
+    OTP-*)               echo "${ref#OTP-}" ;;
+    master|maint|maint-*) echo "$ref" ;;
+    *)                   echo "$ref" ;;
   esac
 }
 
@@ -178,7 +167,7 @@ run_modern() {
     # (e.g. "24.0.6"), not just the host's major from
     # System.otp_release/0 — see awfy.measure.ex's otp_version_label/0.
     local full_ver
-    full_ver=$(ref_full_version "$ref" "$prefix")
+    full_ver=$(ref_full_version "$ref")
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
     # Pin the Elixir version that ends up in meta.json (modern path
     # uses the per-OTP-major target Elixir on PATH, but
@@ -254,7 +243,7 @@ run_legacy() {
     # path reports the host orchestrator's OTP (28.x) and runs
     # cluster at the wrong point on the dashboard's X axis.
     local full_ver
-    full_ver=$(ref_full_version "$ref" "$prefix")
+    full_ver=$(ref_full_version "$ref")
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
     # Same for elixir — the bundle runs under the target's per-major
     # Elixir, but the host orchestrator is Elixir 1.19.x.
