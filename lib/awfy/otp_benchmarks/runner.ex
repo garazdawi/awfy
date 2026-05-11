@@ -131,24 +131,138 @@ defmodule Awfy.OtpBenchmarks.Runner do
     end
   end
 
-  defp do_run_supported(mod, benchee_opts) do
-    inputs = mod.inputs()
+  # Probe target: each Benchee sample should be at least this long
+  # so the per-sample resolution is comfortably above the host's
+  # monotonic-clock floor (~42 ns on Apple Silicon, ~10 ns on
+  # Windows QPC, sub-ns on Linux). 100 µs gives ~3 decimal digits of
+  # resolution against the worst-case 42 ns floor without making
+  # individual samples slow enough to thin out the sample count below
+  # ~1000 for any realistic per-call duration.
+  @probe_target_ns 100_000
 
-    # Wire setup / teardown through Benchee's per-scenario hooks. The
-    # default behaviour-provided setup/1 is identity, so for static
-    # inputs (phash2) the hooks add zero overhead — Benchee skips
-    # before_scenario invocation entirely when the closure is the
-    # identity function (it doesn't, but the cost is one fun call
-    # per scenario, well outside the timed window).
+  # Powers of 10 cover everything from "one call already takes
+  # 100 µs+" (batch=1) to "this is a single instruction" (batch=1M).
+  # Probe stops at the first size whose timed pass crosses the target.
+  @probe_batch_sizes [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
+
+  defp do_run_supported(mod, benchee_opts) do
+    raw_inputs = mod.inputs()
+
+    # Probe each input to find a batch factor. Setup state once for
+    # the probe, then tear it down — Benchee re-runs setup via
+    # before_scenario, which is the right boundary because state
+    # like an ETS table accumulates writes during the probe and we
+    # don't want that bleed-through to skew the timed run.
+    batched_inputs =
+      Map.new(raw_inputs, fn {name, raw} ->
+        state = mod.setup(raw)
+        batch = probe_batch_factor(mod, state)
+        mod.teardown(state)
+        {name, {raw, batch}}
+      end)
+
     benchee_opts =
       benchee_opts
-      |> Keyword.put(:inputs, inputs)
-      |> Keyword.put(:before_scenario, fn raw -> mod.setup(raw) end)
-      |> Keyword.put(:after_scenario, fn state -> mod.teardown(state) end)
+      |> Keyword.put(:inputs, batched_inputs)
+      |> Keyword.put(:before_scenario, fn {raw, batch} ->
+        {mod.setup(raw), batch}
+      end)
+      |> Keyword.put(:after_scenario, fn {state, _batch} ->
+        mod.teardown(state)
+      end)
 
-    %{mod.name() => fn input -> mod.run(input) end}
+    %{mod.name() => fn {state, batch} -> run_batched(mod, state, batch) end}
     |> Benchee.run(benchee_opts)
+    |> adjust_for_batching(batched_inputs)
     |> Awfy.SuiteSlim.slim()
+  end
+
+  # Find the smallest batch size whose total timed work exceeds the
+  # probe target. Each candidate runs twice: a warmup pass to let JIT
+  # compile any hot loop, then a timed pass. Falls through to the
+  # largest candidate if no size hits the target (the workload is
+  # genuinely tiny and bench-bound by Benchee's own per-sample
+  # overhead — at that point batching even more wouldn't help).
+  defp probe_batch_factor(mod, state) do
+    Enum.reduce_while(@probe_batch_sizes, 1, fn batch, _acc ->
+      # Warmup pass — JIT, cache, code-loading.
+      Enum.each(1..batch, fn _ -> mod.run(state) end)
+      start = :erlang.monotonic_time(:nanosecond)
+      Enum.each(1..batch, fn _ -> mod.run(state) end)
+      elapsed = :erlang.monotonic_time(:nanosecond) - start
+
+      if elapsed >= @probe_target_ns do
+        {:halt, batch}
+      else
+        {:cont, batch}
+      end
+    end)
+  end
+
+  defp run_batched(mod, state, 1), do: mod.run(state)
+
+  defp run_batched(mod, state, batch) do
+    Enum.each(1..batch, fn _ -> mod.run(state) end)
+  end
+
+  # Benchee sees one "sample" = one batch of N consecutive calls,
+  # reported as `time_total = N × per_call`. To keep the saved median
+  # / mean / percentiles directly comparable to non-batched
+  # measurements (and across platforms that might pick different
+  # batch factors), divide all time-domain stats by N. Sample-size is
+  # scaled UP by N so it reflects the actual number of inner calls
+  # measured (e.g. 4 000 batched samples × 250 = 1 000 000 calls).
+  #
+  # Note on stddev semantics: Benchee's σ is the stddev of the
+  # *batched sums*. σ_total ≈ σ_per_call √N, so dividing by N gives
+  # σ_per_call / √N — that's the standard error of the per-call mean,
+  # exactly what a stability metric wants ("how much will the median
+  # move on re-run?"). Tighter than the raw per-sample σ.
+  defp adjust_for_batching(suite, batched_inputs) do
+    scenarios =
+      Enum.map(suite.scenarios, fn s ->
+        batch =
+          case s.input_name && Map.get(batched_inputs, s.input_name) do
+            {_raw, b} -> b
+            _ -> 1
+          end
+
+        if batch <= 1 do
+          s
+        else
+          rtd = s.run_time_data
+          stats = rtd.statistics
+
+          divide = fn nil -> nil
+                       v when is_number(v) -> v / batch
+                  end
+
+          new_stats =
+            stats
+            |> Map.update(:median, nil, divide)
+            |> Map.update(:average, nil, divide)
+            |> Map.update(:std_dev, nil, divide)
+            |> Map.update(:minimum, nil, divide)
+            |> Map.update(:maximum, nil, divide)
+            |> Map.update(:mode, nil, fn
+              nil -> nil
+              v when is_number(v) -> v / batch
+              vs when is_list(vs) -> Enum.map(vs, &(&1 / batch))
+            end)
+            |> Map.update(:percentiles, %{}, fn p ->
+              Map.new(p || %{}, fn {k, v} ->
+                {k, v && v / batch}
+              end)
+            end)
+            |> Map.update(:sample_size, 0, fn n ->
+              (n || 0) * batch
+            end)
+
+          %{s | run_time_data: %{rtd | statistics: new_stats}}
+        end
+      end)
+
+    %{suite | scenarios: scenarios}
   end
 
   defp target_runner_enabled? do

@@ -225,11 +225,26 @@ defmodule Awfy.TargetRunner do
 
       write_slim_suite(empty, out)
     else
+      # Auto-probe per-input batch factor so sub-µs scenarios lift
+      # above the host's monotonic clock floor (~42 ns on Apple
+      # Silicon). Mirror of Awfy.OtpBenchmarks.Runner — duplicated
+      # because apps/awfy_target_runner is intentionally not a path-
+      # dep of the runner project (PLAN/TARGET_ELIXIR_RUNNER_PLAN.md).
+      raw_inputs = family.inputs()
+
+      batched_inputs =
+        Map.new(raw_inputs, fn {name, raw} ->
+          state = family.setup(raw)
+          batch = probe_batch_factor(family, state)
+          family.teardown(state)
+          {name, {raw, batch}}
+        end)
+
       Benchee.run(
-        %{family.name() => fn input -> family.run(input) end},
-        inputs: family.inputs(),
-        before_scenario: fn raw -> family.setup(raw) end,
-        after_scenario: fn state -> family.teardown(state) end,
+        %{family.name() => fn {state, batch} -> run_batched(family, state, batch) end},
+        inputs: batched_inputs,
+        before_scenario: fn {raw, batch} -> {family.setup(raw), batch} end,
+        after_scenario: fn {state, _batch} -> family.teardown(state) end,
         time: time,
         warmup: warmup,
         memory_time: 0,
@@ -237,8 +252,81 @@ defmodule Awfy.TargetRunner do
         print: [benchmarking: false, configuration: false, fast_warning: false],
         formatters: []
       )
+      |> adjust_for_batching(batched_inputs)
       |> write_slim_suite(out)
     end
+  end
+
+  @probe_target_ns 100_000
+  @probe_batch_sizes [1, 10, 100, 1_000, 10_000, 100_000, 1_000_000]
+
+  defp probe_batch_factor(family, state) do
+    Enum.reduce_while(@probe_batch_sizes, 1, fn batch, _acc ->
+      Enum.each(1..batch, fn _ -> family.run(state) end)
+      start = :erlang.monotonic_time(:nanosecond)
+      Enum.each(1..batch, fn _ -> family.run(state) end)
+      elapsed = :erlang.monotonic_time(:nanosecond) - start
+
+      if elapsed >= @probe_target_ns do
+        {:halt, batch}
+      else
+        {:cont, batch}
+      end
+    end)
+  end
+
+  defp run_batched(family, state, 1), do: family.run(state)
+
+  defp run_batched(family, state, batch) do
+    Enum.each(1..batch, fn _ -> family.run(state) end)
+  end
+
+  defp adjust_for_batching(suite, batched_inputs) do
+    scenarios =
+      Enum.map(suite.scenarios, fn s ->
+        batch =
+          case s.input_name && Map.get(batched_inputs, s.input_name) do
+            {_raw, b} -> b
+            _ -> 1
+          end
+
+        if batch <= 1 do
+          s
+        else
+          rtd = s.run_time_data
+          stats = rtd.statistics
+
+          divide = fn
+            nil -> nil
+            v when is_number(v) -> v / batch
+          end
+
+          new_stats =
+            stats
+            |> Map.update(:median, nil, divide)
+            |> Map.update(:average, nil, divide)
+            |> Map.update(:std_dev, nil, divide)
+            |> Map.update(:minimum, nil, divide)
+            |> Map.update(:maximum, nil, divide)
+            |> Map.update(:mode, nil, fn
+              nil -> nil
+              v when is_number(v) -> v / batch
+              vs when is_list(vs) -> Enum.map(vs, &(&1 / batch))
+            end)
+            |> Map.update(:percentiles, %{}, fn p ->
+              Map.new(p || %{}, fn {k, v} ->
+                {k, v && v / batch}
+              end)
+            end)
+            |> Map.update(:sample_size, 0, fn n ->
+              (n || 0) * batch
+            end)
+
+          %{s | run_time_data: %{rtd | statistics: new_stats}}
+        end
+      end)
+
+    %{suite | scenarios: scenarios}
   end
 
   # Drop raw `samples` lists from each scenario before writing the
