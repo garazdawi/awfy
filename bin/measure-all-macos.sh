@@ -149,7 +149,8 @@ run_modern() {
     # provides at the same arity. The clean MIX_HOME has no archives
     # so mix skips the auto-load and starts cleanly. Same isolation
     # build-target-bundle.sh uses for the legacy bundle build.
-    export MIX_HOME="$(mktemp -d -t awfy-mix-home-XXXXXX)"
+    MIX_HOME="$(mktemp -d -t awfy-mix-home-XXXXXX)"
+    export MIX_HOME
     trap 'rm -rf "$MIX_HOME"' EXIT
     # +JMsingle false disables the JIT in OTP ≥24 → forces the
     # interpreter so we get an apples-to-apples emu measurement
