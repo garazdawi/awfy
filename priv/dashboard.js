@@ -702,15 +702,20 @@ let chart = null;
 let snapshotChart = null;
 
 /* Chart.js plugin: vertical dashed lines marking BeamAsm JIT debuts.
-   BeamAsm landed in OTP-24 for x86_64 (linux/windows/macos-x86_64)
-   and in OTP-26 for ARM64 (linux-arm64, macos-arm64), so the trend
-   chart's per-platform lines flip emu → jit at different x positions
-   depending on the platform's architecture. Draw both transitions so
-   readers don't mistake the step change for a single release win.
-   Only meaningful on the suite chart's linear OTP axis. */
+   The chart's per-platform lines flip emu → jit at different x
+   positions depending on platform/arch:
+     - OTP-24: x86_64 (linux-x86_64, windows-x86_64)
+     - OTP-25: linux-arm64
+     - OTP-26: macos-arm64 (Apple Silicon)
+   Older labels at lower OTPs that were built as `-jit` actually fell
+   back to emu in the runtime (visible in each meta.json's
+   runtime.emu_flavor), so each marker is placed where the underlying
+   data actually starts being JIT for that platform. Only meaningful
+   on the suite chart's linear OTP axis. */
 const JIT_MARKERS = [
   { x: 24, label: "JIT (x86_64)" },
-  { x: 26, label: "JIT (ARM64)" }
+  { x: 25, label: "JIT (linux-arm64)" },
+  { x: 26, label: "JIT (macos-arm64)" }
 ];
 const jitMarkerPlugin = {
   id: "jitMarker",
