@@ -40,17 +40,17 @@ defmodule Awfy.Benchmarks.Mandelbrot do
   defp x_loop(x, size, ci, byte_acc, bit_num, sum) do
     cr = 2.0 * x / size - 1.5
     escape = iterate(0, 0.0, 0.0, 0.0, cr, ci)
-    byte_acc1 = Bitwise.bsl(byte_acc, 1) + escape
+    byte_acc1 = :erlang.bsl(byte_acc, 1) + escape
     bit_num1 = bit_num + 1
 
     {byte_acc2, bit_num2, sum1} =
       cond do
         bit_num1 == 8 ->
-          {0, 0, Bitwise.bxor(sum, byte_acc1)}
+          {0, 0, :erlang.bxor(sum, byte_acc1)}
 
         x == size - 1 ->
-          shifted = Bitwise.bsl(byte_acc1, 8 - bit_num1)
-          {0, 0, Bitwise.bxor(sum, shifted)}
+          shifted = :erlang.bsl(byte_acc1, 8 - bit_num1)
+          {0, 0, :erlang.bxor(sum, shifted)}
 
         true ->
           {byte_acc1, bit_num1, sum}

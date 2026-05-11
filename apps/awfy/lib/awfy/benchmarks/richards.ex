@@ -306,13 +306,13 @@ defmodule Awfy.Benchmarks.Richards do
         s1 = put_handle(s, %{idle_data | count: count})
         hold_self(s1)
 
-      Bitwise.band(idle_data.control, 1) == 0 ->
+      :erlang.band(idle_data.control, 1) == 0 ->
         new_control = div(idle_data.control, 2)
         s1 = put_handle(s, %{idle_data | count: count, control: new_control})
         release(@device_a, s1)
 
       true ->
-        new_control = Bitwise.bxor(div(idle_data.control, 2), 53_256)
+        new_control = :erlang.bxor(div(idle_data.control, 2), 53_256)
         s1 = put_handle(s, %{idle_data | count: count, control: new_control})
         release(@device_b, s1)
     end

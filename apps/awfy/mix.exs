@@ -23,7 +23,14 @@ defmodule Awfy.MixProject do
     [
       app: :awfy,
       version: "0.1.0",
-      elixir: "~> 1.14",
+      # ~> 1.9 floor matches apps/otp_benchmarks/ — the legacy
+      # bundle path compiles this app under the target Elixir
+      # (1.9.4 for OTP 20, 1.11.4 for OTP 21, …, see
+      # bin/elixir-for-otp.sh). Anything that needs a newer
+      # Elixir feature has to move to apps/runner/ or be guarded
+      # on Code.ensure_loaded?, otherwise the Elixir-side
+      # benchmarks silently disappear from legacy legs.
+      elixir: "~> 1.9",
       erlc_paths: ["src"],
       erlc_options: [:debug_info],
       elixirc_paths: ["lib"],

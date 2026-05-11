@@ -14,7 +14,7 @@ defmodule Awfy.Random do
 
   @spec next(non_neg_integer()) :: {non_neg_integer(), non_neg_integer()}
   def next(seed) do
-    new_seed = Bitwise.band(seed * 1309 + 13849, 65535)
+    new_seed = :erlang.band(seed * 1309 + 13849, 65535)
     {new_seed, new_seed}
   end
 end

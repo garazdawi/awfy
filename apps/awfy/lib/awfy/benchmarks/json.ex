@@ -105,7 +105,7 @@ defmodule Awfy.Benchmarks.Json do
 
     val =
       if index < 0xFF do
-        Bitwise.band(index + 1, 0xFF)
+        :erlang.band(index + 1, 0xFF)
       else
         0
       end
@@ -115,10 +115,10 @@ defmodule Awfy.Benchmarks.Json do
 
   defp jht_get(table, name) do
     slot = jht_slot(name)
-    Bitwise.band(elem(table, slot), 0xFF) - 1
+    :erlang.band(elem(table, slot), 0xFF) - 1
   end
 
-  defp jht_slot(name), do: Bitwise.band(byte_size(name) * 1_402_589, @ht_size - 1)
+  defp jht_slot(name), do: :erlang.band(byte_size(name) * 1_402_589, @ht_size - 1)
 
   # ---------- Parser ----------
 

@@ -349,7 +349,11 @@ defmodule Awfy.Benchmarks.Havlak do
   defp init_size_arrays(i, size, hf) when i >= size, do: hf
 
   defp init_size_arrays(i, size, hf) do
-    nbp1 = Map.put(hf.non_back_preds, i, :sets.new(version: 2))
+    # `:sets.new(version: 2)` is OTP-24+. Stay on the no-arg form so
+    # the legacy bundle path (OTP 20–23) doesn't UNDEF here. The v1
+    # representation is functionally equivalent for our integer-key
+    # usage; the v2 hashing wins matter at much larger set sizes.
+    nbp1 = Map.put(hf.non_back_preds, i, :sets.new())
     bp1 = Map.put(hf.back_preds, i, [])
     uf_id = i
     uf = %Uf{id: uf_id, parent_id: uf_id}
