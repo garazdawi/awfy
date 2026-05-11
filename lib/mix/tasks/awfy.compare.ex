@@ -259,9 +259,26 @@ defmodule Mix.Tasks.Awfy.Compare do
       rows
       |> Enum.map(fn r ->
         cv = r.stddev_ms / r.median_ms * 100
-        Map.merge(r, %{cv_pct: cv, group: scenario_group(r)})
+
+        # IQR/median %: robust spread, ignores tails. Rows missing
+        # percentiles (legacy Benchee saves) get nil, which sorts
+        # last under :desc.
+        iqr_pct =
+          case {Map.get(r, :p25_ms), Map.get(r, :p75_ms)} do
+            {p25, p75} when is_number(p25) and is_number(p75) ->
+              (p75 - p25) / r.median_ms * 100
+
+            _ ->
+              nil
+          end
+
+        Map.merge(r, %{cv_pct: cv, iqr_pct: iqr_pct, group: scenario_group(r)})
       end)
-      |> Enum.sort_by(& &1.cv_pct, :desc)
+      # Primary sort: IQR/median % desc (robust spread).
+      # Secondary: CV% desc as a tiebreaker for legacy rows without
+      # percentiles. nil sorts last on Erlang term order so legacy
+      # rows fall to the bottom on the first key.
+      |> Enum.sort_by(fn r -> {-(r.iqr_pct || -1.0), -r.cv_pct} end)
 
     platforms = enriched |> Enum.map(&machine_class(%{"arch" => &1.arch})) |> Enum.uniq() |> Enum.sort()
     flavors = enriched |> Enum.map(& &1.emu_flavor) |> Enum.uniq() |> Enum.sort()
@@ -278,14 +295,24 @@ defmodule Mix.Tasks.Awfy.Compare do
             input -> "#{r.benchmark}/#{input}"
           end
 
-        # Tier the CV cell so visual scan tracks magnitudes:
-        # <1 % calm, 1–5 % yellow, >5 % red. Tuned to AWFY's typical
-        # spread on the publish host.
-        cv_class =
+        # Tier the IQR/median % cell so visual scan tracks
+        # magnitudes: <5 % calm, 5–20 % watch, >20 % noisy. Tuned
+        # to where real microbenchmark spread starts (vs the
+        # clock-floor lower bound). CV% is shown alongside but no
+        # longer colour-tiered — it gets dominated by single outliers
+        # on million-sample rows.
+        iqr_class =
           cond do
-            r.cv_pct >= 5.0 -> "stability-bad"
-            r.cv_pct >= 1.0 -> "stability-warn"
+            r.iqr_pct == nil -> "stability-unknown"
+            r.iqr_pct >= 20.0 -> "stability-bad"
+            r.iqr_pct >= 5.0 -> "stability-warn"
             true -> "stability-good"
+          end
+
+        iqr_cell =
+          case r.iqr_pct do
+            nil -> "—"
+            v -> "#{:io_lib.format(~c"~.2f", [v]) |> List.to_string()} %"
           end
 
         mc = machine_class(%{"arch" => r.arch})
@@ -316,8 +343,8 @@ defmodule Mix.Tasks.Awfy.Compare do
           <td>#{mc}</td>
           <td>#{r.emu_flavor}</td>
           <td class="num">#{format_ms(r.median_ms)}</td>
-          <td class="num">#{format_ms(r.stddev_ms)}</td>
-          <td class="num #{cv_class}">#{:io_lib.format(~c"~.2f", [r.cv_pct]) |> List.to_string()} %</td>
+          <td class="num #{iqr_class}">#{iqr_cell}</td>
+          <td class="num">#{:io_lib.format(~c"~.2f", [r.cv_pct]) |> List.to_string()} %</td>
           <td class="num">#{r.samples_n || "—"}</td>
         </tr>
         """
@@ -351,6 +378,7 @@ defmodule Mix.Tasks.Awfy.Compare do
     .stability-good { color: var(--er-good); }
     .stability-warn { color: #b58900; }
     .stability-bad { color: var(--er-bad); font-weight: 600; }
+    .stability-unknown { color: var(--er-muted); }
     .stability-filters { display: flex; flex-wrap: wrap; gap: 1.25rem; padding: 0.6rem 0.85rem; background: var(--er-tint); border: 1px solid var(--er-border); border-radius: 4px; font-size: 0.9rem; align-items: flex-start; margin-bottom: 1rem; }
     .stability-filters .group { display: flex; flex-direction: column; gap: 0.2rem; }
     .stability-filters b { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--er-muted); }
@@ -372,8 +400,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       <span class="breadcrumb"><a href="index.html">&larr; Suite</a> · Stability</span>
     </header>
     <h1>Benchmark stability on master</h1>
-    <p class="sub">Coefficient of variation (σ / median × 100 %) for every scenario measured on the master branch, latest run per (platform × flavor × language × benchmark). Higher means the median moves around more between samples, so smaller speedup changes need more replication before they're trustworthy.</p>
-    <p class="sub">Heuristic thresholds: <span class="stability-good">&lt; 1 %</span> calm, <span class="stability-warn">1 – 5 %</span> watch, <span class="stability-bad">&gt; 5 %</span> noisy.</p>
+    <p class="sub">Primary sort: <strong>IQR / median %</strong> — (p75 − p25) / median, the spread of the middle half of samples. Robust to tail outliers, so a single GC-pause or scheduler-preemption hit doesn't dominate. CV% (σ / median) is shown as a secondary column for tail-spike visibility — those two metrics can disagree, e.g. a scenario with 1M samples and one bad sample reads as 8000 % CV but &lt; 100 % IQR/median because 99 % of samples cluster tightly.</p>
+    <p class="sub">IQR / median thresholds: <span class="stability-good">&lt; 5 %</span> calm, <span class="stability-warn">5 – 20 %</span> watch, <span class="stability-bad">&gt; 20 %</span> noisy. Click any row for a box-plot breakdown.</p>
 
     #{filter_controls}
     <div class="stability-row-count" id="stability-row-count"></div>
@@ -387,8 +415,8 @@ defmodule Mix.Tasks.Awfy.Compare do
           <th>platform</th>
           <th>flavor</th>
           <th>median (ms)</th>
-          <th>σ (ms)</th>
-          <th>CV</th>
+          <th>IQR / median</th>
+          <th>CV (σ / median)</th>
           <th>samples</th>
         </tr>
       </thead>
@@ -766,6 +794,11 @@ defmodule Mix.Tasks.Awfy.Compare do
           "median_ms" => r.median_ms,
           "mean_ms" => r.mean_ms,
           "stddev_ms" => r.stddev_ms,
+          "min_ms" => Map.get(r, :min_ms),
+          "max_ms" => Map.get(r, :max_ms),
+          "p25_ms" => Map.get(r, :p25_ms),
+          "p75_ms" => Map.get(r, :p75_ms),
+          "p99_ms" => Map.get(r, :p99_ms),
           "samples_n" => r.samples_n,
           "inner_iter" => r.inner_iter,
           "source_sha256" => r.source_sha256,
