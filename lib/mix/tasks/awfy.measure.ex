@@ -322,12 +322,14 @@ defmodule Mix.Tasks.Awfy.Measure do
         "smp_support" => :erlang.system_info(:smp_support),
         "nif_version" => to_string(:erlang.system_info(:nif_version)),
         "driver_version" => to_string(:erlang.system_info(:driver_version)),
+        "c_compiler_used" => c_compiler_used_string(),
         "mix_env" => to_string(Mix.env())
       },
       "config" => %{
         "time" => ctx.time,
         "warmup" => ctx.warmup,
-        "lang" => to_string(ctx.lang)
+        "lang" => to_string(ctx.lang),
+        "build_flags" => build_flags_from_prefix()
       },
       "benchmarks" => benchmark_records(ctx),
       "otp_benchmarks" => otp_benchmark_records(ctx)
@@ -335,6 +337,55 @@ defmodule Mix.Tasks.Awfy.Measure do
 
     File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
   end
+
+  # `c_compiler_used` returns `{atom, term}` where the term shape
+  # varies per compiler — e.g. `{gnuc, {12, 1}}`, `{clang, "Apple
+  # clang version 15.0.0..."}`, `{msc, 1929}`. Normalise to a single
+  # human-readable string so the dashboard can show it verbatim.
+  defp c_compiler_used_string do
+    case :erlang.system_info(:c_compiler_used) do
+      {cc, ver} when is_atom(cc) ->
+        "#{cc} #{compiler_version_string(ver)}"
+
+      other ->
+        inspect(other)
+    end
+  end
+
+  defp compiler_version_string({maj, min}) when is_integer(maj) and is_integer(min),
+    do: "#{maj}.#{min}"
+
+  defp compiler_version_string({maj, min, patch})
+       when is_integer(maj) and is_integer(min) and is_integer(patch),
+       do: "#{maj}.#{min}.#{patch}"
+
+  defp compiler_version_string(v) when is_integer(v), do: Integer.to_string(v)
+  defp compiler_version_string(v) when is_binary(v), do: v
+  defp compiler_version_string(v), do: inspect(v)
+
+  # bin/install-otp-source-mac.sh writes its full `./configure …` line
+  # (or just the flag list — see the install script) to
+  # `$PREFIX/awfy_build_config.txt` immediately after build. Read it
+  # back here so meta.json captures what the currently-running runtime
+  # was actually built with. Returns `nil` when missing (CI / legacy
+  # bundle / pre-this-feature install) so the dashboard renders "—".
+  defp build_flags_from_prefix do
+    case :code.root_dir() do
+      :error ->
+        nil
+
+      root ->
+        path = Path.join(to_string(root), "awfy_build_config.txt")
+
+        case File.read(path) do
+          {:ok, content} -> content |> String.trim() |> nil_if_empty()
+          _ -> nil
+        end
+    end
+  end
+
+  defp nil_if_empty(""), do: nil
+  defp nil_if_empty(s), do: s
 
   # Mirror of `benchmark_records/1` for the OtpBenchmarks suite.
   # Per-family entry shape:

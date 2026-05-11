@@ -1206,9 +1206,56 @@ function renderSnapshot() {
   });
 }
 
+/* ---- Machine specs card ------------------------------------------
+   Surface what hardware + build the active machine_class was measured
+   on. Picks the most-recent run for that machine_class so the card
+   reflects the same build the trend / snapshot charts are drawing
+   from. Fields not present on older runs (compiler, build flags) are
+   simply skipped — the card stays useful with whatever's there.
+*/
+function renderMachineSpecs() {
+  const el = document.getElementById("machine-specs");
+  if (!el) return;
+  const state = readUIState();
+  const target = Array.isArray(state.machine_class) ? null : state.machine_class;
+  if (!target) { el.innerHTML = ""; return; }
+
+  const runs = DATASET.runs.filter(r => r.machine_class === target);
+  if (runs.length === 0) { el.innerHTML = ""; return; }
+  // Newest run first — assumes ISO-8601 timestamps sort lexically.
+  runs.sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+  const r = runs[0];
+
+  const row = (label, value) =>
+    value == null || value === "" ? "" :
+      "<dt>" + label + "</dt><dd>" + escapeHtml(String(value)) + "</dd>";
+
+  const flags = r.build_flags
+    ? '<dt>build flags</dt><dd class="build-flags">' + escapeHtml(r.build_flags) + "</dd>"
+    : "";
+
+  el.innerHTML =
+    "<dl>" +
+      row("platform", target) +
+      row("hostname", r.hostname) +
+      row("cpu", r.cpu) +
+      row("os", r.os) +
+      row("arch", r.arch) +
+      row("cores", r.cores) +
+      row("schedulers", r.schedulers_online) +
+      row("compiler", r.c_compiler_used) +
+      flags +
+    "</dl>";
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
 function renderAll() {
   renderHeadline();
   renderChart();
+  renderMachineSpecs();
   if (PAGE_KIND === "suite") renderSnapshot();
 }
 

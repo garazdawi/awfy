@@ -334,8 +334,14 @@ defmodule Mix.Tasks.Awfy.Compare do
           "hostname" => r.machine["hostname"],
           "cpu" => r.machine["cpu"],
           "arch" => r.machine["arch"],
+          "os" => r.machine["os"],
+          "cores" => r.machine["cores"],
           "machine_class" => machine_class(r.machine),
-          "emu_flavor" => r.runtime["emu_flavor"]
+          "emu_flavor" => r.runtime["emu_flavor"],
+          "schedulers_online" => r.runtime["schedulers_online"],
+          "wordsize" => r.runtime["wordsize"],
+          "c_compiler_used" => r.runtime["c_compiler_used"],
+          "build_flags" => r.config["build_flags"]
         }
       end)
 
@@ -407,6 +413,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       #{if ctx.page_kind == "suite", do: Map.get(ctx, :trend_heading_html, "") <> ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
 
       <div id="machine-tabs" class="tabs"></div>
+
+      <div id="machine-specs" class="machine-specs"></div>
 
       <div class="controls">
         <div class="group" id="control-flavor">

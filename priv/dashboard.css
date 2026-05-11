@@ -54,6 +54,20 @@ h3 + .sub { color: var(--er-muted); margin-top: 0.4rem; font-size: 0.9rem; }
   border-radius: 4px;
 }
 .headline-card { font-size: 1.05rem; padding: 1rem 1.25rem; margin-top: 0.5rem; }
+.machine-specs {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--er-tint);
+  border: 1px solid var(--er-border);
+  border-radius: 4px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.machine-specs:empty { display: none; }
+.machine-specs dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.85rem; }
+.machine-specs dt { color: var(--er-muted); font-weight: 500; }
+.machine-specs dd { margin: 0; font-family: var(--mono); font-size: 0.85rem; word-break: break-word; }
+.machine-specs .build-flags { white-space: pre-wrap; }
 .headline .num { font-weight: 700; font-variant-numeric: tabular-nums; }
 .headline .speedup { color: var(--er-good); }
 .headline .slowdown { color: var(--er-bad); }

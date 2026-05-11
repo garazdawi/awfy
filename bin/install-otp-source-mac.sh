@@ -270,6 +270,18 @@ trap 'rm -rf "$WORK"' EXIT
         fi
     fi
 
+    # Record the perf-relevant build inputs for `mix awfy.measure` to
+    # surface in meta.json (and the dashboard's machine-specs card).
+    # Skip --without-* (just trimming the build), --disable-debug
+    # (default anyway), and --prefix (boilerplate) — they're noise
+    # for a performance comparison.
+    {
+        printf 'CFLAGS="-O2 -fcommon %s"\n' "${CFLAGS:-}"
+        printf -- '--disable-pgo\n'
+        [ -n "$SSL_FLAG" ] && printf '%s\n' "$SSL_FLAG"
+        [ -n "${AWFY_OTP_EXTRA_CONFIGURE:-}" ] && printf '%s\n' "${AWFY_OTP_EXTRA_CONFIGURE}"
+    } > "$PREFIX/awfy_build_config.txt"
+
     # Verify the install runs at all. We don't try `-emu_flavor jit/emu`
     # here — the available flavor names changed across OTP versions
     # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill
