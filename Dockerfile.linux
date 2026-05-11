@@ -131,6 +131,15 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
         ${EXTRA_CONFIGURE} && \
     make -j"$(nproc)" && \
     make install && \
+    # Record the perf-relevant build inputs so awfy.measure can lift
+    # them into meta.json (and the dashboard's machine-specs card).
+    # Mirror of bin/install-otp-source-mac.sh — skip --without-* and
+    # --disable-debug noise, keep CFLAGS + caller-supplied extras.
+    { \
+      printf 'CFLAGS="-O2 -fcommon %s"\n' "${CFLAGS:-}"; \
+      [ -n "${EXTRA_CONFIGURE:-}" ] && printf '%s\n' "${EXTRA_CONFIGURE}"; \
+      true; \
+    } > /usr/local/awfy_build_config.txt && \
     make -j"$(nproc)" FLAVOR=emu && \
     make FLAVOR=emu install && \
     # `make FLAVOR=emu install` doesn't always copy beam.emu into
