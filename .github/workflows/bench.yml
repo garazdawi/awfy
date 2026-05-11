@@ -119,12 +119,18 @@ jobs:
       targets_legacy_linux:   ${{ steps.r.outputs.targets_legacy_linux }}
       targets_legacy_macos:   ${{ steps.r.outputs.targets_legacy_macos }}
       targets_legacy_windows: ${{ steps.r.outputs.targets_legacy_windows }}
+      # Union by major of the three legacy_* arrays. Drives
+      # build-linux-target + prep-target-bundle so a fill that needs
+      # only legacy windows (or only macos) still triggers the
+      # shared bundle every legacy measure job consumes.
+      targets_legacy_build:   ${{ steps.r.outputs.targets_legacy_build }}
       has_modern_linux:   ${{ steps.r.outputs.has_modern_linux }}
       has_modern_macos:   ${{ steps.r.outputs.has_modern_macos }}
       has_modern_windows: ${{ steps.r.outputs.has_modern_windows }}
       has_legacy_linux:   ${{ steps.r.outputs.has_legacy_linux }}
       has_legacy_macos:   ${{ steps.r.outputs.has_legacy_macos }}
       has_legacy_windows: ${{ steps.r.outputs.has_legacy_windows }}
+      has_legacy_build:   ${{ steps.r.outputs.has_legacy_build }}
       # Pass-through for the workflow input. Empty = full suite.
       # Threaded into every measure-* job's awfy.measure invocation
       # as `--benchmarks <list>` when non-empty.
@@ -311,14 +317,18 @@ jobs:
   # the OTP we just installed.
   build-linux-target:
     needs: resolve
-    if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # Gate on `has_legacy_build` (= any legacy platform has work) so a
+    # fill that needs only legacy windows or macos for a major still
+    # rebuilds the linux image prep-target-bundle extracts OTP from.
+    # Matrix iterates the union-by-major list for the same reason.
+    if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_linux) }}
+        target: ${{ fromJson(needs.resolve.outputs.targets_legacy_build) }}
         arch:
           - { name: x86_64, runner: ubuntu-latest,    platform: linux/amd64 }
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
@@ -386,9 +396,11 @@ jobs:
     needs: [resolve, build-linux-target]
     # No matrix.target.mode filter — this job's matrix is over OTP
     # majors / Elixir versions, not target entries. The whole-job
-    # gate on `has_legacy_linux` is sufficient: if no legacy targets
-    # made the cut, no bundle needs building.
-    if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # gate on `has_legacy_build` (= any legacy platform has work) is
+    # sufficient: macOS / Windows legacy measure jobs both consume
+    # the bundle, so prep must fire whenever any of the three needs
+    # to run, not only when legacy linux does.
+    if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
       packages: read
@@ -412,10 +424,11 @@ jobs:
       - name: Find SHA for OTP ${{ matrix.otp_major }}
         id: find_sha
         env:
-          TARGETS: ${{ needs.resolve.outputs.targets_legacy_linux }}
+          TARGETS: ${{ needs.resolve.outputs.targets_legacy_build }}
         run: |
-          # Every entry in `targets_legacy_linux` is already
-          # mode == "legacy"; just pick the first one for our major.
+          # `targets_legacy_build` is the union-by-major of all three
+          # legacy platform arrays. Pick the first matching major —
+          # all entries for a given major share the same SHA.
           SHA="$(echo "$TARGETS" \
             | jq -r --arg M "${{ matrix.otp_major }}" \
                 '[.[] | select(.major == $M)] | .[0].sha // empty')"

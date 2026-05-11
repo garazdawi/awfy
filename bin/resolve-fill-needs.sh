@@ -35,10 +35,16 @@
 #                                target-Elixir bundle) Linux leg.
 #   targets_legacy_macos=[…]
 #   targets_legacy_windows=[…]
+#   targets_legacy_build=[…]    — union by major of the three legacy
+#                                 arrays. Drives build-linux-target +
+#                                 prep-target-bundle so a fill that
+#                                 needs only windows or macos still
+#                                 triggers the shared bundle prep
+#                                 every legacy measure job consumes.
 #   has_modern_linux=true|false   — does targets_modern_linux have
 #                                   at least one entry? Used to gate
 #                                   the whole measure-linux job.
-#   …same six has_* per (mode, platform)…
+#   …same six has_* per (mode, platform), plus has_legacy_build…
 #
 # stderr — `[fill]` decision log and `Resolved …` lines for each ref.
 #
@@ -418,6 +424,19 @@ legacy_linux="$(filter_mode   "$linux_entries"   legacy)"
 legacy_macos="$(filter_mode   "$macos_entries"   legacy)"
 legacy_windows="$(filter_mode "$windows_entries" legacy)"
 
+# Union of all legacy entries deduplicated by major. Drives
+# build-linux-target + prep-target-bundle, which every legacy
+# measure-* job depends on (linux directly, macos/windows via the
+# extracted bundle). Without this, a fill that needs only legacy
+# windows for major 21 leaves has_legacy_linux=false → prep is
+# skipped → measure-windows-target is silently skipped too.
+legacy_build="$(jq -cn \
+  --argjson a "$legacy_linux" \
+  --argjson b "$legacy_macos" \
+  --argjson c "$legacy_windows" \
+  '($a + $b + $c) | unique_by(.major)')"
+n_legacy_build="$(jq 'length' <<<"$legacy_build")"
+
 {
   echo "targets_modern_linux=${modern_linux}"
   echo "targets_modern_macos=${modern_macos}"
@@ -425,12 +444,14 @@ legacy_windows="$(filter_mode "$windows_entries" legacy)"
   echo "targets_legacy_linux=${legacy_linux}"
   echo "targets_legacy_macos=${legacy_macos}"
   echo "targets_legacy_windows=${legacy_windows}"
+  echo "targets_legacy_build=${legacy_build}"
   echo "has_modern_linux=$(bool $n_modern_linux)"
   echo "has_modern_macos=$(bool $n_modern_macos)"
   echo "has_modern_windows=$(bool $n_modern_windows)"
   echo "has_legacy_linux=$(bool $n_legacy_linux)"
   echo "has_legacy_macos=$(bool $n_legacy_macos)"
   echo "has_legacy_windows=$(bool $n_legacy_windows)"
+  echo "has_legacy_build=$(bool $n_legacy_build)"
 } >> "$OUTPUT"
 
 echo "modern linux:   $modern_linux"   >&2
@@ -439,3 +460,4 @@ echo "modern windows: $modern_windows" >&2
 echo "legacy linux:   $legacy_linux"   >&2
 echo "legacy macos:   $legacy_macos"   >&2
 echo "legacy windows: $legacy_windows" >&2
+echo "legacy build:   $legacy_build"   >&2
