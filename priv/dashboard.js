@@ -1231,9 +1231,9 @@ function renderSnapshot() {
           const override = TARGET_ELIXIR_BY_MAJOR && TARGET_ELIXIR_BY_MAJOR[m];
           const majorN = parseInt(m, 10);
           const useOverride = override && Number.isFinite(majorN) && majorN < 24;
-          langTail = " · elixir " + (useOverride ? override : sampleRow.elixir);
+          langTail = " · Elixir " + (useOverride ? override : sampleRow.elixir);
         } else {
-          langTail = " · elixir";
+          langTail = " · Elixir";
         }
       }
       datasets.push({
