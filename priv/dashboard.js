@@ -1235,14 +1235,17 @@ function renderMachineSpecs() {
     : "";
 
   el.innerHTML =
-    "<dl>" +
-      row("cpu", r.cpu) +
-      row("os", r.os) +
-      row("arch", r.arch) +
-      row("cores", r.cores) +
-      row("compiler", r.c_compiler_used) +
-      flags +
-    "</dl>";
+    "<details>" +
+      "<summary>Show platform specs</summary>" +
+      "<dl>" +
+        row("cpu", r.cpu) +
+        row("os", r.os) +
+        row("arch", r.arch) +
+        row("cores", r.cores) +
+        row("compiler", r.c_compiler_used) +
+        flags +
+      "</dl>" +
+    "</details>";
 }
 
 function escapeHtml(s) {
