@@ -199,11 +199,23 @@ trap 'rm -rf "$WORK"' EXIT
         fi
     fi
 
+    # --disable-pgo: OTP's PGO trains on estone_SUITE, which is a mixed
+    # workload. On macOS-arm64 (Apple Clang -fprofile-instr-*) the
+    # resulting profile re-orders the beam_emu dispatch table in a way
+    # that hurts tight hot loops — the exact shape most AWFY/microbench
+    # scenarios are. Measured on OTP-23.1.5: PGO-on is 8–12% slower
+    # than PGO-off on countdown + recursive-fib; flat on list/binary
+    # workloads; no shape sped up. Active range is OTP-21.0–23.x: pre-
+    # 21.0 has no PGO machinery; OTP-24.0 (BeamAsm JIT) hardcoded
+    # USE_PGO=false in erts/configure, so the flag is a no-op on ≥24
+    # and a benign warning on ≤20.
+    #
     # shellcheck disable=SC2086
     CFLAGS="-O2 -fcommon ${CFLAGS:-}" \
     ./configure \
         --prefix="$PREFIX" \
         --disable-debug \
+        --disable-pgo \
         --without-javac \
         --without-wx \
         --without-odbc \
