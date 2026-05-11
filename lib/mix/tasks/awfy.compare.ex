@@ -255,13 +255,20 @@ defmodule Mix.Tasks.Awfy.Compare do
         Enum.max_by(rs, & &1.timestamp)
       end)
 
-    table_rows =
+    enriched =
       rows
       |> Enum.map(fn r ->
         cv = r.stddev_ms / r.median_ms * 100
-        Map.put(r, :cv_pct, cv)
+        Map.merge(r, %{cv_pct: cv, group: scenario_group(r)})
       end)
       |> Enum.sort_by(& &1.cv_pct, :desc)
+
+    platforms = enriched |> Enum.map(&machine_class(%{"arch" => &1.arch})) |> Enum.uniq() |> Enum.sort()
+    flavors = enriched |> Enum.map(& &1.emu_flavor) |> Enum.uniq() |> Enum.sort()
+    groups = enriched |> Enum.map(& &1.group) |> Enum.uniq() |> Enum.sort()
+
+    table_rows =
+      enriched
       |> Enum.with_index(1)
       |> Enum.map(fn {r, rank} ->
         scenario =
@@ -281,12 +288,14 @@ defmodule Mix.Tasks.Awfy.Compare do
             true -> "stability-good"
           end
 
+        mc = machine_class(%{"arch" => r.arch})
+
         ~s"""
-        <tr>
+        <tr data-platform="#{mc}" data-flavor="#{r.emu_flavor}" data-group="#{r.group}">
           <td class="rank">#{rank}</td>
           <td>#{scenario}</td>
           <td>#{r.lang || "—"}</td>
-          <td>#{machine_class(%{"arch" => r.arch})}</td>
+          <td>#{mc}</td>
           <td>#{r.emu_flavor}</td>
           <td class="num">#{format_ms(r.median_ms)}</td>
           <td class="num">#{format_ms(r.stddev_ms)}</td>
@@ -296,6 +305,8 @@ defmodule Mix.Tasks.Awfy.Compare do
         """
       end)
       |> Enum.join("\n")
+
+    filter_controls = stability_filter_controls(platforms, flavors, groups)
 
     """
     <!doctype html>
@@ -322,6 +333,12 @@ defmodule Mix.Tasks.Awfy.Compare do
     .stability-good { color: var(--er-good); }
     .stability-warn { color: #b58900; }
     .stability-bad { color: var(--er-bad); font-weight: 600; }
+    .stability-filters { display: flex; flex-wrap: wrap; gap: 1.25rem; padding: 0.6rem 0.85rem; background: var(--er-tint); border: 1px solid var(--er-border); border-radius: 4px; font-size: 0.9rem; align-items: flex-start; margin-bottom: 1rem; }
+    .stability-filters .group { display: flex; flex-direction: column; gap: 0.2rem; }
+    .stability-filters b { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--er-muted); }
+    .stability-filters .opts { display: flex; flex-wrap: wrap; column-gap: 0.85rem; row-gap: 0.2rem; }
+    .stability-filters label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
+    .stability-row-count { color: var(--er-muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
     </style>
     </head>
     <body>
@@ -332,6 +349,9 @@ defmodule Mix.Tasks.Awfy.Compare do
     <h1>Benchmark stability on master</h1>
     <p class="sub">Coefficient of variation (σ / median × 100 %) for every scenario measured on the master branch, latest run per (platform × flavor × language × benchmark). Higher means the median moves around more between samples, so smaller speedup changes need more replication before they're trustworthy.</p>
     <p class="sub">Heuristic thresholds: <span class="stability-good">&lt; 1 %</span> calm, <span class="stability-warn">1 – 5 %</span> watch, <span class="stability-bad">&gt; 5 %</span> noisy.</p>
+
+    #{filter_controls}
+    <div class="stability-row-count" id="stability-row-count"></div>
 
     <table class="stability">
       <thead>
@@ -351,8 +371,107 @@ defmodule Mix.Tasks.Awfy.Compare do
     #{table_rows}
       </tbody>
     </table>
+
+    <script>
+    (function () {
+      const KEY = "awfy.stability.filters";
+      const root = document.querySelector(".stability-filters");
+      const tbody = document.querySelector("table.stability tbody");
+      const counter = document.getElementById("stability-row-count");
+      if (!root || !tbody) return;
+
+      const load = () => {
+        try { return JSON.parse(localStorage.getItem(KEY)) || {}; }
+        catch (_) { return {}; }
+      };
+      const save = (s) => {
+        try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {}
+      };
+
+      const persisted = load();
+      // First visit: every checkbox starts checked (show all rows).
+      // Persisted state, when present, controls visibility per axis.
+      root.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        const axis = cb.dataset.axis;
+        const val = cb.value;
+        if (persisted[axis] && Array.isArray(persisted[axis])) {
+          cb.checked = persisted[axis].includes(val);
+        }
+      });
+
+      const apply = () => {
+        const sel = { platform: new Set(), flavor: new Set(), group: new Set() };
+        root.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+          sel[cb.dataset.axis].add(cb.value);
+        });
+        let visible = 0;
+        const rows = tbody.querySelectorAll("tr");
+        rows.forEach(tr => {
+          const show =
+            sel.platform.has(tr.dataset.platform) &&
+            sel.flavor.has(tr.dataset.flavor) &&
+            sel.group.has(tr.dataset.group);
+          tr.style.display = show ? "" : "none";
+          if (show) visible++;
+        });
+        counter.textContent = visible + " of " + rows.length + " scenarios shown";
+      };
+
+      root.addEventListener("change", () => {
+        const out = { platform: [], flavor: [], group: [] };
+        root.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+          out[cb.dataset.axis].push(cb.value);
+        });
+        save(out);
+        apply();
+      });
+
+      apply();
+    })();
+    </script>
     </body>
     </html>
+    """
+  end
+
+  # Bucket each row into a "scenario group" for the stability filter:
+  # the AWFY cross-language suite is one group regardless of how many
+  # benchmarks it ships, and every OtpBenchmarks family (maps, ets,
+  # phash2, …) is its own group keyed by the benchmark name. AWFY rows
+  # are recognised by having a populated `:lang` (erlang / elixir) and
+  # no `:input`; OtpBenchmarks rows have `:input` set and `:lang` nil.
+  defp scenario_group(r) do
+    case {r.lang, Map.get(r, :input)} do
+      {lang, nil} when lang in ["erlang", "elixir"] -> "AWFY"
+      _ -> r.benchmark
+    end
+  end
+
+  defp stability_filter_controls(platforms, flavors, groups) do
+    render_group = fn axis, label, values ->
+      opts =
+        values
+        |> Enum.map(fn v ->
+          ~s|<label><input type="checkbox" data-axis="#{axis}" value="#{v}" checked> #{v}</label>|
+        end)
+        |> Enum.join("\n")
+
+      ~s"""
+      <div class="group">
+        <b>#{label}</b>
+        <div class="opts">
+      #{opts}
+        </div>
+      </div>
+      """
+    end
+
+    """
+    <div class="stability-filters">
+    #{render_group.("platform", "Platform", platforms)}
+    #{render_group.("flavor", "Flavor", flavors)}
+    #{render_group.("group", "Scenario group", groups)}
+    </div>
     """
   end
 
