@@ -211,8 +211,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       <p class="sub">Geometric mean of <code>baseline_median / median</code>, higher = faster. <strong>Dashed</strong> segments are emulator data, <strong>solid</strong> are BeamAsm JIT.</p>
       <details class="explain">
         <summary>Explain this graph</summary>
-        <p class="sub">Per-platform lines use emu data pre-OTP-24 (BeamAsm JIT was added in 24) and JIT from 24 onwards, anchored at each platform's own earliest recorded run for every benchmark. The thicker <strong>all platforms</strong> line groups by OTP function-release (e.g. <code>23.3</code>) so a coarser-grained Windows build (<code>OTP-23.3</code> installer) merges with a finer-grained linux/macos build (<code>OTP-23.3.4.20</code> patch tip), and includes any bucket where at least one platform contributed.</p>
-        <p class="sub">Both Erlang and Elixir benchmark cells contribute to the geomean. Each OTP major is paired with a specific Elixir version in the matrix (e.g. OTP-25 → Elixir 1.17.3, OTP-28 → Elixir 1.19.5), so Elixir's own compiler / stdlib evolution rides along in the numbers — it's not a pure "OTP runtime" signal.</p>
+        <p class="sub">Per-platform lines use emu data pre-Erlang/OTP 24 (BeamAsm JIT was added in 24) and JIT from 24 onwards, anchored at each platform's own earliest recorded run for every benchmark. The thicker <strong>all platforms</strong> line groups by Erlang/OTP function-release (e.g. <code>23.3</code>) so a coarser-grained Windows build (<code>OTP-23.3</code> installer) merges with a finer-grained linux/macos build (<code>OTP-23.3.4.20</code> patch tip), and includes any bucket where at least one platform contributed.</p>
+        <p class="sub">Both Erlang and Elixir benchmark cells contribute to the geomean. Each Erlang/OTP major is paired with a specific Elixir version in the matrix (e.g. Erlang/OTP 25 → Elixir 1.17.3, Erlang/OTP 28 → Elixir 1.19.5), so Elixir's own compiler / stdlib evolution rides along in the numbers — it's not a pure Erlang/OTP runtime signal.</p>
       </details>
       """,
       benchmarks_list_html: """

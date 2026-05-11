@@ -939,7 +939,7 @@ function renderChart() {
               max: otpXInfo.hasMaster ? otpXInfo.masterX
                   : otpXInfo.hasMaint  ? otpXInfo.maintX
                   : otpXInfo.maxNumeric,
-              title: { display: true, text: "OTP version", font: titleFont },
+              title: { display: true, text: "Erlang/OTP version", font: titleFont },
               ticks: {
                 font: tickFont,
                 stepSize: 1,
@@ -979,7 +979,7 @@ function renderChart() {
             title: (items) => {
               if (!items.length) return "";
               const r = items[0].raw;
-              if (xAxis === "otp") return "OTP " + (r.otpLabel || r.x);
+              if (xAxis === "otp") return "Erlang/OTP " + (r.otpLabel || r.x);
               return new Date(r.x).toLocaleString();
             },
             label: (ctx) => {
@@ -1059,12 +1059,12 @@ function renderHeadline() {
     const word = pct >= 0 ? "faster" : "slower";
     const cls = pct >= 0 ? "speedup" : "slowdown";
     return '<span class="num ' + cls + '">' + speedup.toFixed(2) + '×</span> ' +
-           '<span class="' + cls + '">' + word + '</span> than OTP ' + anchor.x;
+           '<span class="' + cls + '">' + word + '</span> than Erlang/OTP ' + anchor.x;
   };
 
   const parts = anchorList.map(fmtAnchor);
   const joined = parts.length === 1 ? parts[0] : parts.join(' and ');
-  el.innerHTML = '<div>OTP ' + newest.x + ' is ' + joined +
+  el.innerHTML = '<div>Erlang/OTP ' + newest.x + ' is ' + joined +
                  ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean across all platforms</span></div>';
 }
 
@@ -1196,7 +1196,7 @@ function renderSnapshot() {
         };
       });
       const v = versionForMajor[m];
-      const labelOtp = (v === "master" || v === "main") ? v : "OTP " + v;
+      const labelOtp = (v === "master" || v === "main") ? v : "Erlang/OTP " + v;
       // If any of this (major, lang)'s rows is an emu fallback,
       // mark the whole dataset — within a major+lang every bench
       // shares the same flavor decision (driven by the major).
