@@ -282,6 +282,14 @@ trap 'rm -rf "$WORK"' EXIT
         [ -n "${AWFY_OTP_EXTRA_CONFIGURE:-}" ] && printf '%s\n' "${AWFY_OTP_EXTRA_CONFIGURE}"
     } > "$PREFIX/awfy_build_config.txt"
 
+    # Honest compiler identity: erlang:system_info(c_compiler_used) on
+    # macOS reports {gnuc, {4,2,1}} because Apple's clang sets the
+    # __GNUC__ macros for compat, and OTP's detection reads those.
+    # Capture the actual `$CC --version` first line here so the
+    # dashboard can show "Apple clang version 15.0.0" instead of a
+    # 17-year-old GCC stub. awfy.measure prefers this file when set.
+    "${CC:-cc}" --version 2>/dev/null | head -1 > "$PREFIX/awfy_compiler.txt" || true
+
     # Verify the install runs at all. We don't try `-emu_flavor jit/emu`
     # here — the available flavor names changed across OTP versions
     # (OTP 26/27: `-emu_flavor smp`; OTP 28+: `jit`/`emu`). The fill

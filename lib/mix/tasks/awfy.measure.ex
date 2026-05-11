@@ -338,11 +338,37 @@ defmodule Mix.Tasks.Awfy.Measure do
     File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
   end
 
-  # `c_compiler_used` returns `{atom, term}` where the term shape
-  # varies per compiler — e.g. `{gnuc, {12, 1}}`, `{clang, "Apple
-  # clang version 15.0.0..."}`, `{msc, 1929}`. Normalise to a single
-  # human-readable string so the dashboard can show it verbatim.
+  # Compiler identity: prefer `$PREFIX/awfy_compiler.txt` (written at
+  # install time from `$CC --version`) over `c_compiler_used`. The
+  # runtime query reads __GNUC__/__GNUC_MINOR__/__GNUC_PATCHLEVEL__
+  # which clang-on-macOS lies about (returns `{gnuc, {4,2,1}}`), and
+  # any other clang-pretending-to-be-gcc has the same problem. The
+  # build-time `--version` line is the honest answer. Fall back to
+  # the runtime query when the file is missing (Windows installers,
+  # legacy bundles, pre-this-feature installs).
   defp c_compiler_used_string do
+    case compiler_string_from_prefix() do
+      nil -> system_info_compiler_string()
+      s -> s
+    end
+  end
+
+  defp compiler_string_from_prefix do
+    case :code.root_dir() do
+      :error ->
+        nil
+
+      root ->
+        path = Path.join(to_string(root), "awfy_compiler.txt")
+
+        case File.read(path) do
+          {:ok, content} -> content |> String.trim() |> nil_if_empty()
+          _ -> nil
+        end
+    end
+  end
+
+  defp system_info_compiler_string do
     case :erlang.system_info(:c_compiler_used) do
       {cc, ver} when is_atom(cc) ->
         "#{cc} #{compiler_version_string(ver)}"

@@ -140,6 +140,11 @@ RUN --mount=type=cache,target=/root/.ccache,sharing=locked \
       [ -n "${EXTRA_CONFIGURE:-}" ] && printf '%s\n' "${EXTRA_CONFIGURE}"; \
       true; \
     } > /usr/local/awfy_build_config.txt && \
+    # Honest compiler identity — same reason as the macOS install
+    # script: erlang:system_info(c_compiler_used) reads __GNUC__ which
+    # any clang-pretending-to-be-gcc lies about. `$CC --version` is
+    # the truth. awfy.measure prefers this file when set.
+    ("${CC:-cc}" --version 2>/dev/null | head -1 > /usr/local/awfy_compiler.txt || true) && \
     make -j"$(nproc)" FLAVOR=emu && \
     make FLAVOR=emu install && \
     # `make FLAVOR=emu install` doesn't always copy beam.emu into
