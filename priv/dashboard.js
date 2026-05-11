@@ -710,9 +710,11 @@ let snapshotChart = null;
    still SIGBUSes on macOS 26, so the upstream guard is correct.
 
    These cutoffs drive per-line segment styling in renderChart —
-   dashed line where the data is emulator, solid where it's JIT.
-   The "all platforms" line goes solid only once every platform has
-   JIT (i.e. from OTP-26 onwards). */
+   dashed where a platform's data is emulator, solid where it's JIT.
+   The "all platforms" aggregate stays fully solid: any per-platform
+   detail about emu/jit is already conveyed by the per-platform
+   lines, and dashing the aggregate as well would just clutter the
+   heading line at the top of the chart. */
 const JIT_CUTOFF_BY_PLATFORM = {
   "linux-x86_64":   24,
   "windows-x86_64": 24,
@@ -720,7 +722,6 @@ const JIT_CUTOFF_BY_PLATFORM = {
   "macos-arm64":    26
 };
 function jitCutoffForSeriesLabel(label) {
-  if (label === "all platforms") return 26;
   return JIT_CUTOFF_BY_PLATFORM[label] || null;
 }
 
