@@ -1107,7 +1107,42 @@ function renderSnapshot() {
     : (r) => seriesAxis(r) === state.lang;
   const mcOK = (r) => r.machine_class === state.machine_class;
 
-  const filtered = DATASET.rows.filter(r =>
+  // estone is multi-input (rows have lang=null, input=<scenario>) so
+  // the snapshot's lang-based filter would skip it. Fold its 8 per-
+  // input medians into one synthetic Erlang row per (label) using
+  // geomean — the bar then sits alongside the AWFY single-cell ones.
+  // Note: 8 inputs is the current shape of apps/otp_benchmarks's
+  // estone module, which covers ~6 of the 20 micros in upstream's
+  // erts/emulator/test/estone_SUITE.erl; the canonical weighted
+  // ESTONES headline also isn't reproduced. Folding what's there
+  // is the right thing for the snapshot now; expanding the suite is
+  // a separate workstream.
+  const allRows = DATASET.rows.slice();
+  const estoneByLabel = {};
+  DATASET.rows.forEach(r => {
+    if (r.benchmark !== "estone" || !r.input) return;
+    if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
+    if (!estoneByLabel[r.label]) estoneByLabel[r.label] = { template: r, medians: [] };
+    estoneByLabel[r.label].medians.push(r.median_ms);
+  });
+  Object.values(estoneByLabel).forEach(({ template, medians }) => {
+    if (medians.length === 0) return;
+    const sumLog = medians.reduce((a, m) => a + Math.log(m), 0);
+    const geomeanMs = Math.exp(sumLog / medians.length);
+    allRows.push({
+      ...template,
+      input: null,
+      lang: "erlang",
+      median_ms: geomeanMs,
+      // stddev across input geomeans isn't comparable to the single-
+      // sample stddev fields the snapshot whisker reads. Null it out
+      // so the bar renders without whiskers — accurate is better
+      // than a misleading whisker on a synthetic point.
+      stddev_ms: null
+    });
+  });
+
+  const filtered = allRows.filter(r =>
     langOK(r) && mcOK(r) && passesFlavor(r) && enabledMajors.has(majorOf(r.otp))
   );
 
@@ -1116,8 +1151,10 @@ function renderSnapshot() {
   // — it's always the dataset's earliest recorded run for each
   // (lang, machine_class, benchmark). Uses the same emu-pre-cutoff
   // fallback as the bars so the ratio stays apples-to-apples.
+  // Uses allRows (= DATASET.rows + synthetic estone) so the estone
+  // bar gets a real per-platform baseline at its earliest OTP.
   const baseIdx = {};
-  DATASET.rows.forEach(r => {
+  allRows.forEach(r => {
     if (r.machine_class !== state.machine_class) return;
     if (!passesFlavor(r)) return;
     if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
