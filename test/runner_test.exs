@@ -148,6 +148,19 @@ defmodule Awfy.RunnerTest do
       assert {:error, {:bundle_not_found, "/nope/bundle"}} =
                Runner.run("/nope/bundle", :bounce, 1, [])
     end
+
+    test ":bundle_missing_runner when TargetRunner.beam is absent from the layout" do
+      System.put_env("AWFY_TARGET_ERL", System.find_executable("erl") || "/usr/bin/erl")
+      # Fixture with ebins but no Elixir.Awfy.TargetRunner.beam under
+      # them — simulates a tar-extract that dropped the `bundle/`
+      # prefix incorrectly, leaving `lib/` paths that exist but lack
+      # the runner module.
+      bundle = bundle_fixture(["awfy_target_runner", "elixir"])
+
+      assert {:error, {:bundle_missing_runner, info}} = Runner.run(bundle, :bounce, 1, [])
+      assert info.expected =~ "Elixir.Awfy.TargetRunner.beam"
+      assert is_list(info.ebins_found)
+    end
   end
 
   defp bundle_fixture(sub_apps) do

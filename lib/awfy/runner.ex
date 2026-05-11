@@ -81,7 +81,10 @@ defmodule Awfy.Runner do
         {:error, {:bundle_not_found, bundle_dir}}
 
       true ->
-        do_run(bundle_dir, erl, module, inner_iter, opts)
+        case bundle_runner_beam(bundle_dir) do
+          {:ok, _} -> do_run(bundle_dir, erl, module, inner_iter, opts)
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -139,7 +142,10 @@ defmodule Awfy.Runner do
         {:error, {:bundle_not_found, bundle_dir}}
 
       true ->
-        do_run_otp_family(bundle_dir, erl, family, opts)
+        case bundle_runner_beam(bundle_dir) do
+          {:ok, _} -> do_run_otp_family(bundle_dir, erl, family, opts)
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -241,6 +247,32 @@ defmodule Awfy.Runner do
 
   defp bundle_ebins(bundle_dir) do
     Path.wildcard(Path.join(bundle_dir, "lib/*/ebin"))
+  end
+
+  # Pre-flight: the canonical TargetRunner beam must be present under
+  # `lib/awfy_target_runner/ebin/`. A broken bundle layout (tar extract
+  # not stripping the top `bundle/` prefix; sub-app missing from the
+  # build; corrupted artifact) would otherwise let `erl -s
+  # Elixir.Awfy.TargetRunner main` boot, hit `undef`, and unwind into
+  # an `:erl_exit` per scenario that callers tend to log-and-skip.
+  # Returning a distinct error tag here lets the suite-level caller
+  # raise (it's a setup failure, not a per-benchmark crash).
+  defp bundle_runner_beam(bundle_dir) do
+    path =
+      Path.join([
+        bundle_dir,
+        "lib",
+        "awfy_target_runner",
+        "ebin",
+        "Elixir.Awfy.TargetRunner.beam"
+      ])
+
+    if File.exists?(path) do
+      {:ok, path}
+    else
+      ebins = bundle_ebins(bundle_dir)
+      {:error, {:bundle_missing_runner, %{expected: path, ebins_found: ebins}}}
+    end
   end
 
   defp default_out_path do

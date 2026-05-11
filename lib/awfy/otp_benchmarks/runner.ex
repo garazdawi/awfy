@@ -314,6 +314,15 @@ defmodule Awfy.OtpBenchmarks.Runner do
         print_target_summary(suite)
         write_slim_suite(suite, save_path)
 
+      # Bundle-layout errors aren't a per-family problem — see the
+      # mirror in Awfy.BencheeRunner. Raise so the host job exits
+      # non-zero instead of uploading a results dir with nothing in it.
+      {:error, {:bundle_missing_runner, info}} ->
+        raise "bundle is broken: Elixir.Awfy.TargetRunner.beam not found.\n" <>
+                "  expected: #{info.expected}\n" <>
+                "  ebins found: #{inspect(info.ebins_found)}\n" <>
+                "Check the extract step's printout for the actual layout."
+
       {:error, reason} ->
         IO.puts(
           :stderr,
