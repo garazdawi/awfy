@@ -1211,32 +1211,33 @@ function renderSnapshot() {
       // it in the legend so the reader can tell that an OTP-25 bar
       // for elixir is really "Elixir 1.17.3 on OTP-25". Erlang
       // scenarios don't depend on the Elixir version, so skip.
-      let langLabel = lang;
+      // Erlang bars label as just "OTP X" — the erlang suffix is
+      // surplus on every chart whose default Y axis is "Erlang/OTP
+      // speedup". Elixir bars keep the suffix with the specific
+      // Elixir version since that does change across OTP majors.
+      let langTail = "";
       if (lang === "elixir") {
         const sampleRow = benches
           .map(b => latest[m + "|" + lang + "|" + b])
           .find(r => r && r.elixir);
         if (sampleRow) {
           // meta.json's elixir field is the host orchestrator's
-          // version (the mix process driving the measurement, always
-          // recent). On the legacy bundle path (OTP < 24) the
-          // benchmarks actually run under a different, OTP-major-
-          // specific Elixir compiled into the target bundle — that's
-          // the version we want to display. TARGET_ELIXIR_BY_MAJOR
-          // is injected at render time via bin/elixir-for-otp.sh
-          // (single source of truth shared with bench.yml and the
-          // install scripts).
+          // version (always recent). On the legacy bundle path
+          // (OTP < 24) the benchmarks run under a different,
+          // OTP-major-specific Elixir compiled into the target
+          // bundle. TARGET_ELIXIR_BY_MAJOR is injected at render
+          // time via priv/elixir-for-otp.sh (shared with bench.yml
+          // and the install scripts).
           const override = TARGET_ELIXIR_BY_MAJOR && TARGET_ELIXIR_BY_MAJOR[m];
-          // Only override on legacy OTPs — modern path puts the
-          // target Elixir on PATH so the host=target and meta.json's
-          // recorded version is already correct.
           const majorN = parseInt(m, 10);
           const useOverride = override && Number.isFinite(majorN) && majorN < 24;
-          langLabel = "elixir " + (useOverride ? override : sampleRow.elixir);
+          langTail = " · elixir " + (useOverride ? override : sampleRow.elixir);
+        } else {
+          langTail = " · elixir";
         }
       }
       datasets.push({
-        label: labelOtp + " · " + langLabel + suffix,
+        label: labelOtp + langTail + suffix,
         data,
         backgroundColor: fallback ? stripePatternFor(color) : color,
         borderColor: color,
