@@ -511,12 +511,29 @@ function buildSuiteGeomeanSeries() {
   // ratio. Without the fold, phash2's 13 cells would dominate the
   // geomean against any AWFY 1-cell benchmark; mirrors the Elixir
   // `Awfy.Compare.Data.geomean_ratio/2` policy.
-  const rows = foldMultiInputFamilies(
-    DATASET.rows.filter(r => r.emu_flavor === "jit")
-  );
-
   const runOtp = {};
   DATASET.runs.forEach(r => { runOtp[r.label] = r.otp; });
+
+  // BeamAsm JIT was added in OTP 24. Pre-24 has no JIT data
+  // anywhere, so per-platform lines and the all-platforms line
+  // fall back to emu rows for OTP < 24 and use jit rows from
+  // 24 onwards. Each per-platform line ends up anchored at that
+  // platform's own earliest OTP (typically 20.3 for linux/macos,
+  // 24.0 for windows which has no legacy bundle path).
+  function rowOtpMajor(r) {
+    const otp = runOtp[r.label];
+    if (!otp) return null;
+    if (otp === "master" || otp === "maint") return Infinity;
+    const m = parseInt(String(otp).split(".")[0], 10);
+    return Number.isFinite(m) ? m : null;
+  }
+  const rows = foldMultiInputFamilies(
+    DATASET.rows.filter(r => {
+      const major = rowOtpMajor(r);
+      if (major === null) return false;
+      return major >= 24 ? r.emu_flavor === "jit" : r.emu_flavor === "emu";
+    })
+  );
 
   // Per-platform-per-lang baselines: earliest OTP version per
   // (lang, machine_class, benchmark), tiebreak by timestamp.
@@ -576,42 +593,6 @@ function buildSuiteGeomeanSeries() {
   });
   const mcs = Object.keys(canonByMcBucket);
 
-  // Pin for the combined line: earliest function-release bucket
-  // present on every platform. With windows's "23.3"-style labels
-  // bucketed alongside macos/linux's "23.3.4.20" labels, this
-  // intersection picks up the OTP-21/22/23 range that the
-  // exact-OTP intersection used to skip entirely.
-  const bucketsByMc = {};
-  mcs.forEach(mc => {
-    bucketsByMc[mc] = new Set(Object.keys(canonByMcBucket[mc]));
-  });
-  let commonBuckets = mcs.length ? [...bucketsByMc[mcs[0]]] : [];
-  for (let i = 1; i < mcs.length; i++) {
-    commonBuckets = commonBuckets.filter(b => bucketsByMc[mcs[i]].has(b));
-  }
-  commonBuckets.sort(compareBuckets);
-  const pinnedBucket = commonBuckets[0] || null;
-
-  // Combined-line baseline: per (lang, machine_class, benchmark),
-  // the median at that platform's *canonical* OTP for the pinned
-  // bucket — windows uses its "23.3" row, linux/macos use their
-  // "23.3.4.20" row, all anchored to the same OTP-23.3
-  // function-release. Earliest timestamp on tiebreak (re-runs).
-  const pinnedBaseIdx = {};
-  if (pinnedBucket) {
-    rows.forEach(r => {
-      const otp = runOtp[r.label];
-      if (!otp) return;
-      const canon = canonByMcBucket[r.machine_class][pinnedBucket];
-      if (otp !== canon) return;
-      if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
-      const k = r.lang + "|" + r.machine_class + "|" + r.benchmark;
-      if (!pinnedBaseIdx[k] || r.timestamp < pinnedBaseIdx[k].ts) {
-        pinnedBaseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
-      }
-    });
-  }
-
   // Bucket ratios for the per-platform lines.
   const archByMcOtp = {};
   rows.forEach(r => {
@@ -636,104 +617,40 @@ function buildSuiteGeomeanSeries() {
   // windows is on the bare "23.3", so the all-platforms marker
   // visually coincides with linux/macos's per-platform markers.
   //
-  // Include any bucket where at least one platform contributed —
-  // earlier this required every platform, which silently dropped
-  // legacy refs where some platforms (windows pre-24) have no
-  // data. The line is labelled as a cross-platform aggregate,
-  // not "complete cross-platform", and the tooltip's n_benchmarks
-  // count makes the contribution depth visible.
+  // Include any bucket where at least one platform contributed.
+  // The line is labelled "all platforms" but is really "platforms
+  // we have data for at this bucket" — the tooltip's
+  // n_benchmarks and platforms list expose the depth.
   //
-  // Pre-24 fallback: BeamAsm JIT was added in OTP 24, so any
-  // bucket older than 24.0 has no JIT data anywhere. Use the
-  // emu rows for those buckets instead, anchored to the same
-  // emu baseline at the pinnedBucket. The line then extends back
-  // through the OTP-20/21/22/23 range showing emu speedups,
-  // joining the JIT line at the 24.0 pin.
-  const emuRows = foldMultiInputFamilies(
-    DATASET.rows.filter(r => r.emu_flavor === "emu")
-  );
-  const emuPinnedBaseIdx = {};
-  if (pinnedBucket) {
-    emuRows.forEach(r => {
-      const otp = runOtp[r.label];
-      if (!otp) return;
-      // Reuse the jit-chart's canonByMcBucket so the emu baseline
-      // is anchored to the same OTP-24.0 (or whichever pinned
-      // bucket the jit chart converged on). Match against the
-      // platform's canonical pinned-bucket OTP; emu rows at
-      // other OTPs feed the per-bucket ratios below, not the
-      // baseline.
-      const canon = canonByMcBucket[r.machine_class] &&
-                    canonByMcBucket[r.machine_class][pinnedBucket];
-      if (!canon || otp !== canon) return;
-      if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
-      const k = r.lang + "|" + r.machine_class + "|" + r.benchmark;
-      if (!emuPinnedBaseIdx[k] || r.timestamp < emuPinnedBaseIdx[k].ts) {
-        emuPinnedBaseIdx[k] = { ms: r.median_ms, ts: r.timestamp };
-      }
-    });
-  }
-
-  function bucketMajor(b) {
-    if (b === "master" || b === "maint") return Infinity;
-    const m = parseInt(String(b).split(".")[0], 10);
-    return Number.isFinite(m) ? m : 0;
-  }
-
-  const allByBucket = {};
+  // Equal per-platform weighting: collect each platform's ratios
+  // separately, geomean those per-platform, then geomean across
+  // platforms. Without this fold, macos's 108 OtpBenchmarks
+  // scenarios dominate the bucket against linux/windows's 28
+  // AWFY-only scenarios and the combined line just tracks macos.
+  //
+  // Pre-24 / post-24 flavor switch is already baked into `rows`
+  // and `baseIdx` above — emu pre-24, jit 24+. Per-platform
+  // baselines (baseIdx) anchor at each platform's own earliest
+  // OTP, so the combined-line ratios show cumulative speedup
+  // since each platform's first measured release.
+  const allByBucketByMc = {};
   const xLabelByBucket = {};
-  if (pinnedBucket) {
-    const pushBucket = (r, baseLookup) => {
-      const otp = runOtp[r.label];
-      if (!otp || !r.median_ms) return;
-      const b = bucketFor(otp);
-      const bk = r.lang + "|" + r.machine_class + "|" + r.benchmark;
-      const base = baseLookup[bk];
-      if (!base || !base.ms) return;
-      const ratio = base.ms / r.median_ms;
-      if (!allByBucket[b]) allByBucket[b] = [];
-      allByBucket[b].push(ratio);
-      if (!xLabelByBucket[b] || compareOtpVersions(otp, xLabelByBucket[b]) > 0) {
-        xLabelByBucket[b] = otp;
-      }
-    };
-
-    // 24+: jit rows with jit baseline.
-    rows.forEach(r => {
-      const otp = runOtp[r.label];
-      if (!otp || !r.median_ms) return;
-      const b = bucketFor(otp);
-      if (bucketMajor(b) < 24) return;
-      if (otp !== canonByMcBucket[r.machine_class][b]) return;
-      pushBucket(r, pinnedBaseIdx);
-    });
-
-    // <24: emu rows with emu baseline anchored at the pin. The
-    // canonByMcBucket index only covers jit, so pick the platform's
-    // most-specific emu OTP for each pre-24 bucket on the fly.
-    const emuCanonByMcBucket = {};
-    emuRows.forEach(r => {
-      const otp = runOtp[r.label];
-      if (!otp) return;
-      const b = bucketFor(otp);
-      if (bucketMajor(b) >= 24) return;
-      if (!emuCanonByMcBucket[r.machine_class]) emuCanonByMcBucket[r.machine_class] = {};
-      const cur = emuCanonByMcBucket[r.machine_class][b];
-      if (!cur || compareOtpVersions(otp, cur) > 0) {
-        emuCanonByMcBucket[r.machine_class][b] = otp;
-      }
-    });
-    emuRows.forEach(r => {
-      const otp = runOtp[r.label];
-      if (!otp || !r.median_ms) return;
-      const b = bucketFor(otp);
-      if (bucketMajor(b) >= 24) return;
-      const canon = emuCanonByMcBucket[r.machine_class] &&
-                    emuCanonByMcBucket[r.machine_class][b];
-      if (!canon || otp !== canon) return;
-      pushBucket(r, emuPinnedBaseIdx);
-    });
-  }
+  rows.forEach(r => {
+    const otp = runOtp[r.label];
+    if (!otp || !r.median_ms) return;
+    const b = bucketFor(otp);
+    if (otp !== canonByMcBucket[r.machine_class][b]) return;
+    const bk = r.lang + "|" + r.machine_class + "|" + r.benchmark;
+    const base = baseIdx[bk];
+    if (!base || !base.ms) return;
+    const ratio = base.ms / r.median_ms;
+    if (!allByBucketByMc[b]) allByBucketByMc[b] = {};
+    if (!allByBucketByMc[b][r.machine_class]) allByBucketByMc[b][r.machine_class] = [];
+    allByBucketByMc[b][r.machine_class].push(ratio);
+    if (!xLabelByBucket[b] || compareOtpVersions(otp, xLabelByBucket[b]) > 0) {
+      xLabelByBucket[b] = otp;
+    }
+  });
 
   const geomean = (ratios) => {
     if (!ratios || ratios.length === 0) return null;
@@ -750,24 +667,35 @@ function buildSuiteGeomeanSeries() {
         .sort((a, b) => compareOtpVersions(a.x, b.x))
     }));
 
-  const allSeries = pinnedBucket ? {
+  const allSeries = {
     label: "all platforms",
-    data: Object.entries(allByBucket)
-      .map(([b, ratios]) => ({
-        x: xLabelByBucket[b],
-        y: geomean(ratios),
-        n_benchmarks: ratios.length,
-        pinnedOtp: xLabelByBucket[pinnedBucket]
-      }))
+    data: Object.entries(allByBucketByMc)
+      .map(([b, byMc]) => {
+        const mcGeomeans = Object.entries(byMc).map(([mc, ratios]) => ({
+          mc,
+          y: geomean(ratios),
+          n: ratios.length
+        })).filter(e => e.y !== null);
+        if (mcGeomeans.length === 0) return null;
+        return {
+          x: xLabelByBucket[b],
+          y: geomean(mcGeomeans.map(e => e.y)),
+          n_benchmarks: mcGeomeans.reduce((a, e) => a + e.n, 0),
+          n_platforms: mcGeomeans.length,
+          platforms: mcGeomeans.map(e => e.mc).sort()
+        };
+      })
+      .filter(d => d !== null)
       .sort((a, b) => compareOtpVersions(a.x, b.x)),
     // Visually distinct: bold black line so the combined trend
     // doesn't blend with the per-platform palette.
     borderColor: "#111",
     backgroundColor: "#111",
     borderWidth: 3
-  } : null;
+  };
+  const hasAllSeries = allSeries.data && allSeries.data.length > 0;
 
-  return allSeries ? [allSeries, ...archSeries] : archSeries;
+  return hasAllSeries ? [allSeries, ...archSeries] : archSeries;
 }
 
 let chart = null;
@@ -990,7 +918,13 @@ function renderChart() {
               let line = ctx.dataset.label + ": " + v + "×";
               if (typeof r.median_ms === "number") line += "  (" + r.median_ms.toFixed(2) + " ms)";
               if (r.stddev !== undefined && r.stddev !== null) line += "  σ=" + r.stddev.toFixed(2) + " ms";
-              if (r.n_benchmarks) line += "  (" + r.n_benchmarks + " ratios)";
+              if (r.n_platforms) {
+                line += "  (" + r.n_benchmarks + " ratios over " +
+                  r.n_platforms + " platform" +
+                  (r.n_platforms === 1 ? "" : "s") + ")";
+              } else if (r.n_benchmarks) {
+                line += "  (" + r.n_benchmarks + " ratios)";
+              }
               return line;
             },
             afterBody: (items) => {
