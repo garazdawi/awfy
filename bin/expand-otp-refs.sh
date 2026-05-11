@@ -90,9 +90,17 @@ expand_ref() {
 }
 
 if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
+  # One tip per major: the latest patch on the active (newest)
+  # function-release line. Older function-release lines (e.g.
+  # OTP-21.0/21.1/21.2) stop getting backports once OTP-21.3 ships,
+  # so plotting them next to OTP-21.3.8.24 reflects backport
+  # bookkeeping (some fixes landed in 21.3 only) rather than the
+  # runtime trend. Collapsing to one tip per major (e.g.
+  # OTP-21.3.8.24, OTP-22.3.4.27, OTP-26.2.5.20) gives an apples-to-
+  # apples timeline across majors.
   CANDIDATES="$(awk '
-    # Stage 1 (first pass): collect 2-component OTP-X.Y
-    # function-release entries with X >= 20.
+    # Pass 1: collect 2-component OTP-X.Y function-release prefixes
+    # for majors X >= 20.
     FNR == NR {
       if ($1 ~ /^OTP-[0-9]+\.[0-9]+$/) {
         rest = $1; sub(/^OTP-/, "", rest)
@@ -101,15 +109,14 @@ if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
       }
       next
     }
-    # Stage 2 (second pass, also newest-first): for each tag find its
-    # X.Y prefix; track per-major active prefix (first one seen);
-    # accept the first match per prefix, with the
-    # 4-component-only-on-active rule.
+    # Pass 2 (newest-first): for each tag, locate its X.Y prefix.
+    # The first prefix seen per major is the active maintenance
+    # line; keep only the first matching tag for that active line.
     {
       tag = $1
       if (tag ~ /-rc[0-9]/) next
       rest = tag; sub(/^OTP-/, "", rest)
-      n = split(rest, parts, ".")
+      split(rest, parts, ".")
       if (parts[1] < 20) next
       major = parts[1]
       tag_prefix = ""
@@ -121,22 +128,16 @@ if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
       }
       if (tag_prefix == "") next
       if (!(major in active_for)) active_for[major] = tag_prefix
-      if (tag_prefix in done) next
-      # Grey lines: skip 4-component sub-branch tips.
-      if (tag_prefix != active_for[major] && n >= 4) next
-      done[tag_prefix] = tag
+      if (tag_prefix != active_for[major]) next
+      if (major in tip_for) next
+      tip_for[major] = tag
     }
     END {
       # OTP-20 override: source-dist tarballs only exist for OTP-20.3
-      # itself; the .0/.1/.2 release tarballs have broken config.guess
-      # and the .X.Y security backports were never published as src
-      # dists. Drop the unbuildable OTP-20.x entries and pin OTP-20.3
-      # to its bare function-release tag.
-      delete done["OTP-20.0"]
-      delete done["OTP-20.1"]
-      delete done["OTP-20.2"]
-      done["OTP-20.3"] = "OTP-20.3"
-      for (p in done) print done[p]
+      # itself; the .X.Y security backports were never published as
+      # src dists. Pin OTP-20 to its bare function-release tag.
+      tip_for[20] = "OTP-20.3"
+      for (m in tip_for) print tip_for[m]
     }
   ' "$TABLE" "$TABLE" | sort -V | tr "\n" "," )"
   # `maint` is upstream's pre-release branch for the next function
