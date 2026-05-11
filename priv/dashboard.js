@@ -701,6 +701,38 @@ function buildSuiteGeomeanSeries() {
 let chart = null;
 let snapshotChart = null;
 
+/* Chart.js plugin: vertical dashed line + "BeamAsm JIT" label at the
+   OTP-24 x position. The trend chart uses emu rows for OTP < 24 and
+   jit rows from 24 onwards, so this marker is where the line data
+   itself flips emulator → JIT. Only meaningful on the suite chart's
+   linear-OTP axis; skipped on per-bench / timestamp axes. */
+const jitMarkerPlugin = {
+  id: "jitMarker",
+  afterDatasetsDraw(chart) {
+    const xScale = chart.scales.x;
+    const yScale = chart.scales.y;
+    if (!xScale || !yScale || xScale.type !== "linear") return;
+    const xPx = xScale.getPixelForValue(24);
+    if (xPx < xScale.left || xPx > xScale.right) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = "#888";
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(xPx, yScale.top);
+    ctx.lineTo(xPx, yScale.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#555";
+    ctx.font = "12px Montserrat, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(" BeamAsm JIT", xPx, yScale.top + 4);
+    ctx.restore();
+  }
+};
+
 /* erlang.org-friendly palette: brand red on top, then the standard
    categorical wheel. Order matters — the first dataset (almost
    always erlang) gets the red. */
@@ -834,6 +866,7 @@ function renderChart() {
   chart = new Chart(document.getElementById("chart"), {
     type: chartType,
     data: { datasets },
+    plugins: PAGE_KIND === "suite" ? [jitMarkerPlugin] : [],
     options: {
       responsive: true,
       maintainAspectRatio: false,
