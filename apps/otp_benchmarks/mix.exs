@@ -40,6 +40,20 @@ defmodule OtpBenchmarks.MixProject do
       version: "0.1.0",
       elixir: "~> 1.9",
       elixirc_paths: ["lib"],
+      # vendor/ holds the upstream estone_SUITE.erl (verbatim copy
+      # from erlang/otp's erts/emulator/test/) — see vendor/README.md.
+      # -DPGO makes the suite self-contained (drops common_test);
+      # +nowarn_deprecated_function silences erlang:now/0 (estone
+      # still uses it for timing on get_cpu_speed). The .erl is
+      # under vendor/ not src/ so it stays visually separate from
+      # AWFY-authored code.
+      erlc_paths: ["vendor"],
+      erlc_options: [
+        {:d, :PGO},
+        :nowarn_deprecated_function,
+        :nowarn_unused_function,
+        :nowarn_unused_vars
+      ],
       start_permanent: false,
       deps: []
     ]
