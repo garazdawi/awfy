@@ -135,7 +135,7 @@ defmodule Awfy.Compare.Data do
           suite.scenarios
           |> Enum.reject(fn s -> sub_clock_floor?(s.run_time_data.statistics) end)
           |> Enum.map(fn scenario ->
-            {bname, lang} = parse_name(scenario.name)
+            {bname, lang} = identify_scenario(scenario.name, bench_name, languages)
             # Benchee sets `input_name` only when the suite was run
             # with `inputs: %{...}` — that's the OtpBenchmarks shape.
             # For AWFY suites it's the sentinel `Benchee.Benchmark.no_input/0`,
@@ -224,6 +224,38 @@ defmodule Awfy.Compare.Data do
     case String.split(base, "/", parts: 2) do
       [bench, lang] -> {bench, lang}
       _ -> {nil, nil}
+    end
+  end
+
+  # Identify a scenario's {benchmark, lang}. The modern path emits
+  # names like `"Bounce/erlang"` — parse_name/1 handles those. The
+  # legacy bundle path (OTP < 24, target-Elixir bundle compiled via
+  # mix) emits bare module names — `"awfy_bounce"` for Erlang and
+  # `"Awfy.Benchmarks.Bounce"` for Elixir (Benchee strips the
+  # internal `Elixir.` prefix when rendering). For those, look up
+  # which language's `module` in the per-bench meta matches the
+  # scenario name and pair it with the .benchee filename's base
+  # (bench_name) so legacy runs slot into the same per-lang series
+  # as modern runs.
+  defp identify_scenario(scenario_name, bench_name, languages) do
+    case parse_name(scenario_name) do
+      {bench, lang} when not is_nil(bench) and not is_nil(lang) ->
+        {bench, lang}
+
+      _ ->
+        lang =
+          Enum.find_value(languages, fn {lang, lang_meta} ->
+            module = get(lang_meta, "module") || ""
+            stripped = String.replace_prefix(module, "Elixir.", "")
+            if scenario_name == module or scenario_name == stripped do
+              lang
+            end
+          end)
+
+        case lang do
+          nil -> {nil, nil}
+          _ -> {bench_name, lang}
+        end
     end
   end
 
