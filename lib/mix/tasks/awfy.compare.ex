@@ -208,7 +208,11 @@ defmodule Mix.Tasks.Awfy.Compare do
       """,
       trend_heading_html: """
       <h3>Geomean speedup over versions</h3>
-      <p class="sub">Geometric mean of <code>baseline_median / median</code>, higher = faster. Per-platform lines use emu data pre-OTP-24 (BeamAsm JIT was added in 24) and JIT from 24 onwards, anchored at each platform's own earliest recorded run for every (lang × benchmark). The thicker <strong>all platforms</strong> line groups by OTP function-release (e.g. <code>23.3</code>) so a coarser-grained Windows build (<code>OTP-23.3</code> installer) merges with a finer-grained linux/macos build (<code>OTP-23.3.4.20</code> patch tip), and includes any bucket where at least one platform contributed. Each platform contributes one geomean to the cross-platform aggregate — so a platform with more benchmarks (e.g. macos with OtpBenchmarks scenarios) doesn't dominate over one with fewer. Chart is intentionally not configurable; toggle individual platforms via the legend.</p>
+      <p class="sub">Geometric mean of <code>baseline_median / median</code>, higher = faster.</p>
+      <details class="explain">
+        <summary>Explain this graph</summary>
+        <p class="sub">Per-platform lines use emu data pre-OTP-24 (BeamAsm JIT was added in 24) and JIT from 24 onwards, anchored at each platform's own earliest recorded run for every benchmark. The thicker <strong>all platforms</strong> line groups by OTP function-release (e.g. <code>23.3</code>) so a coarser-grained Windows build (<code>OTP-23.3</code> installer) merges with a finer-grained linux/macos build (<code>OTP-23.3.4.20</code> patch tip), and includes any bucket where at least one platform contributed.</p>
+      </details>
       """,
       benchmarks_list_html: """
       <h3>Benchmarks</h3>
@@ -395,6 +399,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       <h1>#{ctx.heading}</h1>
       <p class="sub">#{ctx.subhead}</p>
 
+      <div id="headline" class="headline headline-card"></div>
+
       #{ctx.warnings_html}
 
       #{if ctx.page_kind == "suite", do: Map.get(ctx, :trend_heading_html, "") <> ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
@@ -414,8 +420,6 @@ defmodule Mix.Tasks.Awfy.Compare do
         </div>
         <button id="reset-filters" type="button" class="reset-btn" title="Restore default tabs, language, and snapshot-major selections">Reset to defaults</button>
       </div>
-
-      <div id="headline" class="headline"></div>
 
       #{Map.get(ctx, :snapshot_html, "")}
 

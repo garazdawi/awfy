@@ -53,6 +53,7 @@ h3 + .sub { color: var(--er-muted); margin-top: 0.4rem; font-size: 0.9rem; }
   border-left: 4px solid var(--er-red);
   border-radius: 4px;
 }
+.headline-card { font-size: 1.05rem; padding: 1rem 1.25rem; margin-top: 0.5rem; }
 .headline .num { font-weight: 700; font-variant-numeric: tabular-nums; }
 .headline .speedup { color: var(--er-good); }
 .headline .slowdown { color: var(--er-bad); }
@@ -98,6 +99,8 @@ h3.snapshot-heading { margin-top: 1rem; }
 .bench-links { columns: 3; padding-left: 1.25rem; }
 .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
 details { margin-top: 1.5rem; }
+details.explain { margin-top: 0.4rem; }
+details.explain > .sub { margin-top: 0.4rem; }
 summary { cursor: pointer; color: var(--er-muted); font-size: 0.9rem; }
 summary:hover { color: var(--er-text); }
 pre { background: var(--er-tint); padding: 0.6rem 0.8rem; overflow-x: auto; font-size: 0.82rem; font-family: var(--mono); border: 1px solid var(--er-border); border-radius: 4px; }

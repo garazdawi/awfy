@@ -940,82 +940,62 @@ function renderChart() {
 }
 
 /* ---- Headline metric ----------------------------------------------
-   "OTP X is N× faster than OTP Y on geomean of M benchmarks."
-   Computed against the active machine_class + flavor. We pick the
-   chronologically newest OTP version vs the chronologically oldest
-   so it always reflects the most recent direction of travel.
+   "OTP X is N× faster than OTP Y and M× faster than OTP Z."
+   Uses the same data as the trend chart's "all platforms" line —
+   geomean-of-per-platform-geomeans, pre-24 emu / post-24 jit, all
+   benchmarks across all platforms. Independent of UI filters so the
+   long-term anchor (typically OTP-20.3) is always visible.
 */
 function renderHeadline() {
   const el = document.getElementById("headline");
   if (!el) return;
-  const state = readUIState();
-  // The headline reads as a delta against the *earliest version
-  // currently shown in the snapshot* — so toggling a major's
-  // checkbox changes both panels in lockstep. On per-bench pages
-  // the snapshot doesn't exist; fall through to "all available"
-  // by treating every major as enabled.
-  const enabledMajors = PAGE_KIND === "suite"
-    ? enabledSnapshotMajorsSet()
-    : new Set(allMajorsInData());
-  const filtered = applyFilters(DATASET.rows, state)
-    .filter(r => enabledMajors.has(majorOf(r.otp)));
-  if (filtered.length === 0) {
-    el.innerHTML = '<span class="empty">No data for this combination yet.</span>';
-    return;
-  }
-
-  const otps = [...new Set(filtered.map(r => r.otp).filter(Boolean))]
-    .sort(compareOtpVersions);
-  if (otps.length < 2) {
+  const series = buildSuiteGeomeanSeries();
+  const allSeries = series.find(s => s.label === "all platforms");
+  if (!allSeries || allSeries.data.length < 2) {
     el.innerHTML = '<span class="empty">Need at least two OTP versions for a comparison.</span>';
     return;
   }
-  const oldest = otps[0], newest = otps[otps.length - 1];
 
-  // One headline line per series-axis value. AWFY pages: one per
-  // language ("erlang", "elixir"). Multi-input pages: one per
-  // checked input ("atom", "binary_4k", …) — `seriesAxis` collapses
-  // to whichever of lang/input is populated.
-  const labels = [...new Set(filtered.map(seriesAxis))].sort();
-  const lines = labels.map(label => {
-    // For each (series-axis-value, benchmark) pick the latest run on each end.
-    const pickLatest = (otp) => {
-      const m = {};
-      filtered.filter(r => seriesAxis(r) === label && r.otp === otp).forEach(r => {
-        if (!m[r.benchmark] || r.timestamp > m[r.benchmark].timestamp) m[r.benchmark] = r;
-      });
-      return m;
-    };
-    const oldRuns = pickLatest(oldest);
-    const newRuns = pickLatest(newest);
-    const benches = Object.keys(oldRuns).filter(b => newRuns[b] && oldRuns[b].median_ms && newRuns[b].median_ms);
-    if (benches.length === 0) return null;
-    const sumLog = benches.reduce((s, b) => s + Math.log(oldRuns[b].median_ms / newRuns[b].median_ms), 0);
-    const speedup = Math.exp(sumLog / benches.length);
-    return { lang: label, speedup, benches };
-  }).filter(Boolean);
+  // Released-only anchors (drop master/maint — they're rolling refs).
+  const points = allSeries.data.filter(p => /^[0-9]/.test(p.x));
+  if (points.length < 2) {
+    el.innerHTML = '<span class="empty">Need at least two OTP versions for a comparison.</span>';
+    return;
+  }
+  const newest = points[points.length - 1];
+  const newestMajor = parseInt(newest.x, 10);
+  const oldest = points[0];
+  // Mid-anchor: newest_major - 2 (oldest supported release). Pick the
+  // newest point inside that major so we land on the patch tip the
+  // trend chart actually plotted.
+  const midMajor = newestMajor - 2;
+  const midCandidates = points.filter(p => parseInt(p.x, 10) === midMajor);
+  const mid = midCandidates.length > 0 ? midCandidates[midCandidates.length - 1] : null;
 
-  if (lines.length === 0) {
-    el.innerHTML = '<span class="empty">No matching benchmarks across the two OTP endpoints.</span>';
+  const anchorList = [];
+  if (mid && mid.x !== newest.x) anchorList.push(mid);
+  if (oldest.x !== newest.x && (!mid || oldest.x !== mid.x)) anchorList.push(oldest);
+  if (anchorList.length === 0) {
+    el.innerHTML = '<span class="empty">Need at least two OTP versions for a comparison.</span>';
     return;
   }
 
-  // Per-bench pages roll up exactly one benchmark, so name it
-  // directly ("geomean of Bounce") — "1 benchmarks" is awkward.
-  // Suite pages stay as a count.
-  el.innerHTML = lines.map(({ lang, speedup, benches }) => {
+  // Speedup of newest vs anchor = newest.y / anchor.y. Both y-values
+  // are speedup over the per-platform earliest baseline; the baseline
+  // cancels in the ratio so we get the true newest:anchor multiplier.
+  const fmtAnchor = (anchor) => {
+    const speedup = newest.y / anchor.y;
     const pct = (speedup - 1) * 100;
     const word = pct >= 0 ? "faster" : "slower";
     const cls = pct >= 0 ? "speedup" : "slowdown";
-    const scope = PAGE_KIND === "bench"
-      ? "all platforms for " + BENCH_NAME
-      : (benches.length === 1 ? benches[0] : benches.length + " benchmarks");
-    return '<div><strong>' + lang + '</strong>: OTP ' + newest +
-           ' is <span class="num ' + cls + '">' + speedup.toFixed(2) + '×</span> ' +
-           '<span class="' + cls + '">' + word + '</span> than OTP ' + oldest +
-           ' <span class="num">(' + (pct >= 0 ? "+" : "") + pct.toFixed(1) + '%)</span>' +
-           ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean of ' + scope + '</span></div>';
-  }).join("");
+    return '<span class="num ' + cls + '">' + speedup.toFixed(2) + '×</span> ' +
+           '<span class="' + cls + '">' + word + '</span> than OTP ' + anchor.x;
+  };
+
+  const parts = anchorList.map(fmtAnchor);
+  const joined = parts.length === 1 ? parts[0] : parts.join(' and ');
+  el.innerHTML = '<div>OTP ' + newest.x + ' is ' + joined +
+                 ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean across all platforms</span></div>';
 }
 
 /* ---- Per-benchmark snapshot bar chart -----------------------------
