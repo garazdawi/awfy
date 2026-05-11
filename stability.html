@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AWFY — Benchmark stability on master</title>
+<style>
+/* SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+   SPDX-License-Identifier: Apache-2.0
+
+   Palette pulled from erlang.org: brand red #a2003e, body #202020,
+   border #dee2e6, link blue #0d6efd, Montserrat as the headline
+   sans. Layout stays content-first — generous whitespace, no
+   heavy chrome. */
+:root {
+  --er-red: #a2003e;
+  --er-red-soft: #fbeef2;
+  --er-text: #202020;
+  --er-muted: #6c757d;
+  --er-border: #dee2e6;
+  --er-bg: #ffffff;
+  --er-tint: #f8f9fa;
+  --er-link: #0d6efd;
+  --er-good: #1f6f33;
+  --er-bad: #b03030;
+  --sans: "Montserrat", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+  color: var(--er-text);
+  background: var(--er-bg);
+  line-height: 1.55;
+}
+a { color: var(--er-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.site-header {
+  display: flex; align-items: baseline; gap: 0.75rem;
+  padding-bottom: 1rem; margin-bottom: 1.5rem;
+  border-bottom: 4px solid var(--er-red);
+}
+.site-header .brand { font-weight: 700; font-size: 1.05rem; color: var(--er-red); letter-spacing: 0.02em; text-transform: uppercase; }
+.site-header .brand a { color: inherit; }
+.site-header .breadcrumb { color: var(--er-muted); font-size: 0.9rem; }
+.site-header .breadcrumb a { color: var(--er-muted); }
+h1 { font-weight: 700; font-size: 1.75rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+h1 + .sub { color: var(--er-muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+h3 { font-weight: 600; font-size: 1.15rem; margin-top: 2.5rem; margin-bottom: 0.25rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--er-border); }
+h3 + .sub { color: var(--er-muted); margin-top: 0.4rem; font-size: 0.9rem; }
+.warnings { background: #fff8e1; border-left: 4px solid #f6b73c; padding: 0.6rem 1rem; margin: 1rem 0; border-radius: 4px; }
+.warnings ul { margin: 0.25rem 0 0 1.25rem; padding: 0; }
+.headline {
+  font-size: 1rem; line-height: 1.55;
+  padding: 0.85rem 1.1rem; margin: 0 0 1.5rem;
+  background: var(--er-red-soft);
+  border-left: 4px solid var(--er-red);
+  border-radius: 4px;
+}
+.headline-card { font-size: 1.05rem; padding: 1rem 1.25rem; margin-top: 0.5rem; }
+.machine-specs { margin: 0 0 1rem; }
+.machine-specs:empty { display: none; }
+.machine-specs details { margin: 0; }
+.machine-specs summary { font-size: 0.9rem; }
+.machine-specs dl {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.85rem;
+  background: var(--er-tint);
+  border: 1px solid var(--er-border);
+  border-radius: 4px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.85rem;
+}
+.machine-specs dt { color: var(--er-muted); font-weight: 500; }
+.machine-specs dd { margin: 0; font-family: var(--mono); font-size: 0.85rem; word-break: break-word; }
+.machine-specs .build-flags { white-space: pre-wrap; }
+.headline .num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.headline .speedup { color: var(--er-good); }
+.headline .slowdown { color: var(--er-bad); }
+.headline .empty { color: var(--er-muted); font-style: italic; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 2px solid var(--er-border); margin-bottom: 1rem; }
+.tab { background: none; border: none; padding: 0.55rem 1.1rem; cursor: pointer; font: inherit; font-size: 0.95rem; color: var(--er-muted); border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color 0.1s, border-color 0.1s; }
+.tab:hover { color: var(--er-red); }
+.tab.active { color: var(--er-red); border-bottom-color: var(--er-red); font-weight: 600; }
+.controls {
+  display: flex; flex-wrap: wrap; gap: 1.25rem;
+  align-items: center; margin-bottom: 1rem; font-size: 0.9rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--er-tint);
+  border: 1px solid var(--er-border);
+  border-radius: 4px;
+}
+.controls .group { display: flex; gap: 0.55rem; align-items: center; flex-wrap: wrap; }
+.controls .group b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.controls label { cursor: pointer; user-select: none; }
+.controls select { font: inherit; padding: 0.15rem 0.35rem; border: 1px solid var(--er-border); border-radius: 3px; background: white; }
+.reset-btn {
+  margin-left: auto; font: inherit; font-size: 0.85rem;
+  padding: 0.3rem 0.7rem; cursor: pointer;
+  background: white; color: var(--er-muted);
+  border: 1px solid var(--er-border); border-radius: 3px;
+}
+.reset-btn:hover { color: var(--er-red); border-color: var(--er-red); }
+/* Chart.js responsive sizing (with maintainAspectRatio:false)
+   reads the canvas's parent for dimensions and writes inline
+   width/height back onto the canvas. Wrap each canvas in a
+   .chart-wrap that owns the size, and *don't* style the
+   canvas itself — Chart.js needs the freedom to set its CSS
+   and bitmap dimensions in lock-step. */
+.chart-wrap { position: relative; width: 100%; height: 360px; margin: 1rem 0; }
+.chart-wrap.snapshot { height: 600px; }
+h3.snapshot-heading { margin-top: 1rem; }
+.snapshot-majors {
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 0.85rem; font-size: 0.9rem; margin: 0.6rem 0;
+}
+.snapshot-majors b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.snapshot-majors label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
+.bench-links { columns: 3; padding-left: 1.25rem; }
+.bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
+details { margin-top: 1.5rem; }
+details.explain { margin-top: 0.4rem; }
+details.explain > .sub { margin-top: 0.4rem; }
+summary { cursor: pointer; color: var(--er-muted); font-size: 0.9rem; }
+summary:hover { color: var(--er-text); }
+pre { background: var(--er-tint); padding: 0.6rem 0.8rem; overflow-x: auto; font-size: 0.82rem; font-family: var(--mono); border: 1px solid var(--er-border); border-radius: 4px; }
+code { font-family: var(--mono); background: var(--er-tint); padding: 0.05em 0.3em; border-radius: 3px; font-size: 0.9em; }
+@media (max-width: 600px) {
+  body { padding: 1rem 0.75rem 2rem; }
+  h1 { font-size: 1.4rem; }
+  .chart-wrap { height: 300px; }
+  .chart-wrap.snapshot { height: 520px; }
+  .bench-links { columns: 2; }
+  .tab { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
+}
+
+table.stability {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+table.stability th, table.stability td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--er-border);
+  text-align: left;
+}
+table.stability th { background: var(--er-tint); font-weight: 600; }
+table.stability th[title] { text-decoration: underline dotted var(--er-muted); text-underline-offset: 3px; cursor: help; }
+table.stability td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+table.stability td.rank { color: var(--er-muted); width: 3em; text-align: right; }
+.stability-good { color: var(--er-good); }
+.stability-warn { color: #b58900; }
+.stability-bad { color: var(--er-bad); font-weight: 600; }
+.stability-unknown { color: var(--er-muted); }
+.stability-filters { display: flex; flex-wrap: wrap; gap: 1.25rem; padding: 0.6rem 0.85rem; background: var(--er-tint); border: 1px solid var(--er-border); border-radius: 4px; font-size: 0.9rem; align-items: flex-start; margin-bottom: 1rem; }
+.stability-filters .group { display: flex; flex-direction: column; gap: 0.2rem; }
+.stability-filters b { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--er-muted); }
+.stability-filters .opts { display: flex; flex-wrap: wrap; column-gap: 0.85rem; row-gap: 0.2rem; }
+.stability-filters label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
+.stability-row-count { color: var(--er-muted); font-size: 0.85rem; margin-bottom: 0.4rem; }
+table.stability tr.stability-row { cursor: pointer; }
+table.stability tr.stability-row:hover { background: var(--er-tint); }
+table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.7rem 1rem; border-bottom: 1px solid var(--er-border); }
+.boxplot-wrap { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
+.boxplot-wrap dl { margin: 0; display: grid; grid-template-columns: max-content max-content; gap: 0.1rem 0.85rem; font-size: 0.8rem; }
+.boxplot-wrap dt { color: var(--er-muted); }
+.boxplot-wrap dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <span class="brand"><a href="../">AWFY · Erlang/OTP</a></span>
+  <span class="breadcrumb"><a href="index.html">&larr; Suite</a> · Stability</span>
+</header>
+<h1>Benchmark stability on master</h1>
+<p class="sub">Primary sort: <strong>IQR / median %</strong> — (p75 − p25) / median, the spread of the middle half of samples. Robust to tail outliers, so a single GC-pause or scheduler-preemption hit doesn't dominate. CV% (σ / median) is shown as a secondary column for tail-spike visibility — those two metrics can disagree, e.g. a scenario with 1M samples and one bad sample reads as 8000 % CV but &lt; 100 % IQR/median because 99 % of samples cluster tightly.</p>
+<p class="sub">IQR / median thresholds: <span class="stability-good">&lt; 5 %</span> calm, <span class="stability-warn">5 – 20 %</span> watch, <span class="stability-bad">&gt; 20 %</span> noisy. Click any row for a box-plot breakdown.</p>
+
+<div class="stability-filters">
+<div class="group">
+  <b>Platform</b>
+  <div class="opts">
+
+  </div>
+</div>
+
+<div class="group">
+  <b>Flavor</b>
+  <div class="opts">
+
+  </div>
+</div>
+
+<div class="group">
+  <b>Scenario group</b>
+  <div class="opts">
+
+  </div>
+</div>
+
+</div>
+
+<div class="stability-row-count" id="stability-row-count"></div>
+
+<table class="stability">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>scenario</th>
+      <th>lang</th>
+      <th>platform</th>
+      <th>flavor</th>
+      <th title="Median sample run time. Benchee reports times in nanoseconds; the dashboard renders milliseconds throughout.">median (ms)</th>
+      <th title="(p75 − p25) ÷ median × 100 %. The spread of the middle half of samples relative to the median. Robust to tail outliers — one bad scheduling spike won't dominate this number — so it reflects the typical sample-to-sample variance.">IQR / median</th>
+      <th title="Coefficient of variation: σ ÷ median × 100 %. Tail-aware: a single 2 ms outlier on a 42 ns median pushes this to 1000s of percent, even when 99 % of samples are tightly clustered. Useful for spotting tail-latency issues but a poor primary stability metric for million-sample rows.">CV (σ / median)</th>
+      <th title="Number of times Benchee invoked the function during the timing window. Driven by the workload's per-call duration (faster benchmark → more samples in the same time budget).">samples</th>
+    </tr>
+  </thead>
+  <tbody>
+
+  </tbody>
+</table>
+
+<script>
+(function () {
+  const KEY = "awfy.stability.filters";
+  const root = document.querySelector(".stability-filters");
+  const tbody = document.querySelector("table.stability tbody");
+  const counter = document.getElementById("stability-row-count");
+  if (!root || !tbody) return;
+
+  const load = () => {
+    try { return JSON.parse(localStorage.getItem(KEY)) || {}; }
+    catch (_) { return {}; }
+  };
+  const save = (s) => {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (_) {}
+  };
+
+  const persisted = load();
+  // First visit: every checkbox starts checked (show all rows).
+  // Persisted state, when present, controls visibility per axis.
+  root.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    const axis = cb.dataset.axis;
+    const val = cb.value;
+    if (persisted[axis] && Array.isArray(persisted[axis])) {
+      cb.checked = persisted[axis].includes(val);
+    }
+  });
+
+  const apply = () => {
+    const sel = { platform: new Set(), flavor: new Set(), group: new Set() };
+    root.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+      sel[cb.dataset.axis].add(cb.value);
+    });
+    let visible = 0;
+    const rows = tbody.querySelectorAll("tr");
+    rows.forEach(tr => {
+      const show =
+        sel.platform.has(tr.dataset.platform) &&
+        sel.flavor.has(tr.dataset.flavor) &&
+        sel.group.has(tr.dataset.group);
+      tr.style.display = show ? "" : "none";
+      if (show) visible++;
+    });
+    counter.textContent = visible + " of " + rows.length + " scenarios shown";
+  };
+
+  root.addEventListener("change", () => {
+    const out = { platform: [], flavor: [], group: [] };
+    root.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+      out[cb.dataset.axis].push(cb.value);
+    });
+    save(out);
+    apply();
+  });
+
+  apply();
+
+  // -- Click-to-expand box plot ---------------------------------
+  // Per-row drill-down: clicking a stability-row toggles a detail
+  // row immediately below with min / p25 / median / p75 / p99 /
+  // max as a horizontal box plot, plus the numeric values.
+  // Distribution data comes from data-* attributes baked into
+  // each row server-side; older runs that lack percentiles render
+  // a "no distribution data" line.
+  const fmtMs = (n) => {
+    if (n === null || isNaN(n)) return "—";
+    if (n >= 1) return n.toFixed(3) + " ms";
+    if (n >= 0.001) return (n * 1000).toFixed(2) + " µs";
+    return (n * 1_000_000).toFixed(2) + " ns";
+  };
+  const readNum = (el, key) => {
+    const v = el.dataset[key];
+    if (v === undefined || v === "") return null;
+    const n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  };
+  const boxplotSVG = (min, p25, med, p75, p99, max) => {
+    // Layout in a 480 × 60 viewbox. Use min/max as the scale so
+    // the whole spread is visible; pin at the lower bound 0 if
+    // min is non-negative (avoids the box drifting away from the
+    // axis on very-small-variance runs).
+    const lo = (min !== null && min > 0) ? min * 0.95 : 0;
+    const hi = (max !== null) ? max * 1.02 : (p99 || med || 1);
+    const range = Math.max(hi - lo, 1e-12);
+    const x = (v) => 30 + ((v - lo) / range) * 420;
+    const yMid = 28, boxTop = 14, boxBot = 42;
+    const parts = [];
+    // axis
+    parts.push('<line x1="30" y1="55" x2="450" y2="55" stroke="#bbb" stroke-width="1"/>');
+    // ticks: min / median / max
+    const tick = (v, label) => {
+      if (v === null) return "";
+      const tx = x(v);
+      return '<line x1="' + tx + '" y1="55" x2="' + tx + '" y2="58" stroke="#888"/>' +
+             '<text x="' + tx + '" y="58" font-size="9" fill="#666" text-anchor="middle" dy="0.9em">' + label + '</text>';
+    };
+    parts.push(tick(min, fmtMs(min)));
+    parts.push(tick(med, fmtMs(med)));
+    parts.push(tick(max, fmtMs(max)));
+    // whiskers: min — p25, p75 — max
+    if (min !== null && p25 !== null) {
+      parts.push('<line x1="' + x(min) + '" y1="' + yMid + '" x2="' + x(p25) + '" y2="' + yMid + '" stroke="#888" stroke-width="1"/>');
+      parts.push('<line x1="' + x(min) + '" y1="' + (yMid - 6) + '" x2="' + x(min) + '" y2="' + (yMid + 6) + '" stroke="#888"/>');
+    }
+    if (max !== null && p75 !== null) {
+      parts.push('<line x1="' + x(p75) + '" y1="' + yMid + '" x2="' + x(max) + '" y2="' + yMid + '" stroke="#888" stroke-width="1"/>');
+      parts.push('<line x1="' + x(max) + '" y1="' + (yMid - 6) + '" x2="' + x(max) + '" y2="' + (yMid + 6) + '" stroke="#888"/>');
+    }
+    // box: p25 — p75
+    if (p25 !== null && p75 !== null) {
+      parts.push('<rect x="' + x(p25) + '" y="' + boxTop + '" width="' + (x(p75) - x(p25)) + '" height="' + (boxBot - boxTop) + '" fill="#a2003e22" stroke="#a2003e" stroke-width="1.5"/>');
+    }
+    // median line
+    if (med !== null) {
+      parts.push('<line x1="' + x(med) + '" y1="' + boxTop + '" x2="' + x(med) + '" y2="' + boxBot + '" stroke="#a2003e" stroke-width="2"/>');
+    }
+    // p99 dot
+    if (p99 !== null) {
+      parts.push('<circle cx="' + x(p99) + '" cy="' + yMid + '" r="3" fill="#a2003e"/>');
+    }
+    return '<svg width="480" height="70" viewBox="0 0 480 70" role="img" aria-label="distribution">' + parts.join("") + '</svg>';
+  };
+
+  const buildDetail = (row) => {
+    const min = readNum(row, "min");
+    const p25 = readNum(row, "p25");
+    const med = readNum(row, "median");
+    const p75 = readNum(row, "p75");
+    const p99 = readNum(row, "p99");
+    const max = readNum(row, "max");
+    const mean = readNum(row, "mean");
+    const stddev = readNum(row, "stddev");
+    const tr = document.createElement("tr");
+    tr.className = "stability-detail";
+    const td = document.createElement("td");
+    td.colSpan = 9;
+    if (med === null || p25 === null || p75 === null) {
+      td.innerHTML = '<em style="color: var(--er-muted)">No distribution data — older Benchee save format. Re-run on the latest measure to populate percentiles.</em>';
+    } else {
+      td.innerHTML =
+        '<div class="boxplot-wrap">' +
+          boxplotSVG(min, p25, med, p75, p99, max) +
+          '<dl>' +
+            '<dt>min</dt><dd>' + fmtMs(min) + '</dd>' +
+            '<dt>p25</dt><dd>' + fmtMs(p25) + '</dd>' +
+            '<dt>median</dt><dd>' + fmtMs(med) + '</dd>' +
+            '<dt>mean</dt><dd>' + fmtMs(mean) + '</dd>' +
+            '<dt>p75</dt><dd>' + fmtMs(p75) + '</dd>' +
+            '<dt>p99</dt><dd>' + fmtMs(p99) + '</dd>' +
+            '<dt>max</dt><dd>' + fmtMs(max) + '</dd>' +
+            '<dt>σ</dt><dd>' + fmtMs(stddev) + '</dd>' +
+          '</dl>' +
+        '</div>';
+    }
+    tr.appendChild(td);
+    return tr;
+  };
+
+  tbody.addEventListener("click", (e) => {
+    const row = e.target.closest("tr.stability-row");
+    if (!row) return;
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains("stability-detail")) {
+      next.remove();
+      return;
+    }
+    const detail = buildDetail(row);
+    row.parentNode.insertBefore(detail, row.nextSibling);
+  });
+})();
+</script>
+</body>
+</html>
