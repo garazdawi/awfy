@@ -151,18 +151,13 @@ otp_major_for_ref() {
 # OTP < 24 has no matching elixir-otp-XX.zip; those targets take the
 # bundle-target path (the `apps/awfy_target_runner/` source-built
 # Elixir against the target OTP — pinned per-major below).
+#
+# Single source of truth lives in bin/elixir-for-otp.sh; bench.yml's
+# Pin Elixir steps, install-otp-source-mac.sh's post-build install,
+# and measure-all-macos.sh's modern-path PATH all read the same file.
+SCRIPT_DIR_FOR_ELIXIR_LOOKUP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 elixir_version_for_major() {
-  case "$1" in
-    20)    echo "1.9.4"  ;;
-    21)    echo "1.11.4" ;;
-    22)    echo "1.13.4" ;;
-    23)    echo "1.14.5" ;;
-    24)    echo "1.16.3" ;;
-    25)    echo "1.17.3" ;;
-    26)    echo "1.18.4" ;;
-    27)    echo "1.19.5" ;;
-    *)     echo "1.19.5" ;;
-  esac
+  "$SCRIPT_DIR_FOR_ELIXIR_LOOKUP/elixir-for-otp.sh" "$1"
 }
 
 # Map an OTP major to the OTP suffix on the elixir-otp-XX.zip bundle

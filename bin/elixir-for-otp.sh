@@ -5,25 +5,28 @@
 #
 # Resolve the Elixir version paired with a given OTP major. Single
 # source of truth — `bench.yml`'s "Pin Elixir version" steps,
-# `bin/install-otp-source-mac.sh`'s post-build Elixir install, and
-# any future caller all read from here.
+# `bin/install-otp-source-mac.sh`'s post-build Elixir install,
+# `bin/measure-all-macos.sh`'s modern-path PATH wiring, and
+# `bin/resolve-fill-needs.sh`'s matrix builder all read from here.
 #
-# Legacy mapping (≤23): the last Elixir release that supports that
-# OTP — what the standalone Elixir bundle on gh-pages-trail and
-# bin/build-target-bundle.sh expect for legacy targets.
+# The mapping pins the last Elixir release that supports each OTP
+# major, per Elixir's release notes
+# (hexdocs.pm/elixir/compatibility-and-deprecations). Going past
+# the cap means `mix` won't load on the target — Elixir 1.19, for
+# example, dropped OTP < 26, so OTP 24/25 must use 1.16/1.17.
 #
-# Modern (≥24): 1.19.5 — matches the orchestrator pin in bench.yml's
-# erlef/setup-beam@v1 step. Bumping the modern Elixir version here
-# is the single edit needed to advance every measurement leg.
+# 28+ caps at 1.19.5 — the latest tagged release. Bump this when
+# Elixir cuts a release that nominally supports the new OTP.
 #
 # Usage:
 #   bin/elixir-for-otp.sh <otp_major>
 #
 # Examples:
 #   bin/elixir-for-otp.sh 22         # → 1.13.4
+#   bin/elixir-for-otp.sh 24         # → 1.16.3
 #   bin/elixir-for-otp.sh 28         # → 1.19.5
 #   bin/elixir-for-otp.sh master     # → 1.19.5
-#   bin/elixir-for-otp.sh maint-25   # → 1.19.5  (anything non-numeric falls through to modern)
+#   bin/elixir-for-otp.sh maint-25   # → 1.19.5  (non-numeric → latest)
 
 set -euo pipefail
 
@@ -35,7 +38,10 @@ case "$OTP_MAJOR" in
   21) echo "1.11.4" ;;
   22) echo "1.13.4" ;;
   23) echo "1.14.5" ;;
-  # Modern OTP (≥24) and any non-numeric (master, maint, maint-NN)
-  # fall through to the same Elixir as the orchestrator.
+  24) echo "1.16.3" ;;
+  25) echo "1.17.3" ;;
+  26) echo "1.18.4" ;;
+  27) echo "1.19.5" ;;
+  # OTP 28+ and any non-numeric (master, maint, maint-NN) → latest.
   *)  echo "1.19.5" ;;
 esac
