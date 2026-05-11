@@ -373,6 +373,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       text-align: left;
     }
     table.stability th { background: var(--er-tint); font-weight: 600; }
+    table.stability th[title] { text-decoration: underline dotted var(--er-muted); text-underline-offset: 3px; cursor: help; }
     table.stability td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
     table.stability td.rank { color: var(--er-muted); width: 3em; text-align: right; }
     .stability-good { color: var(--er-good); }
@@ -414,10 +415,10 @@ defmodule Mix.Tasks.Awfy.Compare do
           <th>lang</th>
           <th>platform</th>
           <th>flavor</th>
-          <th>median (ms)</th>
-          <th>IQR / median</th>
-          <th>CV (σ / median)</th>
-          <th>samples</th>
+          <th title="Median sample run time. Benchee reports times in nanoseconds; the dashboard renders milliseconds throughout.">median (ms)</th>
+          <th title="(p75 − p25) ÷ median × 100 %. The spread of the middle half of samples relative to the median. Robust to tail outliers — one bad scheduling spike won't dominate this number — so it reflects the typical sample-to-sample variance.">IQR / median</th>
+          <th title="Coefficient of variation: σ ÷ median × 100 %. Tail-aware: a single 2 ms outlier on a 42 ns median pushes this to 1000s of percent, even when 99 % of samples are tightly clustered. Useful for spotting tail-latency issues but a poor primary stability metric for million-sample rows.">CV (σ / median)</th>
+          <th title="Number of times Benchee invoked the function during the timing window. Driven by the workload's per-call duration (faster benchmark → more samples in the same time budget).">samples</th>
         </tr>
       </thead>
       <tbody>
