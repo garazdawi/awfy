@@ -295,8 +295,13 @@ function buildInputCheckboxes(values, persisted) {
 }
 
 function onFilterChange() {
-  const state = readUIState();
-  saveFilterState(state);
+  // readUIState only reads the controls owned by this function
+  // (platform tab / flavor / lang / whiskers). Merge into the
+  // persisted state so fields the snapshot-major checkboxes and
+  // the machine-specs toggle persist there don't get clobbered.
+  const persisted = loadFilterState();
+  const fresh = readUIState();
+  saveFilterState({ ...persisted, ...fresh });
   renderAll();
 }
 
