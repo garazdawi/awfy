@@ -165,7 +165,15 @@ defmodule Awfy.Compare.Data do
               cpu: get(run.machine, "cpu"),
               arch: get(run.machine, "arch"),
               cores: get(run.machine, "cores"),
-              emu_flavor: get(run.runtime, "emu_flavor"),
+              # Trust the label's flavor suffix over runtime.emu_flavor in
+              # meta.json. The bundle-mode legacy path runs `mix awfy.measure`
+              # on the *host* orchestrator (OTP-28 + JIT) but executes
+              # benchmarks via the target erl (legacy, emu-only); meta.json
+              # reports the host's emu_flavor, mis-tagging every pre-24
+              # bundle run as "jit". The label is generated from the
+              # caller-supplied --label suffix and matches what actually
+              # ran on the target.
+              emu_flavor: flavor_from_label(run.label) || get(run.runtime, "emu_flavor"),
               schedulers_online: get(run.runtime, "schedulers_online"),
               lang: lang,
               input: input,
@@ -250,6 +258,20 @@ defmodule Awfy.Compare.Data do
 
   defp get(m, k) when is_map(m), do: Map.get(m, k)
   defp get(_, _), do: nil
+
+  # Labels are `<sha10>-test-<platform>-<arch>-<flavor>` per
+  # Awfy.Measure.Helpers.run_dir/5. The trailing "-jit"/"-emu" is
+  # the caller-supplied flavor, which matches what actually ran
+  # on the target — see emu_flavor: above for why we override.
+  defp flavor_from_label(label) when is_binary(label) do
+    case String.split(label, "-") |> List.last() do
+      "jit" -> "jit"
+      "emu" -> "emu"
+      _ -> nil
+    end
+  end
+
+  defp flavor_from_label(_), do: nil
 
   @doc """
   Geomean of `median_ms / baseline_median_ms` across the intersection
