@@ -177,6 +177,40 @@ PHASH2_BEAM="$BUNDLE/lib/otp_benchmarks/ebin/Elixir.OtpBenchmarks.Benchmarks.Pha
   exit 1
 }
 
+# AWFY suite (Elixir + Erlang) — compile under the target Elixir so
+# `Elixir.Awfy.Benchmarks.*` beams load on the target VM. Without
+# this step the legacy bundle path silently drops every Elixir
+# benchmark with `undef inner_benchmark_loop/1` — the Erlang side
+# kept working because install-otp-source-mac.sh erlc's apps/awfy/src/
+# into $PREFIX/awfy_target/awfy-0.1.0/ebin/, but the Elixir side has
+# no equivalent (Elixir wasn't always available pre-OTP-23). Now
+# that bin/install-elixir-source.sh is unconditional, mix compile
+# here covers both languages from one source tree.
+#
+# `~> 1.9` floor in apps/awfy/mix.exs mirrors apps/otp_benchmarks/.
+echo "[build-target-bundle] compiling apps/awfy under target Elixir" >&2
+AWFY_APP="$AWFY_ROOT/apps/awfy"
+(
+  cd "$AWFY_APP"
+  mix compile >&2
+)
+AWFY_BUILD="$AWFY_APP/_build/prod/lib/awfy"
+[ -d "$AWFY_BUILD" ] || {
+  echo "[build-target-bundle] expected $AWFY_BUILD after mix compile" >&2
+  exit 1
+}
+cp -R "$AWFY_BUILD" "$BUNDLE/lib/"
+
+# Sanity-check: a representative Elixir AWFY benchmark beam
+# landed in the bundle. Bounce is the smallest one with no
+# external deps, so it's the canonical "did the suite compile"
+# witness.
+BOUNCE_BEAM="$BUNDLE/lib/awfy/ebin/Elixir.Awfy.Benchmarks.Bounce.beam"
+[ -f "$BOUNCE_BEAM" ] || {
+  echo "[build-target-bundle] Elixir Bounce benchmark beam missing: $BOUNCE_BEAM" >&2
+  exit 1
+}
+
 # Tar from $STAGE so the archive root is `bundle/`.
 mkdir -p "$(dirname "$OUTPUT")"
 tar czf "$OUTPUT" -C "$STAGE" bundle
