@@ -907,6 +907,22 @@ jobs:
         run: |
           mkdir -p bundle
           tar xzf "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" -C bundle --strip-components=1
+          echo "[extract] bundle/ top-level entries:"
+          ls -la bundle/ | head -20
+          echo "[extract] bundle/lib/ entries:"
+          ls -la bundle/lib/ 2>/dev/null | head -25
+          # Post-extract sanity check — without it, a layout mismatch
+          # lets every benchmark abort with `undef Elixir.Awfy.TargetRunner`
+          # while the job stays green because errors are caught
+          # per-scenario in `Awfy.BencheeRunner`.
+          runner="bundle/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"
+          if [ ! -f "$runner" ]; then
+            echo "::error::bundle extract: runner beam missing at $runner"
+            echo "::group::bundle/ contents (recursive, max-depth 4)"
+            find bundle -maxdepth 4 -print
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "AWFY_TARGET_BUNDLE=$PWD/bundle" >> "$GITHUB_ENV"
       - uses: erlef/setup-beam@v1
         with:
@@ -1001,6 +1017,27 @@ jobs:
           # the top-level we extracted into.
           tar -xzf $tar -C bundle-stage --strip-components 1
           $bundle = (Resolve-Path bundle-stage).Path
+          Write-Host "[extract] bundle-stage\ top-level entries:"
+          Get-ChildItem bundle-stage | Select-Object -First 20 | ForEach-Object { $_.Name }
+          Write-Host "[extract] bundle-stage\lib\ entries:"
+          Get-ChildItem bundle-stage\lib -ErrorAction SilentlyContinue |
+            Select-Object -First 25 | ForEach-Object { $_.Name }
+          # Post-extract sanity: the canonical TargetRunner beam must
+          # be at the expected sub-path. Without this assertion an
+          # off-by-one in `--strip-components` (or a tar.exe quirk)
+          # produces a `bundle-stage\bundle\lib\...` layout that
+          # `Awfy.Runner.bundle_ebins/1` silently misses — every
+          # benchmark then aborts with `undef Elixir.Awfy.TargetRunner`
+          # but the job stays green because errors are caught per-
+          # scenario. Fail loud here instead.
+          $runner = Join-Path $bundle 'lib\awfy_target_runner\ebin\Elixir.Awfy.TargetRunner.beam'
+          if (-not (Test-Path $runner)) {
+            Write-Host "::error::bundle extract: runner beam missing at $runner"
+            Write-Host "::group::bundle-stage contents (recursive, depth 3)"
+            Get-ChildItem -Recurse -Depth 3 bundle-stage | ForEach-Object { $_.FullName }
+            Write-Host "::endgroup::"
+            exit 1
+          }
           "AWFY_TARGET_BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: erlef/setup-beam@v1
         if: steps.install_target_otp.outputs.skipped != 'true'
@@ -1095,6 +1132,22 @@ jobs:
         run: |
           mkdir -p bundle
           tar xzf "bundle-tar/target_bundle_${{ steps.elixir.outputs.version }}.tar.gz" -C bundle --strip-components=1
+          echo "[extract] bundle/ top-level entries:"
+          ls -la bundle/ | head -20
+          echo "[extract] bundle/lib/ entries:"
+          ls -la bundle/lib/ 2>/dev/null | head -25
+          # Post-extract sanity check — without it, a layout mismatch
+          # lets every benchmark abort with `undef Elixir.Awfy.TargetRunner`
+          # while the job stays green because errors are caught
+          # per-scenario in `Awfy.BencheeRunner`.
+          runner="bundle/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"
+          if [ ! -f "$runner" ]; then
+            echo "::error::bundle extract: runner beam missing at $runner"
+            echo "::group::bundle/ contents (recursive, max-depth 4)"
+            find bundle -maxdepth 4 -print
+            echo "::endgroup::"
+            exit 1
+          fi
           echo "AWFY_TARGET_BUNDLE=$PWD/bundle" >> "$GITHUB_ENV"
       - uses: erlef/setup-beam@v1
         with:
