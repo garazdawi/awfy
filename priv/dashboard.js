@@ -1234,8 +1234,17 @@ function renderMachineSpecs() {
     ? '<dt>build flags</dt><dd class="build-flags">' + escapeHtml(r.build_flags) + "</dd>"
     : "";
 
+  // Preserve the open/closed state across platform-tab switches —
+  // once a user opens the specs they probably want to compare them
+  // across tabs without re-clicking on every switch. The open flag
+  // also persists in localStorage so a full page reload keeps the
+  // user's last preference.
+  const wasOpen = el.querySelector("details")?.hasAttribute("open")
+    || (state.machine_specs_open === true);
+  const openAttr = wasOpen ? " open" : "";
+
   el.innerHTML =
-    "<details>" +
+    "<details" + openAttr + ">" +
       "<summary>Show platform specs</summary>" +
       "<dl>" +
         row("cpu", r.cpu) +
@@ -1246,6 +1255,16 @@ function renderMachineSpecs() {
         flags +
       "</dl>" +
     "</details>";
+
+  // Persist toggle changes so the open state survives reload.
+  const detailsEl = el.querySelector("details");
+  if (detailsEl) {
+    detailsEl.addEventListener("toggle", () => {
+      const s = loadFilterState();
+      s.machine_specs_open = detailsEl.open;
+      saveFilterState(s);
+    });
+  }
 }
 
 function escapeHtml(s) {
