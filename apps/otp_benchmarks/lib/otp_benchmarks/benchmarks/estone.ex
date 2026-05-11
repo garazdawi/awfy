@@ -30,8 +30,20 @@ defmodule OtpBenchmarks.Benchmarks.Estone do
   # Canonical loops per micro, copied from `micro(Name)` in
   # vendor/estone_SUITE.erl. Calibrated for 2002 hardware (~300ms each
   # on a reference VAX); on modern CPUs each call is sub-millisecond,
-  # which Benchee handles by upping the sample count. `port_io` is
-  # omitted — see moduledoc.
+  # which Benchee handles by upping the sample count.
+  #
+  # Omitted micros:
+  #   * `port_io` — needs the estone_cat C port binary built from
+  #     vendor/estone_SUITE_data/; framework not yet wired up.
+  #   * `generic` — registers `:funky` per call and kills it via
+  #     async `exit(_, kill)`. estone runs each micro in a fresh
+  #     process so the next iteration sees a clean registry, but
+  #     Benchee invokes the same function many times back-to-back
+  #     on one process; the second invocation's `register/2` races
+  #     the pending unregistration of the first and crashes with
+  #     "name already used" / "not a local pid". Re-introduce when
+  #     the runner has a per-Benchee-sample-cleanup hook for state-
+  #     ful micros (or rewrite generic to use `register_or_replace`).
   @micros [
     {"lists",                     6400},
     {"msgp",                      1515},
@@ -45,7 +57,6 @@ defmodule OtpBenchmarks.Benchmarks.Estone do
     {"bif_dispatch",              5623},
     {"binary_h",                   581},
     {"ets",                        342},
-    {"generic",                   7977},
     {"int_arith",                 4157},
     {"float_arith",               5526},
     {"fcalls",                     882},
@@ -62,4 +73,11 @@ defmodule OtpBenchmarks.Benchmarks.Estone do
   def setup(input), do: input
   def run({fun, loops}), do: apply(:estone_SUITE, fun, [loops])
   def teardown(_), do: :ok
+
+  # Estone micros are already internally looped (each takes a Loops
+  # count and runs that many iterations) and several — generic,
+  # links, timer — register named processes per call. Wrapping them
+  # in an outer batch loop double-batches and races the registration,
+  # so opt out of auto-batching.
+  def batchable?, do: false
 end

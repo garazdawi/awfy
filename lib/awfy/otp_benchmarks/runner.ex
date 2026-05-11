@@ -153,11 +153,24 @@ defmodule Awfy.OtpBenchmarks.Runner do
     # before_scenario, which is the right boundary because state
     # like an ETS table accumulates writes during the probe and we
     # don't want that bleed-through to skew the timed run.
+    #
+    # Families that opt out via `batchable?/0 == false` skip the
+    # probe entirely and run with batch=1 — see estone's moduledoc
+    # for why it self-loops and can't tolerate outer batching.
+    batchable = function_exported?(mod, :batchable?, 0) and mod.batchable?()
+
     batched_inputs =
       Map.new(raw_inputs, fn {name, raw} ->
-        state = mod.setup(raw)
-        batch = probe_batch_factor(mod, state)
-        mod.teardown(state)
+        batch =
+          if batchable do
+            state = mod.setup(raw)
+            b = probe_batch_factor(mod, state)
+            mod.teardown(state)
+            b
+          else
+            1
+          end
+
         {name, {raw, batch}}
       end)
 

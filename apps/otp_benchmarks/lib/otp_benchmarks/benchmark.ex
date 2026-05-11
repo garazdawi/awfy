@@ -83,7 +83,26 @@ defmodule OtpBenchmarks.Benchmark do
   """
   @callback supported?() :: boolean()
 
-  @optional_callbacks setup: 1, teardown: 1, supported?: 0
+  @doc """
+  Whether the family's `run/1` is safe to call in a tight loop
+  without per-call setup. Default `true` — most OtpBenchmarks
+  families do a single one-shot op per `run/1` (a `:maps.get`, an
+  `:ets.lookup`, a `:erlang.phash2`), which makes them ideal
+  candidates for the runner's auto-batching probe (lift very-fast
+  ops above the host monotonic-clock floor).
+
+  Override and return `false` on families whose `run/1` is itself
+  an internal loop or mutates shared process / registry state across
+  calls. Concrete case: estone micros already accept an internal
+  `Loops` count and the `generic` / `links` / `timer` micros register
+  named processes per call — wrapping them in an outer batch loop
+  races the kill-then-register pattern in
+  `vendor/estone_SUITE.erl:generic/1` and aborts with
+  "not a local pid" from `:erlang.register/2`.
+  """
+  @callback batchable?() :: boolean()
+
+  @optional_callbacks setup: 1, teardown: 1, supported?: 0, batchable?: 0
 
   defmacro __using__(_) do
     quote do
@@ -92,8 +111,9 @@ defmodule OtpBenchmarks.Benchmark do
       def setup(raw), do: raw
       def teardown(_), do: :ok
       def supported?, do: true
+      def batchable?, do: true
 
-      defoverridable setup: 1, teardown: 1, supported?: 0
+      defoverridable setup: 1, teardown: 1, supported?: 0, batchable?: 0
     end
   end
 end

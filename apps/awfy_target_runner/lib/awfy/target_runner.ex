@@ -232,11 +232,24 @@ defmodule Awfy.TargetRunner do
       # dep of the runner project (PLAN/TARGET_ELIXIR_RUNNER_PLAN.md).
       raw_inputs = family.inputs()
 
+      # Families can opt out of auto-batching when their run/1 is
+      # already internally looped or mutates shared state across
+      # calls — see OtpBenchmarks.Benchmark.batchable?/0.
+      batchable =
+        function_exported?(family, :batchable?, 0) and family.batchable?()
+
       batched_inputs =
         Map.new(raw_inputs, fn {name, raw} ->
-          state = family.setup(raw)
-          batch = probe_batch_factor(family, state)
-          family.teardown(state)
+          batch =
+            if batchable do
+              state = family.setup(raw)
+              b = probe_batch_factor(family, state)
+              family.teardown(state)
+              b
+            else
+              1
+            end
+
           {name, {raw, batch}}
         end)
 
