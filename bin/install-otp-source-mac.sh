@@ -161,33 +161,47 @@ trap 'rm -rf "$WORK"' EXIT
         done
     fi
 
-    # Force every BEAM scheduler thread to user-interactive QoS so the
-    # macOS scheduler keeps benchmarks on P-cores. Without this, long-
-    # running scenarios (Bounce ~100ms, Json ~80ms, estone/lists ~9ms)
-    # see 20-80% IQR/median on the dashboard's stability page because
-    # the scheduler migrates the thread to an E-core mid-run. There's
-    # no shell-level lever to elevate QoS on macOS — `taskpolicy -c`
-    # only clamps down — so inject the call at scheduler-thread init
-    # in erts/emulator/sys/unix/sys.c's `erts_sys_scheduler_init`,
-    # which every scheduler thread calls early. macOS-guarded so the
-    # same file still compiles cleanly for Linux/FreeBSD targets.
+    # Force the BEAM to user-interactive QoS so the macOS scheduler
+    # keeps benchmarks on P-cores. Without this, long-running scenarios
+    # (Bounce ~100ms, Json ~80ms, estone/lists ~9ms) see 20-80% IQR/
+    # median on the dashboard's stability page because the scheduler
+    # migrates the thread to an E-core mid-run. There's no shell-level
+    # lever to elevate QoS on macOS — `taskpolicy -c` only clamps down
+    # — so inject the call into erts/emulator/sys/unix/sys.c:
+    #   * `erl_sys_init`            → main thread, runs once at boot.
+    #     Scheduler / aux threads created afterwards inherit it.
+    #   * `erts_sys_scheduler_init` → belt-and-braces per-thread call
+    #     for each scheduler thread, in case the BEAM ever spawns one
+    #     with explicit pthread attrs that override inheritance.
+    # macOS-guarded so the same file still compiles cleanly for
+    # Linux/FreeBSD targets.
     SYS_C="erts/emulator/sys/unix/sys.c"
-    if [ -f "$SYS_C" ] && grep -q 'erts_sys_scheduler_init(void)' "$SYS_C" \
-       && ! grep -q 'pthread_set_qos_class_self_np' "$SYS_C"; then
+    if [ -f "$SYS_C" ] && ! grep -q 'pthread_set_qos_class_self_np' "$SYS_C"; then
         echo "Injecting macOS user-interactive QoS into $SYS_C"
         awk '
-            /^void erts_sys_scheduler_init\(void\) \{/ {
+            /^void erts_sys_scheduler_init\(void\) \{/ ||
+            /^erl_sys_init\(void\)/ {
                 print
-                print "#if defined(__APPLE__) && defined(__MACH__)"
-                print "    /* AWFY: keep scheduler threads on P-cores for stable benchmarks. */"
-                print "    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);"
-                print "#endif"
+                # erl_sys_init has the brace on the next line; print
+                # it through, then inject. erts_sys_scheduler_init
+                # has the brace on the same line — inject directly.
+                if ($0 ~ /\{$/) {
+                    print "#if defined(__APPLE__) && defined(__MACH__)"
+                    print "    /* AWFY: keep this BEAM on P-cores for stable benchmarks. */"
+                    print "    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);"
+                    print "#endif"
+                } else {
+                    getline next_line
+                    print next_line
+                    print "#if defined(__APPLE__) && defined(__MACH__)"
+                    print "    /* AWFY: keep this BEAM on P-cores for stable benchmarks. */"
+                    print "    pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);"
+                    print "#endif"
+                }
                 next
             }
             { print }
         ' "$SYS_C" > "$SYS_C.tmp" && mv "$SYS_C.tmp" "$SYS_C"
-        # Header for the symbol — drop it at the top of the existing
-        # platform-include block so the conditional compiles cleanly.
         if ! grep -q '<pthread/qos.h>' "$SYS_C"; then
             awk '
                 !done && /^#include / {
