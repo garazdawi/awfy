@@ -701,52 +701,28 @@ function buildSuiteGeomeanSeries() {
 let chart = null;
 let snapshotChart = null;
 
-/* Chart.js plugin: vertical dashed lines marking BeamAsm JIT debuts.
-   The chart's per-platform lines flip emu → jit at different x
-   positions depending on platform/arch:
-     - OTP-24: x86_64 (linux-x86_64, windows-x86_64)
-     - OTP-25: linux-arm64
-     - OTP-26: macos-arm64 (Apple Silicon)
-   Older labels at lower OTPs that were built as `-jit` actually fell
-   back to emu in the runtime (visible in each meta.json's
-   runtime.emu_flavor), so each marker is placed where the underlying
-   data actually starts being JIT for that platform. Only meaningful
-   on the suite chart's linear OTP axis. */
-const JIT_MARKERS = [
-  { x: 24, label: "JIT (x86_64)" },
-  { x: 25, label: "JIT (linux-arm64)" },
-  { x: 26, label: "JIT (macos-arm64)" }
-];
-const jitMarkerPlugin = {
-  id: "jitMarker",
-  afterDatasetsDraw(chart) {
-    const xScale = chart.scales.x;
-    const yScale = chart.scales.y;
-    if (!xScale || !yScale || xScale.type !== "linear") return;
-    const ctx = chart.ctx;
-    ctx.save();
-    ctx.font = "12px Montserrat, sans-serif";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    JIT_MARKERS.forEach((m, i) => {
-      const xPx = xScale.getPixelForValue(m.x);
-      if (xPx < xScale.left || xPx > xScale.right) return;
-      ctx.strokeStyle = "#888";
-      ctx.setLineDash([4, 4]);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(xPx, yScale.top);
-      ctx.lineTo(xPx, yScale.bottom);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#555";
-      // Stagger labels vertically so they don't overlap when zoomed
-      // tight enough to bring x=24 and x=26 close together.
-      ctx.fillText(" " + m.label, xPx, yScale.top + 4 + (i % 2) * 14);
-    });
-    ctx.restore();
-  }
+/* BeamAsm JIT debuts (verified against each meta.json's
+   runtime.emu_flavor): x86_64 (linux/windows) at OTP-24, linux-arm64
+   at OTP-25, macos-arm64 (Apple Silicon) at OTP-26 — earlier OTP-25
+   on macos-arm64 ships emu only because upstream disables the JIT
+   there to dodge a Sonoma+ crash that no backport could fix.
+   Verified locally: --enable-jit=yes on OTP-25.3.2.21 macos-arm64
+   still SIGBUSes on macOS 26, so the upstream guard is correct.
+
+   These cutoffs drive per-line segment styling in renderChart —
+   dashed line where the data is emulator, solid where it's JIT.
+   The "all platforms" line goes solid only once every platform has
+   JIT (i.e. from OTP-26 onwards). */
+const JIT_CUTOFF_BY_PLATFORM = {
+  "linux-x86_64":   24,
+  "windows-x86_64": 24,
+  "linux-arm64":    25,
+  "macos-arm64":    26
 };
+function jitCutoffForSeriesLabel(label) {
+  if (label === "all platforms") return 26;
+  return JIT_CUTOFF_BY_PLATFORM[label] || null;
+}
 
 /* erlang.org-friendly palette: brand red on top, then the standard
    categorical wheel. Order matters — the first dataset (almost
@@ -817,12 +793,23 @@ function renderChart() {
 
   const datasets = series.map((s, i) => {
     const baseColor = s.borderColor || colorFor(i);
+    // Segments to the left of the platform's JIT-debut x render
+    // dashed (emulator data) and segments at or right of it render
+    // solid (real JIT data). `p0.parsed.x < cutoff` means "segment
+    // STARTS in emu territory" — so the dashed→solid transition
+    // happens AT the first JIT point, not one segment earlier.
+    const cutoff = PAGE_KIND === "suite" ? jitCutoffForSeriesLabel(s.label) : null;
     return {
       label: s.label,
       data: s.data,
       borderColor: s.borderColor || baseColor,
       backgroundColor: s.backgroundColor || baseColor,
       borderWidth: s.borderWidth || 2,
+      // Base style is solid; segment callback can override.
+      borderDash: [],
+      segment: cutoff != null
+        ? { borderDash: (ctx) => ctx.p0.parsed.x < cutoff ? [5, 5] : [] }
+        : undefined,
       fill: false,
       spanGaps: false,
       tension: 0.05,
@@ -881,7 +868,6 @@ function renderChart() {
   chart = new Chart(document.getElementById("chart"), {
     type: chartType,
     data: { datasets },
-    plugins: PAGE_KIND === "suite" ? [jitMarkerPlugin] : [],
     options: {
       responsive: true,
       maintainAspectRatio: false,
