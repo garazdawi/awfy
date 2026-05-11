@@ -1236,13 +1236,10 @@ function renderMachineSpecs() {
 
   el.innerHTML =
     "<dl>" +
-      row("platform", target) +
-      row("hostname", r.hostname) +
       row("cpu", r.cpu) +
       row("os", r.os) +
       row("arch", r.arch) +
       row("cores", r.cores) +
-      row("schedulers", r.schedulers_online) +
       row("compiler", r.c_compiler_used) +
       flags +
     "</dl>";
