@@ -98,6 +98,40 @@ ref_major() {
   esac
 }
 
+# Full target OTP version (e.g. "20.3", "24.0.6", "28.5") for
+# meta.json's `otp` field via `awfy.measure`'s AWFY_OTP_VERSION env
+# (lib/mix/tasks/awfy.measure.ex:455). Without this the legacy
+# bundle path's meta.json reports the host's OTP-28.4.1 — runs get
+# misplaced on the dashboard's OTP-X axis. Modern path also benefits:
+# `System.otp_release/0` only gives the major, so OTP-24.0.6 would
+# otherwise show as bare "24" without this. master / maint don't
+# have a fixed version — fall back to reading the prefix's
+# OTP_VERSION file, which the install script generates at build
+# time.
+ref_full_version() {
+  local ref="$1" prefix="$2"
+  case "$ref" in
+    OTP-*)
+      echo "${ref#OTP-}" ;;
+    *)
+      # prefix-based fallback for master/maint/maint-NN
+      if [ -n "$prefix" ]; then
+        local rel
+        rel="$("$prefix/bin/erl" -noshell -eval \
+          'io:format("~s",[erlang:system_info(otp_release)]),halt().' 2>/dev/null)"
+        if [ -n "$rel" ]; then
+          local f="$prefix/lib/erlang/releases/$rel/OTP_VERSION"
+          if [ -f "$f" ]; then
+            tr -d '[:space:]' < "$f"
+            return 0
+          fi
+          echo "$rel"
+        fi
+      fi
+      ;;
+  esac
+}
+
 resolve_sha10() {
   local ref="$1" sha
   case "$ref" in
@@ -140,6 +174,12 @@ run_modern() {
   echo "  measure [$flavor] elixir=$elixir_ver"
   (
     export PATH="$prefix/bin:$elixir_dir/bin:$PATH"
+    # Force meta.json's `otp` field to the target's full version
+    # (e.g. "24.0.6"), not just the host's major from
+    # System.otp_release/0 — see awfy.measure.ex's otp_version_label/0.
+    local full_ver
+    full_ver=$(ref_full_version "$ref" "$prefix")
+    [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
     # Isolate MIX_HOME so a stale `~/.mix/archives/hex-X.Y.Z` (which
     # was compiled against whatever OTP installed it) doesn't get
     # auto-loaded by the per-major Elixir. Hex 2.4.x in particular
@@ -204,6 +244,12 @@ run_legacy() {
     export AWFY_TARGET_ERL="$prefix/bin/erl"
     export AWFY_TARGET_BUNDLE="$bundle_dir"
     export AWFY_TARGET_BEAMS="$prefix/awfy_target/awfy-0.1.0/ebin:$prefix/awfy_target/otp_benchmarks-0.1.0/ebin"
+    # meta.json's `otp` field — without this the legacy bundle
+    # path reports the host orchestrator's OTP (28.x) and runs
+    # cluster at the wrong point on the dashboard's X axis.
+    local full_ver
+    full_ver=$(ref_full_version "$ref" "$prefix")
+    [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
     mix awfy.measure --label "${sha10}-test-macos-arm64-emu" --ignore-preflight
   )
   rm -rf "$bundle_dir"
