@@ -447,6 +447,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       const BASELINE_LABEL = #{inspect(ctx.baseline_label)};
       const DATASET = #{ctx.dataset_json};
       const MAX_RELEASED_MAJOR = #{max_released_major()};
+      const TARGET_ELIXIR_BY_MAJOR = #{Jason.encode!(target_elixir_by_major())};
       </script>
       <script>
       #{dashboard_js()}
@@ -457,4 +458,26 @@ defmodule Mix.Tasks.Awfy.Compare do
   end
 
   defp dashboard_js, do: @dashboard_js
+
+  # Build a {major => target_elixir_version} map by invoking
+  # bin/elixir-for-otp.sh — the single source of truth for OTP →
+  # Elixir pairings shared with bench.yml, the install scripts, and
+  # measure-all-macos.sh. The script is the API; we don't parse it.
+  # 20..30 covers everything we currently expose; extend the range
+  # when a new major lands. Falls back to script's default branch
+  # for any non-numeric major (master, maint).
+  defp target_elixir_by_major do
+    script = Path.expand("../../../bin/elixir-for-otp.sh", __DIR__)
+
+    Enum.reduce(20..30, %{}, fn major, acc ->
+      case System.cmd(script, [to_string(major)], stderr_to_stdout: true) do
+        {output, 0} ->
+          version = String.trim(output)
+          if version == "", do: acc, else: Map.put(acc, to_string(major), version)
+
+        _ ->
+          acc
+      end
+    end)
+  end
 end

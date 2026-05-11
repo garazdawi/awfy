@@ -301,7 +301,7 @@ defmodule Mix.Tasks.Awfy.Measure do
       "format_version" => @format_version,
       "label" => ctx.label,
       "otp" => otp_version_label(),
-      "elixir" => System.version(),
+      "elixir" => target_elixir_version(),
       "timestamp" => trend_timestamp() |> DateTime.to_iso8601(),
       "git" => %{
         "sha" => ctx.git_sha,
@@ -412,6 +412,21 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   defp nil_if_empty(""), do: nil
   defp nil_if_empty(s), do: s
+
+  # The legacy bundle path (AWFY_TARGET_BUNDLE set, used for OTP < 24)
+  # compiles benchmarks under a different Elixir than the host
+  # orchestrator — see bin/build-target-bundle.sh + bin/elixir-for-otp.sh.
+  # The host's `System.version/0` reports the orchestrator (always
+  # recent), which is the wrong number to record for a legacy run.
+  # Read the target bundle's stamped Elixir version when present.
+  # bin/measure-all-macos.sh exports AWFY_TARGET_ELIXIR_VERSION so
+  # we can pick it up without parsing the bundle directly.
+  defp target_elixir_version do
+    case System.get_env("AWFY_TARGET_ELIXIR_VERSION") do
+      v when is_binary(v) and v != "" -> v
+      _ -> System.version()
+    end
+  end
 
   # Mirror of `benchmark_records/1` for the OtpBenchmarks suite.
   # Per-family entry shape:

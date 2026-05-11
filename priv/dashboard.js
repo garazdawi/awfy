@@ -1216,7 +1216,24 @@ function renderSnapshot() {
         const sampleRow = benches
           .map(b => latest[m + "|" + lang + "|" + b])
           .find(r => r && r.elixir);
-        if (sampleRow) langLabel = "elixir " + sampleRow.elixir;
+        if (sampleRow) {
+          // meta.json's elixir field is the host orchestrator's
+          // version (the mix process driving the measurement, always
+          // recent). On the legacy bundle path (OTP < 24) the
+          // benchmarks actually run under a different, OTP-major-
+          // specific Elixir compiled into the target bundle — that's
+          // the version we want to display. TARGET_ELIXIR_BY_MAJOR
+          // is injected at render time via bin/elixir-for-otp.sh
+          // (single source of truth shared with bench.yml and the
+          // install scripts).
+          const override = TARGET_ELIXIR_BY_MAJOR && TARGET_ELIXIR_BY_MAJOR[m];
+          // Only override on legacy OTPs — modern path puts the
+          // target Elixir on PATH so the host=target and meta.json's
+          // recorded version is already correct.
+          const majorN = parseInt(m, 10);
+          const useOverride = override && Number.isFinite(majorN) && majorN < 24;
+          langLabel = "elixir " + (useOverride ? override : sampleRow.elixir);
+        }
       }
       datasets.push({
         label: labelOtp + " · " + langLabel + suffix,

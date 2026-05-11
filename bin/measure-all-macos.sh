@@ -180,6 +180,12 @@ run_modern() {
     local full_ver
     full_ver=$(ref_full_version "$ref" "$prefix")
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
+    # Pin the Elixir version that ends up in meta.json (modern path
+    # uses the per-OTP-major target Elixir on PATH, but
+    # System.version/0 reads whatever Elixir the host orchestrator
+    # was spawned under — usually the latest). awfy.measure prefers
+    # AWFY_TARGET_ELIXIR_VERSION over System.version/0.
+    export AWFY_TARGET_ELIXIR_VERSION="$elixir_ver"
     # Isolate MIX_HOME so a stale `~/.mix/archives/hex-X.Y.Z` (which
     # was compiled against whatever OTP installed it) doesn't get
     # auto-loaded by the per-major Elixir. Hex 2.4.x in particular
@@ -250,6 +256,9 @@ run_legacy() {
     local full_ver
     full_ver=$(ref_full_version "$ref" "$prefix")
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
+    # Same for elixir — the bundle runs under the target's per-major
+    # Elixir, but the host orchestrator is Elixir 1.19.x.
+    export AWFY_TARGET_ELIXIR_VERSION="$elixir_ver"
     mix awfy.measure --label "${sha10}-test-macos-arm64-emu" --ignore-preflight
   )
   rm -rf "$bundle_dir"
