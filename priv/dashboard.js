@@ -735,6 +735,36 @@ const PALETTE = [
 
 function colorFor(i) { return PALETTE[i % PALETTE.length]; }
 
+/* Diagonal-stripe pattern for "emu fallback" snapshot bars — same
+   base color as a normal bar, with white slashes overlaid so the
+   reader sees at a glance that this bar came from emulator data
+   (because that platform/major has no JIT build) rather than from
+   the JIT flavor the user picked. Cached by color string. */
+const _stripeCache = {};
+function stripePatternFor(color) {
+  if (typeof document === "undefined") return color;
+  if (_stripeCache[color]) return _stripeCache[color];
+  const c = document.createElement("canvas");
+  c.width = 8;
+  c.height = 8;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 8, 8);
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  // Three diagonals: one centred, two offsets so the pattern wraps
+  // seamlessly across tile boundaries.
+  for (const off of [-8, 0, 8]) {
+    ctx.moveTo(off, 8);
+    ctx.lineTo(off + 8, 0);
+  }
+  ctx.stroke();
+  const pat = ctx.createPattern(c, "repeat");
+  _stripeCache[color] = pat;
+  return pat;
+}
+
 // Map every OTP label in the visible series to a numeric x position
 // where each OTP major occupies a width of 1 on the axis. See
 // renderChart() for the pixel-spacing rationale. Also returns the
@@ -1049,18 +1079,42 @@ function renderSnapshot() {
 
   const state = readUIState();
   const enabledMajors = enabledSnapshotMajorsSet();
-  const filtered = applyFilters(DATASET.rows, state)
-    .filter(r => enabledMajors.has(majorOf(r.otp)));
+
+  // BeamAsm JIT debuts per platform — same cutoffs the trend chart
+  // applies. When the user picks `jit` flavor, OTP majors below
+  // their platform's cutoff have no JIT build and we fall back to
+  // emu rows so the bars don't disappear. Tagged `emu_fallback`
+  // downstream so the bar is rendered visually distinct from a
+  // "real" JIT bar at the same major.
+  const platformCutoff = JIT_CUTOFF_BY_PLATFORM[state.machine_class] || 0;
+  const flavorForMajor = (m) => {
+    if (state.emu_flavor === "emu") return "emu";
+    const mn = parseInt(m, 10);
+    return Number.isFinite(mn) && mn < platformCutoff ? "emu" : state.emu_flavor;
+  };
+  const passesFlavor = (r) =>
+    r.emu_flavor === flavorForMajor(majorOf(r.otp));
+  const isFallback = (r) =>
+    state.emu_flavor === "jit" && r.emu_flavor === "emu";
+
+  const langOK = Array.isArray(state.lang)
+    ? (r) => state.lang.includes(seriesAxis(r))
+    : (r) => seriesAxis(r) === state.lang;
+  const mcOK = (r) => r.machine_class === state.machine_class;
+
+  const filtered = DATASET.rows.filter(r =>
+    langOK(r) && mcOK(r) && passesFlavor(r) && enabledMajors.has(majorOf(r.otp))
+  );
 
   // Baseline index built from the unfiltered row set so toggling
   // the major checkboxes can never accidentally shift the baseline
   // — it's always the dataset's earliest recorded run for each
-  // (lang, machine_class, flavor, benchmark). Anchored to OTP
-  // version order, then timestamp as tiebreak.
+  // (lang, machine_class, benchmark). Uses the same emu-pre-cutoff
+  // fallback as the bars so the ratio stays apples-to-apples.
   const baseIdx = {};
   DATASET.rows.forEach(r => {
     if (r.machine_class !== state.machine_class) return;
-    if (r.emu_flavor !== state.emu_flavor) return;
+    if (!passesFlavor(r)) return;
     if (typeof r.median_ms !== "number" || r.median_ms <= 0) return;
     const k = r.lang + "|" + r.benchmark;
     const cur = baseIdx[k];
@@ -1138,11 +1192,21 @@ function renderSnapshot() {
       });
       const v = versionForMajor[m];
       const labelOtp = (v === "master" || v === "main") ? v : "OTP " + v;
+      // If any of this (major, lang)'s rows is an emu fallback,
+      // mark the whole dataset — within a major+lang every bench
+      // shares the same flavor decision (driven by the major).
+      const fallback = benches.some(b => {
+        const r = latest[m + "|" + lang + "|" + b];
+        return r && isFallback(r);
+      });
+      const color = colorFor(mi * langs.length + li);
+      const suffix = fallback ? " (emu)" : "";
       datasets.push({
-        label: labelOtp + " · " + lang,
+        label: labelOtp + " · " + lang + suffix,
         data,
-        backgroundColor: colorFor(mi * langs.length + li),
-        borderColor: colorFor(mi * langs.length + li),
+        backgroundColor: fallback ? stripePatternFor(color) : color,
+        borderColor: color,
+        borderWidth: fallback ? 1.5 : 1,
         errorBarColor: "rgba(0,0,0,0.45)",
         errorBarWhiskerColor: "rgba(0,0,0,0.45)",
         errorBarLineWidth: 1,
