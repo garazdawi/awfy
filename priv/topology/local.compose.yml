@@ -4,9 +4,16 @@
 # docker-compose for the :local XMPP-bench topology. See
 # PLAN/MONGOOSEIM_BENCH_PLAN.md.
 #
-# Two services on one bridge network:
-#   mongooseim — pinned MongooseIM, in-memory Mnesia, port 5222.
-#   amoc       — pinned amoc-arsenal-xmpp, REST API on port 4000.
+# Three services on one bridge network:
+#   mongooseim    — pinned MongooseIM, in-memory Mnesia, port 5222.
+#   amoc-master   — pinned amoc-arsenal-xmpp, REST API on port 4000.
+#                   Coordinates the cluster but doesn't run scenarios.
+#   amoc-worker   — pinned amoc-arsenal-xmpp, joins the master via
+#                   AMOC_NODES and is the node that actually spawns
+#                   users + drives traffic against MongooseIM. The
+#                   :aws_clt topology scales this out horizontally;
+#                   on :local one worker is plenty for the ~1k user
+#                   smoke shape (see priv/scenario-config/*.local.json).
 #
 # Build args, USERS / DOMAINS / INTERARRIVAL_MS and the pin SHAs are
 # passed in from the orchestrator's environment. Defaults match the
@@ -15,6 +22,8 @@
 #
 # Used by `Awfy.Xmpp.Topology` (lib/awfy/xmpp/topology.ex) which
 # shells out to `docker compose -f <this file> ...` for lifecycle.
+# Mirrors upstream amoc-arsenal-xmpp's ci/docker-compose.yml so a
+# pin uplift translates one-to-one.
 
 services:
   mongooseim:
@@ -37,8 +46,9 @@ services:
       retries: 30
       start_period: 10s
 
-  amoc:
-    container_name: awfy-amoc
+  amoc-master:
+    container_name: awfy-amoc-master
+    hostname: amoc-master
     build:
       context: ../..
       dockerfile: Dockerfile.amoc
@@ -49,11 +59,57 @@ services:
       mongooseim:
         condition: service_healthy
     environment:
+      # Bind the prometheus exporter to all interfaces so the worker
+      # (or a host-side scraper) can read counters. Default in
+      # upstream's vm.args is loopback-only.
+      AMOC_PROMETHEUS_IP: "{0, 0, 0, 0}"
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "/opt/amoc/bin/amoc_arsenal_xmpp", "status"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  amoc-worker:
+    container_name: awfy-amoc-worker
+    hostname: amoc-worker
+    image: topology-amoc-master
+    pull_policy: never
+    depends_on:
+      amoc-master:
+        condition: service_healthy
+    environment:
+      # Join the cluster headed by amoc-master. Until this is present
+      # in the worker's amoc_config_env, amoc_cluster won't dial out
+      # and `amoc_controller` stays in `disabled` state — which means
+      # /execution/start hits "empty_nodes_list". The same env var
+      # name is what upstream's ci/docker-compose.yml uses.
+      AMOC_NODES: "['amoc_arsenal_xmpp@amoc-master']"
+      AMOC_PROMETHEUS_IP: "{0, 0, 0, 0}"
       # amoc_config_env reads AMOC_<UPPERCASE_VAR> from the
       # environment and exposes them via `cfg/1` inside the scenario
-      # module. Names here mirror the -required_variable declarations
-      # in dynamic_domains_pm.erl + dynamic_domains.erl.
+      # module. These mirror the -required_variable declarations
+      # in dynamic_domains_pm.erl + dynamic_domains.erl. The worker
+      # is what actually opens XMPP connections, so the broker host
+      # belongs on this side rather than on amoc-master.
+      # AMOC_XMPP_SERVERS is the list amoc_xmpp:pick_server/1 shards
+      # users over via phash2/2. The default is an empty list, which
+      # phash2(_, 0) rejects with badarg — every spawned user crashes
+      # before opening a socket, so the messages_sent counter never
+      # leaves zero. List-of-lists shape mirrors upstream's compose:
+      # one inner list per broker, each carrying escalus connection
+      # options.
+      AMOC_XMPP_SERVERS: '[[{host, <<"mongooseim">>}]]'
       AMOC_MONGOOSE_HOST: "mongooseim"
+      # GraphQL admin creds for `dynamic_domains:create_domain/2`.
+      # Match the admin handler's username/password literals from
+      # rel/files/mongooseim.toml; Dockerfile.mongoose also patches
+      # the listener to bind to 0.0.0.0 and accept any Host header.
+      AMOC_GRAPHQL_HOST: '<<"mongooseim">>'
+      AMOC_GRAPHQL_USER: '<<"admin">>'
+      AMOC_GRAPHQL_PASSWORD: '<<"secret">>'
       AMOC_DOMAIN_COUNT: "${DOMAINS:-10}"
       AMOC_DOMAIN_BUCKET_SIZE: "1"
       AMOC_INTERARRIVAL: "${INTERARRIVAL_MS:-5}"
@@ -63,5 +119,11 @@ services:
       AMOC_MESSAGE_INTERVAL: "${MESSAGE_INTERVAL_S:-1}"
       AMOC_DELAY_BEFORE_SENDING_MESSAGES: "${DELAY_BEFORE_S:-5}"
       AMOC_DELAY_AFTER_SENDING_MESSAGES: "${DELAY_AFTER_S:-5}"
-    ports:
-      - "4000:4000"
+    ulimits:
+      # Match upstream — the worker opens ~1 socket per simulated
+      # user. 66k headroom covers up to ~64k users per worker; the
+      # :local shape is far smaller but a single uplifted setting
+      # is easier to reason about than per-topology tuning.
+      nofile:
+        soft: 66000
+        hard: 66000

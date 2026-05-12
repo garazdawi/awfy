@@ -13,15 +13,20 @@ defmodule Awfy.Xmpp.Amoc do
   alias Awfy.Xmpp.{ScenarioConfig, Topology}
 
   @doc """
-  Kick off the named scenario with the configured user count. Amoc
-  reads the per-scenario `cfg(...)` values via `amoc_config_env`
-  which we've populated from the compose env at container boot, so
-  the only runtime arg is the user count.
+  Kick off the named scenario with the configured user count. Goes
+  through `amoc_dist:do/3` on the master so the user count gets sharded
+  across connected workers — `amoc:do/3` is the single-node path and
+  short-circuits when the controller is in master-mode `disabled`
+  state, which is always the case in our compose setup. Amoc reads the
+  per-scenario `cfg(...)` values via `amoc_config_env` which we
+  populate from compose env at container boot, so the only runtime arg
+  is the user count.
   """
   @spec start_scenario(Topology.State.t(), ScenarioConfig.t()) :: :ok | {:error, term()}
   def start_scenario(%Topology.State{} = state, %ScenarioConfig{} = config) do
-    expr = "amoc:do(#{config.scenario}, #{config.users}, [])."
-    case exec_eval(state, expr) do
+    expr = "amoc_dist:do(#{config.scenario}, #{config.users}, [])."
+
+    case exec_eval(state, :master, expr) do
       {:ok, _output} -> :ok
       {:error, _} = err -> err
     end
@@ -59,13 +64,19 @@ defmodule Awfy.Xmpp.Amoc do
   end
 
   defp read_counter(%Topology.State{} = state) do
-    # `amoc_metrics:get_counter_value/1` returns the current counter
-    # value as an integer (or undefined if the counter wasn't init'd
-    # — happens for the first second or two while the scenario
-    # boots).
-    expr = "amoc_metrics:get_counter_value(messages_sent)."
+    # Scenario emits `messages_sent` updates on the worker node — the
+    # master coordinates but doesn't itself spawn users. Read from the
+    # worker so we see the actual traffic counter.
+    #
+    # The counter isn't registered with prometheus until the scenario
+    # emits its first update. In the first 1–2 seconds of a run
+    # (before any user has fully connected + sent) the lookup raises
+    # `{unknown_metric, ...}` — handled below as a zero-delta sample.
+    expr =
+      "try prometheus_counter:value(default, messages_sent, []) " <>
+        "catch _:_ -> 0 end."
 
-    with {:ok, out} <- exec_eval(state, expr),
+    with {:ok, out} <- exec_eval(state, :worker, expr),
          {n, _} <- Integer.parse(String.trim(out)) do
       n
     else
@@ -73,7 +84,8 @@ defmodule Awfy.Xmpp.Amoc do
     end
   end
 
-  defp exec_eval(%Topology.State{topology: :local, amoc_container: container}, expr) do
+  defp exec_eval(%Topology.State{topology: :local} = state, role, expr) do
+    container = container_for(state, role)
     args = ["exec", container, "/opt/amoc/bin/amoc_arsenal_xmpp", "eval", expr]
 
     case System.cmd("docker", args, stderr_to_stdout: true) do
@@ -82,10 +94,13 @@ defmodule Awfy.Xmpp.Amoc do
     end
   end
 
-  defp exec_eval(%Topology.State{topology: :aws_clt}, _expr) do
+  defp exec_eval(%Topology.State{topology: :aws_clt}, _role, _expr) do
     # Phase 2 will wire this to `erl -remsh` or an HTTP API against
-    # the amoc-master node. Same return shape as :local so the
-    # caller doesn't branch.
+    # the amoc-master / worker nodes on the AWS-CLT topology. Same
+    # return shape as :local so the caller doesn't branch.
     {:error, :not_implemented_in_phase_1}
   end
+
+  defp container_for(%Topology.State{amoc_master_container: c}, :master), do: c
+  defp container_for(%Topology.State{amoc_worker_container: c}, :worker), do: c
 end
