@@ -264,6 +264,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # OTP >= 26 builds on Trixie (gcc 14, OpenSSL 3.5, glibc 2.40)
+      # so the AWFY image's OTP install is OpenSSL 3-compatible —
+      # needed for MongooseIM's fast_pbkdf2 NIF on the XMPP-bench
+      # path, and gives the rest of the suite a newer gcc into the
+      # bargain. OTP < 26's crypto NIF still depends on OpenSSL 1.1
+      # APIs (RSA_get_key, EVP_MD_size, FIPS_mode, …) so those refs
+      # stay on Bullseye. Threshold matches MongooseIM 6.6.0's
+      # `minimum_otp_vsn` declaration.
+      - name: Select base distro
+        id: distro
+        run: |
+          # Case-list rather than `[ -ge ]` so shellcheck/actionlint
+          # doesn't trip on the un-evaluated GHA placeholder. master
+          # resolves to major=99 via bin/resolve-fill-needs.sh and
+          # falls into the wildcard → Trixie, which is what we want.
+          case "${{ matrix.target.major }}" in
+            20|21|22|23|24|25) echo "base=bullseye" >> "$GITHUB_OUTPUT" ;;
+            *)                 echo "base=trixie"   >> "$GITHUB_OUTPUT" ;;
+          esac
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -275,6 +294,7 @@ jobs:
             OTP_REF=${{ matrix.target.ref }}
             ELIXIR_OTP_MAJOR=${{ matrix.target.elixir_bundle }}
             ELIXIR_VERSION=${{ matrix.target.elixir }}
+            BASE_DISTRO=${{ steps.distro.outputs.base }}
           # Forwarded to fetch-otp-source.sh inside the build so it
           # can pull erlang/otp's `otp_prebuilt` CI artifact (prebuilt
           # beams + pre-run configure — saves several minutes per

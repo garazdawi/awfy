@@ -26,13 +26,24 @@
 ARG ELIXIR_VERSION=1.19.5
 ARG ELIXIR_OTP_MAJOR=28
 
-# Bullseye over Bookworm so we get OpenSSL 1.1.1 by default. OTP 27+
-# builds fine against OpenSSL 3, but OTP < 23's crypto NIF uses APIs
-# OpenSSL 3 deprecated/removed (RSA_get_key, EVP_MD_size, …), and the
-# AWFY harness imports crypto for `:crypto.hash/2`. Staying on 1.1
-# means OTP 20 → master all build with the same toolchain. Bullseye's
-# Debian LTS support runs through 2026-08; revisit then.
-FROM debian:bullseye-slim AS otp-build
+# BASE_DISTRO selects the Debian base for both build and runtime
+# stages. Two paths:
+#
+#   * Bullseye (OpenSSL 1.1.1, glibc 2.31, gcc 10) — the default. OTP
+#     < 23's crypto NIF uses APIs OpenSSL 3 deprecated/removed
+#     (RSA_get_key, EVP_MD_size, …) so old OTPs *must* build here.
+#     Bullseye LTS support runs through 2026-08; revisit then.
+#   * Trixie (OpenSSL 3.5, glibc 2.40, gcc 14) — for OTP 26+ where
+#     downstream consumers (MongooseIM's fast_pbkdf2 NIF, others on
+#     the application-bench path) call into OpenSSL 3 APIs that
+#     aren't in Bullseye, and where the newer gcc is a meaningful
+#     compiler-quality bump for the synthetic suite.
+#
+# The caller picks per-OTP from bench.yml's build-linux job (threshold
+# = major >= 26 currently). Same distro is used for both build and
+# runtime stages so glibc/libssl ABI matches between layers.
+ARG BASE_DISTRO=bullseye
+FROM debian:${BASE_DISTRO}-slim AS otp-build
 ARG OTP_SHA
 ARG OTP_REF=""
 # Per-OTP extra configure flags. Resolve sets `--without-ssl` for
@@ -193,15 +204,21 @@ RUN mkdir -p /opt/awfy_target/awfy-0.1.0/ebin && \
 # ERL_FLAGS per-version when emu is requested.
 RUN /usr/local/bin/erl -noshell -eval 'io:format("erl ok ~s~n",[erlang:system_info(otp_release)]),halt()'
 
-FROM debian:bullseye-slim AS app
+ARG BASE_DISTRO=bullseye
+FROM debian:${BASE_DISTRO}-slim AS app
 ARG ELIXIR_VERSION
 ARG ELIXIR_OTP_MAJOR
 
-# Runtime deps only — no build chain in the final image. libssl1.1
-# matches the build stage's Bullseye OpenSSL version.
+# Runtime deps only — no build chain in the final image. libssl
+# version follows BASE_DISTRO: Bullseye has libssl1.1, Bookworm
+# has libssl3, Trixie has libssl3 (3.5). The `||` fallback lets
+# the install succeed on whichever variant the chosen distro
+# ships; the build stage's OTP was linked against the same one.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libssl1.1 libncurses6 zlib1g \
+        libncurses6 zlib1g \
         ca-certificates curl unzip git \
+    && (apt-get install -y --no-install-recommends libssl3 \
+        || apt-get install -y --no-install-recommends libssl1.1) \
     && rm -rf /var/lib/apt/lists/*
 
 # Carry over both the OTP install and target benchmark beams from
