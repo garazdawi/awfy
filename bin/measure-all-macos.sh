@@ -133,6 +133,23 @@ resolve_sha10() {
   echo "${sha:0:10}"
 }
 
+# Commit committer date for the SHA, ISO 8601 — used by
+# AWFY_OTP_COMMIT_TIMESTAMP so the dashboard's trend chart plots
+# each macOS measurement against the OTP commit's point in time
+# rather than clustering every refill at "today". Mirrors the
+# resolve-fill-needs.sh logic for the GHA path. Falls back to
+# empty (mix awfy.measure then uses wall-clock — same behaviour
+# as before this function existed) if `gh` isn't installed, the
+# user isn't logged in, or the API call fails. 10-char SHAs are
+# unique enough in erlang/otp for the API to resolve them.
+ref_commit_timestamp() {
+  local sha10="$1"
+  command -v gh >/dev/null 2>&1 || { echo ""; return; }
+  gh api "repos/erlang/otp/commits/$sha10" 2>/dev/null \
+    | jq -r '.commit.committer.date // ""' 2>/dev/null \
+    || echo ""
+}
+
 already_measured() {
   local sha10="$1" flavor="$2"
   find results -maxdepth 1 -type d -name "*_${sha10}-test-macos-arm64-${flavor}" 2>/dev/null | head -1
@@ -173,6 +190,17 @@ run_modern() {
     # them. Shellcheck's subshell heuristic misreads the for-loop +
     # function-call structure these are nested under.
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
+    # Anchor the dashboard's trend-axis position to the OTP
+    # commit's date rather than wall-clock — without this the M5
+    # sweep stamps every measurement at "now" and clusters them
+    # at the right edge of the trend chart, even when measuring
+    # an OTP from years ago. Best-effort: `gh api` may not be
+    # configured locally; the helper returns "" and
+    # awfy.measure's trend_timestamp/0 falls back to wall-clock.
+    local commit_ts
+    commit_ts=$(ref_commit_timestamp "$sha10")
+    # shellcheck disable=SC2030,SC2031
+    [ -n "$commit_ts" ] && export AWFY_OTP_COMMIT_TIMESTAMP="$commit_ts"
     # Pin the Elixir version that ends up in meta.json (modern path
     # uses the per-OTP-major target Elixir on PATH, but
     # System.version/0 reads whatever Elixir the host orchestrator
@@ -254,6 +282,12 @@ run_legacy() {
     # same subshell so the exports reach it; we *want* them isolated
     # from the outer loop.
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
+    # Same trend-timestamp anchor as the modern path — see
+    # run_modern for the rationale.
+    local commit_ts
+    commit_ts=$(ref_commit_timestamp "$sha10")
+    # shellcheck disable=SC2030,SC2031
+    [ -n "$commit_ts" ] && export AWFY_OTP_COMMIT_TIMESTAMP="$commit_ts"
     # Same for elixir — the bundle runs under the target's per-major
     # Elixir, but the host orchestrator is Elixir 1.19.x.
     # shellcheck disable=SC2030,SC2031
