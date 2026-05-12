@@ -277,17 +277,30 @@ jobs:
       # APIs (RSA_get_key, EVP_MD_size, FIPS_mode, …) so those refs
       # stay on Bullseye. Threshold matches MongooseIM 6.6.0's
       # `minimum_otp_vsn` declaration.
-      - name: Select base distro
+      - name: Select base distro + cache tag suffix
         id: distro
         run: |
-          # Case-list rather than `[ -ge ]` so shellcheck/actionlint
-          # doesn't trip on the un-evaluated GHA placeholder. master
-          # resolves to major=99 via bin/resolve-fill-needs.sh and
-          # falls into the wildcard → Trixie, which is what we want.
+          # Distro: case-list rather than `[ -ge ]` so shellcheck /
+          # actionlint don't trip on the un-evaluated GHA
+          # placeholder. master resolves to major=99 via
+          # bin/resolve-fill-needs.sh and falls into the wildcard →
+          # Trixie, which is what we want.
           case "${{ matrix.target.major }}" in
             20|21|22|23|24|25) echo "base=bullseye" >> "$GITHUB_OUTPUT" ;;
             *)                 echo "base=trixie"   >> "$GITHUB_OUTPUT" ;;
           esac
+          # Cache tag suffix is the otp_label — `master`, `maint`,
+          # `26.2.5.20`, `28.5`, … One cache stream per ref. For
+          # stable tagged refs the SHA is pinned, so the tag's
+          # content is monotonically refined across runs (same-SHA
+          # re-runs are full hits). For moving refs (master / maint)
+          # the latest SHA's manifest replaces the previous one's,
+          # but blob content-addressing means earlier layers
+          # (apt-get install, COPY patches) keep hitting across SHAs
+          # — only the OTP-source layer rebuilds on a new SHA, which
+          # it has to anyway. Stops the multi-OTP overwrite race we
+          # had with a shared `buildcache-<distro>-<arch>` tag.
+          echo "cache_suffix=${{ matrix.target.otp_label }}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -317,20 +330,21 @@ jobs:
           #   * GHA cache — fastest pull, but capped at 10 GB per repo
           #     and LRU-evicted. Hot path within a single sweep.
           #   * GHCR registry cache — uncapped, persists indefinitely.
-          #     Keeps a moving `buildcache-<distro>-<arch>` manifest
-          #     alongside the published per-SHA image. Survives the
-          #     GHA cache eviction churn we hit when 22+ build-linux
-          #     legs fan out in one workflow run. image-manifest=true
-          #     keeps the cache as an OCI manifest GHCR's UI lists
-          #     (handy when pruning).
+          #     One image per (distro, arch, ref) so concurrent OTPs
+          #     don't race-overwrite each other's manifest at job-end
+          #     `cache-to` time (the original shared
+          #     `buildcache-<distro>-<arch>` tag landed empty for
+          #     every ref but the last writer; see commit ee4911a2
+          #     diagnosis). image-manifest=true keeps the cache as
+          #     an OCI manifest GHCR's UI can list and prune.
           # Both layers are write-on-success; buildkit picks whichever
           # has the layer it needs at pull time.
           cache-from: |
             type=gha,scope=linux-${{ matrix.arch.name }}
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ steps.distro.outputs.base }}-${{ matrix.arch.name }}
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ steps.distro.outputs.base }}-${{ matrix.arch.name }}-${{ steps.distro.outputs.cache_suffix }}
           cache-to: |
             type=gha,scope=linux-${{ matrix.arch.name }},mode=max
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ steps.distro.outputs.base }}-${{ matrix.arch.name }},mode=max,image-manifest=true
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ steps.distro.outputs.base }}-${{ matrix.arch.name }}-${{ steps.distro.outputs.cache_suffix }},mode=max,image-manifest=true
 
   # Same Dockerfile, same toolchain — pre-OTP-24 SHAs go through the
   # build-linux pipeline too. Phase 2 of
@@ -412,16 +426,18 @@ jobs:
           # with the modern path (cache pollution would force
           # rebuilds whenever flags drifted).
           # Two-tier cache, same shape as build-linux above. Legacy
-          # path is always Bullseye so the registry tag is fixed
-          # (no distro variant) — keeps the cache image name short
-          # and avoids polluting the modern path's cache stream with
-          # legacy `--without-ssl` layers.
+          # path is always Bullseye so the registry tag carries no
+          # distro variant — keeps the cache image name short and
+          # avoids polluting the modern path's cache stream with
+          # legacy `--without-ssl` layers. The `otp_label`-keyed
+          # suffix means one cache image per legacy ref (OTP-20.3,
+          # OTP-21.3.8.24, …) — no shared-tag overwrite race.
           cache-from: |
             type=gha,scope=linux-target-${{ matrix.arch.name }}
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-linux-target-${{ matrix.arch.name }}
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-linux-target-${{ matrix.arch.name }}-${{ matrix.target.otp_label }}
           cache-to: |
             type=gha,scope=linux-target-${{ matrix.arch.name }},mode=max
-            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-linux-target-${{ matrix.arch.name }},mode=max,image-manifest=true
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-linux-target-${{ matrix.arch.name }}-${{ matrix.target.otp_label }},mode=max,image-manifest=true
 
   # Build the per-Elixir target-Elixir bundle. Always runs on GHA
   # ubuntu-latest regardless of `runner_pool` — bundle assembly
