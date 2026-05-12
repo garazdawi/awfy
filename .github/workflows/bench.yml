@@ -446,7 +446,17 @@ jobs:
     # Matrix is over OTP majors / Elixir versions, not target entries.
     # Gate on has_legacy_build because macOS/Windows legacy measure
     # jobs both consume the bundle prep produces.
-    if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    #
+    # `!cancelled()` — `build-linux-target` runs with `fail-fast:
+    # false`, so a single transient build leg failing (most often a
+    # GHCR login timeout) gives the whole `build-linux-target` job
+    # an overall conclusion of `failure`. Without this guard GHA's
+    # default-skip-on-failed-need behaviour would propagate that
+    # straight through and skip every prep-target-bundle row,
+    # including the OTPs whose build legs succeeded. The matrix is
+    # per-major and each row finds its own SHA, so partial success
+    # is the right answer here.
+    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -540,7 +550,12 @@ jobs:
   measure-linux:
     name: measure-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }}, ${{ matrix.flavor }})
     needs: [resolve, build-linux]
-    if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # `!cancelled()` — see prep-target-bundle for the rationale. A
+    # transient GHCR login on one build-linux leg shouldn't skip
+    # every measure-linux row. Per-matrix-row docker pulls fail
+    # cleanly when an image is missing, so partial success is the
+    # right behaviour.
+    if: ${{ !cancelled() && needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -912,7 +927,8 @@ jobs:
   measure-linux-target:
     name: measure-linux-target OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }}, ${{ matrix.flavor }})
     needs: [resolve, build-linux-target, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # `!cancelled()` — see prep-target-bundle for the rationale.
+    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -996,7 +1012,8 @@ jobs:
   measure-windows-target:
     name: measure-windows-target OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: [resolve, prep-target-bundle]
-    if: needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # `!cancelled()` — see prep-target-bundle for the rationale.
+    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
     permissions:
       contents: read
       actions: read
@@ -1221,7 +1238,8 @@ jobs:
   measure-xmpp-linux:
     name: measure-xmpp-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }})
     needs: [resolve, build-linux]
-    if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # `!cancelled()` — see prep-target-bundle for the rationale.
+    if: ${{ !cancelled() && needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
     permissions:
       contents: read
       packages: read
