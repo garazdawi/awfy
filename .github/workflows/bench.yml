@@ -1235,13 +1235,20 @@ jobs:
     runs-on: ${{ matrix.arch.gha_runner }}
     timeout-minutes: 45
     steps:
-      - name: Skip OTP < 26 (MongooseIM 6.6.0 minimum)
+      - name: Skip OTP < 27 (MongooseIM 6.6.0 uses -doc, OTP 27+)
         id: gate
         run: |
+          # MongooseIM 6.6.0 declares minimum_otp_vsn = "26" but the
+          # tree uses EEP-59 `-doc` attributes (added in OTP 27),
+          # e.g. src/sasl/cyrsasl_external.erl:167. On OTP 26 those
+          # parse as unknown attributes that appear after function
+          # defs and the compiler aborts `make rel` with
+          # "attribute doc after function definitions". 27 is the
+          # empirical floor regardless of what the manifest says.
           OTP_MAJOR='${{ matrix.target.major }}'
-          if [ "$OTP_MAJOR" -lt 26 ]; then
+          if [ "$OTP_MAJOR" -lt 27 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "OTP ${{ matrix.target.otp_label }} (major=$OTP_MAJOR) is < 26 — MongooseIM 6.6.0 needs OTP >= 26, XMPP bench skipped."
+            echo "OTP ${{ matrix.target.otp_label }} (major=$OTP_MAJOR) is < 27 — MongooseIM 6.6.0 -doc attrs need OTP >= 27, XMPP bench skipped."
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
