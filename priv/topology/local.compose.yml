@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# docker-compose for the :local XMPP-bench topology. See
+# PLAN/MONGOOSEIM_BENCH_PLAN.md.
+#
+# Two services on one bridge network:
+#   mongooseim — pinned MongooseIM, in-memory Mnesia, port 5222.
+#   amoc       — pinned amoc-arsenal-xmpp, REST API on port 4000.
+#
+# Build args, USERS / DOMAINS / INTERARRIVAL_MS and the pin SHAs are
+# passed in from the orchestrator's environment. Defaults match the
+# Phase 1 :local-shape scenario config (1k users / 10 domains /
+# 5ms interarrival).
+#
+# Used by `Awfy.Xmpp.Topology` (lib/awfy/xmpp/topology.ex) which
+# shells out to `docker compose -f <this file> ...` for lifecycle.
+
+services:
+  mongooseim:
+    container_name: awfy-mongooseim
+    build:
+      context: ../..
+      dockerfile: Dockerfile.mongoose
+      args:
+        MIM_PIN: "${MIM_PIN:-6.6.0}"
+        OTP_VERSION: "${OTP_VERSION:-27.3}"
+    ports:
+      - "5222:5222"
+    healthcheck:
+      # `mongooseimctl status` exits 0 only when the BEAM is up and
+      # the boot-time apps have finished starting. ~30s of retries
+      # covers a cold start on first-build.
+      test: ["CMD", "./bin/mongooseimctl", "status"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  amoc:
+    container_name: awfy-amoc
+    build:
+      context: ../..
+      dockerfile: Dockerfile.amoc
+      args:
+        AMOC_ARSENAL_PIN: "${AMOC_ARSENAL_PIN:-eac44cfe79417a96e87a6629916d2c49102da0e4}"
+        OTP_VERSION: "${OTP_VERSION:-27.3}"
+    depends_on:
+      mongooseim:
+        condition: service_healthy
+    environment:
+      # amoc_config_env reads AMOC_<UPPERCASE_VAR> from the
+      # environment and exposes them via `cfg/1` inside the scenario
+      # module. Names here mirror the -required_variable declarations
+      # in dynamic_domains_pm.erl + dynamic_domains.erl.
+      AMOC_MONGOOSE_HOST: "mongooseim"
+      AMOC_DOMAIN_COUNT: "${DOMAINS:-10}"
+      AMOC_DOMAIN_BUCKET_SIZE: "1"
+      AMOC_INTERARRIVAL: "${INTERARRIVAL_MS:-5}"
+      # Message-cadence knobs — Phase 1 keeps these short so a
+      # local-scale run completes in ~60s after warmup.
+      AMOC_MESSAGE_COUNT: "${MESSAGE_COUNT:-60}"
+      AMOC_MESSAGE_INTERVAL: "${MESSAGE_INTERVAL_S:-1}"
+      AMOC_DELAY_BEFORE_SENDING_MESSAGES: "${DELAY_BEFORE_S:-5}"
+      AMOC_DELAY_AFTER_SENDING_MESSAGES: "${DELAY_AFTER_S:-5}"
+    ports:
+      - "4000:4000"
