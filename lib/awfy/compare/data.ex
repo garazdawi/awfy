@@ -174,19 +174,7 @@ defmodule Awfy.Compare.Data do
               # bundle run as "jit". The label is generated from the
               # caller-supplied --label suffix and matches what actually
               # ran on the target.
-              #
-              # Application runs (XMPP, …) have neither a flavor suffix
-              # in the label nor an emu_flavor in runtime — the suite is
-              # built from custom metadata via Result.build_multi rather
-              # than Benchee's normal flow. Fall back to "jit" because the
-              # current gate (measure-xmpp-linux skips OTP < 27) means
-              # they only ever run on JIT-capable BEAMs; without a value
-              # the dashboard.js suite-geomean filter (jit for >= 24, emu
-              # for < 24) silently drops every application row and the
-              # per-bench page renders empty.
-              emu_flavor: flavor_from_label(run.label)
-                || get(run.runtime, "emu_flavor")
-                || application_default_flavor(run.applications_meta),
+              emu_flavor: flavor_from_label(run.label) || get(run.runtime, "emu_flavor"),
               schedulers_online: get(run.runtime, "schedulers_online"),
               lang: lang,
               input: input,
@@ -342,14 +330,6 @@ defmodule Awfy.Compare.Data do
   end
 
   defp flavor_from_label(_), do: nil
-
-  # Default flavor for application benchmarks (the XMPP path's
-  # dynamic_domains_pm cells, and any future application family).
-  # Returns "jit" when the run declares any applications in its
-  # meta block, else nil so synthetic-suite rows keep falling
-  # through to the next layer of the chain.
-  defp application_default_flavor([_ | _]), do: "jit"
-  defp application_default_flavor(_), do: nil
 
   @doc """
   Geomean of `median_ms / baseline_median_ms` across the intersection
