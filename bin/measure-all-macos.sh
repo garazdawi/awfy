@@ -311,7 +311,20 @@ for ref in $REFS; do
   sha10=$(resolve_sha10 "$ref")
   echo "  major=$major sha10=$sha10"
 
-  prefix=$(bin/install-otp-source-mac.sh "$ref")
+  # Mirror the CI extra_configure rule from resolve-fill-needs.sh:
+  # OTP < 24's crypto NIF references OpenSSL 1.1 APIs (e.g.
+  # RSA_SSLV23_PADDING, RSA_padding_add_SSLv23) that OpenSSL 3
+  # removed. Homebrew's openssl@3 — what install-otp-source-mac.sh
+  # auto-detects via `brew --prefix` — is the only SSL available
+  # on the M5, so we have to drop crypto entirely. The AWFY suite
+  # itself doesn't use :crypto; Elixir's bootstrap completes
+  # without it. master/maint count as modern.
+  extra_configure=""
+  if [ "$major" != "99" ] && [ "$major" -lt 24 ] 2>/dev/null; then
+    extra_configure="--without-ssl"
+  fi
+
+  prefix=$(AWFY_OTP_EXTRA_CONFIGURE="$extra_configure" bin/install-otp-source-mac.sh "$ref")
   echo "  prefix=$prefix"
 
   # Pre-warm the legacy bundle too so a `--build-only` pass leaves
