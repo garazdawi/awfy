@@ -61,7 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential autoconf m4 \
         libssl-dev libncurses-dev zlib1g-dev \
         ca-certificates curl ccache patch \
-        jq unzip \
+        jq unzip rsync \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH=/usr/lib/ccache:$PATH \

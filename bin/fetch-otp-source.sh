@@ -51,29 +51,49 @@ SRC=""
 case "$REF" in
     OTP-*)
         VERSION="${REF#OTP-}"
-        for url in \
-            "https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz" \
-            "https://erlang.org/download/otp_src_$VERSION.tar.gz"
-        do
-            # See the artifact download below for why curl needs an
-            # explicit timeout: default curl has no timeout and a
-            # stalled HTTP read wedges the whole build.
-            # erlang.org's mirror trickled OTP 20.3 at 20 KB/s on run
-            # 25740656636, which exceeded a flat --max-time 600 with
-            # only 11 MB of 88 MB transferred. `--speed-limit /
-            # --speed-time` are the right shape here: keep the
-            # download running as long as it's making forward
-            # progress, abort if it stalls (under 10 KB/s for 60s).
-            # --max-time 1800 is a 30-min hard cap.
-            if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$url"; then
-                echo "fetch-otp-source: fetching $url (release tarball)" >&2
-                curl -fL --connect-timeout 30 --max-time 1800 \
-                    --speed-limit 10240 --speed-time 60 \
-                    "$url" | tar xz
+
+        # Strategy 1: github.com release mirror over HTTPS curl.
+        # Reliable for modern OTPs (post-OTP-21). --connect-timeout
+        # 30 / --max-time 1800 / --speed-limit+--speed-time bound
+        # the transfer so a stalled HTTPS pull falls through
+        # quickly instead of wedging the build.
+        github_url="https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz"
+        if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$github_url"; then
+            echo "fetch-otp-source: fetching $github_url (release tarball, github)" >&2
+            curl -fL --connect-timeout 30 --max-time 1800 \
+                --speed-limit 10240 --speed-time 60 \
+                "$github_url" | tar xz
+            SRC="otp_src_$VERSION"
+        fi
+
+        # Strategy 2: erlang.org mirror over rsync. github.com
+        # doesn't have an `otp_src_X.Y.tar.gz` asset for older OTPs
+        # (pre-21) — those are erlang.org-only. erlang.org's HTTPS
+        # serves old tarballs at ~20 KB/s during US peak (88 MB
+        # OTP-20.3 ran into our 30-min cap with curl on run
+        # 25740656636); rsync over its native protocol is markedly
+        # more reliable for those bulk downloads. The rsync host
+        # and module name are documented at erlang.org/downloads
+        # ("reachable through rsync rsync.erlang.org::erlang-
+        # download").
+        #
+        # rsync requires `rsync` in the image — added to
+        # Dockerfile.linux's otp-build apt list. Falls through to
+        # the github archive fallback (strategy 4 below) if rsync
+        # isn't installed or the daemon is unreachable.
+        if [ -z "$SRC" ] && command -v rsync >/dev/null 2>&1; then
+            rsync_url="rsync://rsync.erlang.org/erlang-download/otp_src_$VERSION.tar.gz"
+            echo "fetch-otp-source: fetching $rsync_url (release tarball, erlang.org rsync)" >&2
+            if rsync --contimeout=30 --timeout=60 \
+                    "$rsync_url" "$WORK/otp_src.tar.gz" 2>&1 \
+                && tar xzf "$WORK/otp_src.tar.gz"; then
+                rm -f "$WORK/otp_src.tar.gz"
                 SRC="otp_src_$VERSION"
-                break
+            else
+                echo "fetch-otp-source: rsync from erlang.org failed (no such ref or daemon unreachable)" >&2
+                rm -f "$WORK/otp_src.tar.gz"
             fi
-        done
+        fi
         ;;
 esac
 
