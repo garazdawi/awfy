@@ -314,8 +314,24 @@ jobs:
           # jobs pull the same tag.
           tags: |
             ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}
-          cache-from: type=gha,scope=linux-${{ matrix.arch.name }}
-          cache-to: type=gha,scope=linux-${{ matrix.arch.name }},mode=max
+          # Two-tier cache:
+          #   * GHA cache — fastest pull, but capped at 10 GB per repo
+          #     and LRU-evicted. Hot path within a single sweep.
+          #   * GHCR registry cache — uncapped, persists indefinitely.
+          #     Keeps a moving `buildcache-<distro>-<arch>` manifest
+          #     alongside the published per-SHA image. Survives the
+          #     GHA cache eviction churn we hit when 22+ build-linux
+          #     legs fan out in one workflow run. image-manifest=true
+          #     keeps the cache as an OCI manifest GHCR's UI lists
+          #     (handy when pruning).
+          # Both layers are write-on-success; buildkit picks whichever
+          # has the layer it needs at pull time.
+          cache-from: |
+            type=gha,scope=linux-${{ matrix.arch.name }}
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ steps.distro.outputs.base }}-${{ matrix.arch.name }}
+          cache-to: |
+            type=gha,scope=linux-${{ matrix.arch.name }},mode=max
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ steps.distro.outputs.base }}-${{ matrix.arch.name }},mode=max,image-manifest=true
 
   # Same Dockerfile, same toolchain — pre-OTP-24 SHAs go through the
   # build-linux pipeline too. Phase 2 of
@@ -397,8 +413,17 @@ jobs:
           # configure-args set, so they shouldn't share layer cache
           # with the modern path (cache pollution would force
           # rebuilds whenever flags drifted).
-          cache-from: type=gha,scope=linux-target-${{ matrix.arch.name }}
-          cache-to: type=gha,scope=linux-target-${{ matrix.arch.name }},mode=max
+          # Two-tier cache, same shape as build-linux above. Legacy
+          # path is always Bullseye so the registry tag is fixed
+          # (no distro variant) — keeps the cache image name short
+          # and avoids polluting the modern path's cache stream with
+          # legacy `--without-ssl` layers.
+          cache-from: |
+            type=gha,scope=linux-target-${{ matrix.arch.name }}
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-linux-target-${{ matrix.arch.name }}
+          cache-to: |
+            type=gha,scope=linux-target-${{ matrix.arch.name }},mode=max
+            type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-linux-target-${{ matrix.arch.name }},mode=max,image-manifest=true
 
   # Build the per-Elixir target-Elixir bundle. Always runs on GHA
   # ubuntu-latest regardless of `runner_pool` — bundle assembly
