@@ -176,9 +176,21 @@ defmodule Awfy.Xmpp.Topology do
            stderr_to_stdout: true
          ) do
       {_, 0} -> :ok
-      {out, status} -> {:error, {:compose_up_failed, status, out}}
+      {out, status} -> {:error, {:compose_up_failed, status, tail(out, 4_000)}}
     end
   end
+
+  # Compose-up dumps many kilobytes of layer-pull / layer-extract
+  # progress before any actual error fires; `inspect/2` truncates the
+  # *start* of a long binary, hiding the diagnostic that landed at
+  # the end. Slice the last N chars so the runtime tuple carries the
+  # tail (where the error message lives) instead of the head.
+  defp tail(bin, max) when is_binary(bin) and byte_size(bin) > max do
+    "(... truncated, last #{max} bytes follow ...)\n" <>
+      binary_part(bin, byte_size(bin) - max, max)
+  end
+
+  defp tail(bin, _max) when is_binary(bin), do: bin
 
   # Compose ships in two shapes: the Docker CLI plugin (`docker compose`,
   # bundled with Docker Desktop and most Linux distros' docker packages)

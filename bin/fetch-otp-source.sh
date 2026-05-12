@@ -84,11 +84,19 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
     for q in "head_sha=$SHA" "branch=$REF"; do
         run_json="$(curl -fsSL "${auth[@]}" "$base?$q&per_page=5" 2>/dev/null)" \
             || { echo "fetch-otp-source: $q query failed (curl)" >&2; continue; }
+        # No `conclusion == "success"` filter — the workflow uploads
+        # `otp_prebuilt` from the build-side job, but a doc-check or
+        # test-leg failure later in the same workflow run flips the
+        # overall conclusion to "failure" even though the artifact is
+        # perfectly usable. Filter on `status == "completed"` so we
+        # don't grab an in-flight run whose artifact isn't uploaded
+        # yet; the artifact-existence check below handles whatever's
+        # left.
         run_id="$(echo "$run_json" \
-            | jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].id // empty' \
+            | jq -r '[.workflow_runs[] | select(.status == "completed")][0].id // empty' \
             2>/dev/null)" || run_id=""
         if [ -z "$run_id" ]; then
-            echo "fetch-otp-source: $q matched no successful Build and check run" >&2
+            echo "fetch-otp-source: $q matched no completed Build and check run" >&2
             continue
         fi
         artifact_id="$(curl -fsSL "${auth[@]}" \
