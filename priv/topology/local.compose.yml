@@ -61,6 +61,14 @@ services:
         # target OTP. Amoc is pinned on a separate AMOC_OTP_VERSION
         # var so the load-gen stays constant across the sweep.
         OTP_VERSION: "${MIM_OTP_VERSION:-27.3}"
+        # MIM_BASE_IMAGE / MIM_RUNTIME_IMAGE swap the FROM lines in
+        # Dockerfile.mongoose. Default Docker Hub `erlang:<tag>`
+        # (good for local dev + numeric stable OTPs); CI overrides
+        # to the per-OTP AWFY image (`ghcr.io/<repo>:<sha>-<arch>`)
+        # so master / maint-XX / RCs — which have no Docker Hub tag
+        # — can still be measured.
+        BASE_IMAGE: "${MIM_BASE_IMAGE:-erlang:${MIM_OTP_VERSION:-27.3}}"
+        RUNTIME_IMAGE: "${MIM_RUNTIME_IMAGE:-erlang:${MIM_OTP_VERSION:-27.3}-slim}"
     depends_on:
       postgres:
         condition: service_healthy

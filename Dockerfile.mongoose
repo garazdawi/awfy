@@ -23,7 +23,16 @@
 #   ghcr.io/<repo>:mongooseim-<otp_version>-<mim_pin>
 
 ARG OTP_VERSION=27.3
-FROM erlang:${OTP_VERSION} AS build
+# BASE_IMAGE / RUNTIME_IMAGE override the default Docker Hub erlang
+# tags. Used by the CI XMPP leg to point at the per-OTP AWFY image
+# (`ghcr.io/<repo>:<sha>-<arch>`) — that path covers OTP refs Docker
+# Hub doesn't have a tag for (master, maint-XX, RCs) and keeps the
+# broker measuring against the *exact* OTP build AWFY tests.
+# Default keeps the local-dev path on Docker Hub `erlang:<tag>` (no
+# need to pre-build an AWFY image for the local dev/smoke loop).
+ARG BASE_IMAGE=erlang:${OTP_VERSION}
+ARG RUNTIME_IMAGE=erlang:${OTP_VERSION}-slim
+FROM ${BASE_IMAGE} AS build
 
 ARG MIM_PIN=6.6.0
 ENV DEBIAN_FRONTEND=noninteractive
@@ -105,16 +114,24 @@ RUN ./tools/configure with-all
 RUN make rel
 
 # --- runtime stage ---------------------------------------------------
-FROM erlang:${OTP_VERSION}-slim AS runtime
+FROM ${RUNTIME_IMAGE} AS runtime
 
 # Same NIF runtime deps as the build stage minus the -dev packages.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libssl3 \
+# `|| true` on the apt-get install so we don't fail when running on a
+# base image (Bullseye-based AWFY image) that doesn't have libssl3 in
+# its repo — the build stage already produced binaries linked against
+# that base's libssl, so the runtime libs we'd add here are no-ops on
+# AWFY-image-based runs. On erlang:<tag>-slim (Bookworm) these are
+# necessary because the slim image doesn't carry the dev libs the
+# build stage installed.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
         libexpat1 \
-        libodbc2 \
         zlib1g \
         ca-certificates \
         procps \
+    && (apt-get install -y --no-install-recommends libssl3 libodbc2 \
+        || apt-get install -y --no-install-recommends libssl1.1 libodbc1) \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/mongooseim

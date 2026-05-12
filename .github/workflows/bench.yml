@@ -1149,13 +1149,18 @@ jobs:
   # pinned via priv/amoc-otp-version.txt so the load-gen is a
   # constant across the sweep.
   #
+  # We base MongooseIM's FROM on the AWFY per-OTP image
+  # (`ghcr.io/<repo>:<sha>-<arch>`) rather than Docker Hub's `erlang:`
+  # tag so the broker measures against the exact same OTP build the
+  # rest of the suite tests — including refs Docker Hub has no tag
+  # for (master, maint-XX, RCs). That makes `needs: build-linux` a
+  # hard dependency.
+  #
   # Filtered to OTP >= 26 (MongooseIM 6.6.0's worker_pool dep declares
-  # `{minimum_otp_vsn, "26"}`) and to numeric Docker Hub `erlang:<tag>`
-  # versions (master / maint-XX branches don't have base images).
-  # Both filters fire at step level because matrix context isn't in
-  # scope at job-level `if:`.
+  # `{minimum_otp_vsn, "26"}`). The major check fires at step level
+  # because matrix context isn't in scope at job-level `if:`.
   measure-xmpp-linux:
-    needs: [resolve]
+    needs: [resolve, build-linux]
     if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
       contents: read
@@ -1168,27 +1173,15 @@ jobs:
           - { name: x86_64, gha_runner: ubuntu-latest    }
           - { name: arm64,  gha_runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.arch.gha_runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      # MongooseIM 6.6.0 needs OTP >= 26; Dockerfile.mongoose's
-      # `FROM erlang:${OTP_VERSION}` needs a tag that exists on
-      # Docker Hub (numeric versions only — `master`, `maint-XX`,
-      # release-candidate refs don't have base images). Gate every
-      # subsequent step on this.
-      - name: Skip non-eligible OTP refs
+      - name: Skip OTP < 26 (MongooseIM 6.6.0 minimum)
         id: gate
         run: |
-          OTP_LABEL='${{ matrix.target.otp_label }}'
           OTP_MAJOR='${{ matrix.target.major }}'
-
-          if ! [[ "$OTP_LABEL" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "OTP_LABEL '$OTP_LABEL' is not a Docker Hub erlang tag (non-numeric) — XMPP bench skipped."
-            exit 0
-          fi
           if [ "$OTP_MAJOR" -lt 26 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "OTP $OTP_LABEL (major=$OTP_MAJOR) is < 26 — MongooseIM 6.6.0 needs OTP >= 26, XMPP bench skipped."
+            echo "OTP ${{ matrix.target.otp_label }} (major=$OTP_MAJOR) is < 26 — MongooseIM 6.6.0 needs OTP >= 26, XMPP bench skipped."
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -1198,10 +1191,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Login to GHCR
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull AWFY per-OTP image (used as MongooseIM build base)
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          docker pull "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}"
+
       - uses: erlef/setup-beam@v1
         if: steps.gate.outputs.skip != 'true'
         with:
-          # The mix host process drives compose; it just needs *some*
+          # Mix host process drives compose; it just needs *some*
           # working OTP+Elixir, not the target version. Pin to a
           # known-good build for stability across the sweep.
           otp-version: "28"
@@ -1210,11 +1214,18 @@ jobs:
       - name: Run XMPP bench
         if: steps.gate.outputs.skip != 'true'
         env:
-          # Broker side — MongooseIM rebuilds against this each run,
-          # which is the axis the sweep measures.
+          # Point Dockerfile.mongoose's FROM at the AWFY per-OTP
+          # image; same image for build + runtime (no slim variant
+          # exists for AWFY images — accept the ~200 MB size cost,
+          # only matters in CI).
+          MIM_BASE_IMAGE: "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}"
+          MIM_RUNTIME_IMAGE: "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}"
+          # OTP_VERSION still gets fed into the compose for any
+          # downstream consumer that uses it (none today, but kept
+          # consistent so future per-OTP labelling works).
           MIM_OTP_VERSION: ${{ matrix.target.otp_label }}
           # Load-gen side — pinned. Default in the compose is 27.3
-          # too, set here explicitly so a future priv/ pin uplift
+          # too; set here explicitly so a future priv/ pin uplift
           # only requires one CI patch.
           AMOC_OTP_VERSION: "27.3"
           # Captured into meta.json so the dashboard plots this row
