@@ -1141,6 +1141,99 @@ jobs:
           path: results/
           retention-days: 30
 
+  # XMPP application-level benchmark: drives amoc-arsenal-xmpp's
+  # `dynamic_domains_pm` scenario against MongooseIM and measures the
+  # broker's CPU% + memory + sustained msg/s (see
+  # PLAN/MONGOOSEIM_BENCH_PLAN.md). MongooseIM is built per-target so
+  # the broker side runs on each OTP version we sweep; Amoc's OTP is
+  # pinned via priv/amoc-otp-version.txt so the load-gen is a
+  # constant across the sweep.
+  #
+  # Filtered to OTP >= 26 (MongooseIM 6.6.0's worker_pool dep declares
+  # `{minimum_otp_vsn, "26"}`) and to numeric Docker Hub `erlang:<tag>`
+  # versions (master / maint-XX branches don't have base images).
+  # Both filters fire at step level because matrix context isn't in
+  # scope at job-level `if:`.
+  measure-xmpp-linux:
+    needs: [resolve]
+    if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJson(needs.resolve.outputs.targets_modern_linux) }}
+        arch:
+          - { name: x86_64, gha_runner: ubuntu-latest    }
+          - { name: arm64,  gha_runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.arch.gha_runner }}
+    timeout-minutes: 30
+    steps:
+      # MongooseIM 6.6.0 needs OTP >= 26; Dockerfile.mongoose's
+      # `FROM erlang:${OTP_VERSION}` needs a tag that exists on
+      # Docker Hub (numeric versions only — `master`, `maint-XX`,
+      # release-candidate refs don't have base images). Gate every
+      # subsequent step on this.
+      - name: Skip non-eligible OTP refs
+        id: gate
+        run: |
+          OTP_LABEL='${{ matrix.target.otp_label }}'
+          OTP_MAJOR='${{ matrix.target.major }}'
+
+          if ! [[ "$OTP_LABEL" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "OTP_LABEL '$OTP_LABEL' is not a Docker Hub erlang tag (non-numeric) — XMPP bench skipped."
+            exit 0
+          fi
+          if [ "$OTP_MAJOR" -lt 26 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "OTP $OTP_LABEL (major=$OTP_MAJOR) is < 26 — MongooseIM 6.6.0 needs OTP >= 26, XMPP bench skipped."
+            exit 0
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          persist-credentials: false
+
+      - uses: erlef/setup-beam@v1
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          # The mix host process drives compose; it just needs *some*
+          # working OTP+Elixir, not the target version. Pin to a
+          # known-good build for stability across the sweep.
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: Run XMPP bench
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          # Broker side — MongooseIM rebuilds against this each run,
+          # which is the axis the sweep measures.
+          MIM_OTP_VERSION: ${{ matrix.target.otp_label }}
+          # Load-gen side — pinned. Default in the compose is 27.3
+          # too, set here explicitly so a future priv/ pin uplift
+          # only requires one CI patch.
+          AMOC_OTP_VERSION: "27.3"
+          # Captured into meta.json so the dashboard plots this row
+          # against the right OTP version on the trend axis.
+          AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
+          AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+        run: |
+          mix deps.get
+          mix compile
+          mix awfy.measure_xmpp \
+            --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}"
+
+      - uses: actions/upload-artifact@v7
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          name: results-xmpp-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}
+          path: results/
+          retention-days: 30
+
   # Aggregate every uploaded results/ dir onto gh-pages and
   # regenerate the dashboard. Always GHA-hosted (no benchmark
   # accuracy needed). Runs even if some measure jobs fail —
@@ -1154,6 +1247,7 @@ jobs:
       - measure-windows-target
       - measure-macos
       - measure-macos-target
+      - measure-xmpp-linux
     permissions:
       contents: write   # push to gh-pages
     if: ${{ !cancelled() && needs.resolve.result == 'success' }}
