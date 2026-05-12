@@ -30,7 +30,7 @@ inputs:
     description: GitHub token with `read:packages` (and `write:packages` if pushing).
     required: true
   username:
-    description: GitHub username for the docker login. Usually `${{ github.actor }}`.
+    description: GitHub username for the docker login. Usually the github.actor context value.
     required: true
 
 runs:
