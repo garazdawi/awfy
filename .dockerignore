@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
 # Exclude transient + large files that have no business in any
 # build context (cuts the XMPP-bench compose-up context from
 # >700 MB to ~MB; previously the legacy docker builder choked on

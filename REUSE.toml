@@ -82,3 +82,34 @@ path = ["apps/awfy_target_runner/_build/**", "apps/awfy_target_runner/deps/**/_b
 precedence = "aggregate"
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "CC0-1.0"
+
+# XMPP-bench scenario configs. JSON has no comment syntax, so the
+# SPDX info has to live here.
+[[annotations]]
+path = "priv/scenario-config/*.json"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Lukas Backström <lukas@erlang.org>"
+SPDX-License-Identifier = "Apache-2.0"
+
+# Vendored PostgreSQL schema from MongooseIM 6.6.0 — kept verbatim
+# so a pin uplift is a one-line refresh from upstream. Carries
+# ProcessOne's 2002-2011 ejabberd copyright at the top of the file;
+# MongooseIM ships it under Apache-2.0 (the project's LICENSE).
+[[annotations]]
+path = "priv/topology/mongooseim-*-pg.sql"
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["2002-2011 ProcessOne", "Erlang Solutions Ltd."]
+SPDX-License-Identifier = "Apache-2.0"
+
+# Vendored estone_SUITE from upstream erlang/otp (used by
+# apps/otp_benchmarks to drive the ESTONES bar in the dashboard's
+# trend chart). The .erl file already carries an inline SPDX header
+# matching the upstream OTP source; this entry covers the auxiliary
+# data files (Makefile.src + estone_cat.c) and the README we wrote
+# describing the vendoring, all of which sit under Apache-2.0 like
+# the rest of upstream OTP.
+[[annotations]]
+path = "apps/otp_benchmarks/vendor/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Ericsson AB"
+SPDX-License-Identifier = "Apache-2.0"

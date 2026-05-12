@@ -1,5 +1,9 @@
 # SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
 # SPDX-License-Identifier: Apache-2.0
+
+# shellcheck shell=bash
+# (No shebang because this file is sourced, not executed — both
+# bash and zsh callers source it.)
 #
 # Ensure Docker is callable on this host.
 #

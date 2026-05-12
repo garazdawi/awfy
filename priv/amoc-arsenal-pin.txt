@@ -1,1 +1,3 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
 eac44cfe79417a96e87a6629916d2c49102da0e4
