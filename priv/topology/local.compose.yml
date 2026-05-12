@@ -84,6 +84,15 @@ services:
         condition: service_healthy
     ports:
       - "5222:5222"
+    environment:
+      # Forwarded from the host orchestrator (bench.yml's measure-
+      # xmpp-linux job) so the jit/emu matrix axis can switch the
+      # broker between BeamAsm and the interpreter. mongooseimctl
+      # honours $ERL_FLAGS — `-emu_flavor emu` picks beam.emu over
+      # beam.smp at boot. Empty on the jit leg → the install's
+      # default (JIT) wins, matching the prior single-flavor
+      # behaviour.
+      ERL_FLAGS: "${MIM_ERL_FLAGS:-}"
     healthcheck:
       # `mongooseimctl status` exits 0 only when the BEAM is up and
       # the boot-time apps have finished starting. ~30s of retries

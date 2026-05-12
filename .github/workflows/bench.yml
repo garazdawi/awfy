@@ -1253,7 +1253,7 @@ jobs:
   # `{minimum_otp_vsn, "26"}`). The major check fires at step level
   # because matrix context isn't in scope at job-level `if:`.
   measure-xmpp-linux:
-    name: measure-xmpp-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }})
+    name: measure-xmpp-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }}, ${{ matrix.flavor }})
     needs: [resolve, build-linux]
     # `!cancelled()` — see prep-target-bundle for the rationale.
     if: ${{ !cancelled() && needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
@@ -1267,6 +1267,11 @@ jobs:
         arch:
           - { name: x86_64, gha_runner: ubuntu-latest    }
           - { name: arm64,  gha_runner: ubuntu-24.04-arm }
+        # Same jit/emu split as the synthetic measure-linux. The
+        # AWFY image installs both beam.smp (JIT) and beam.emu
+        # (interpreter) under the same prefix; `-emu_flavor emu`
+        # at runtime tells MongooseIM's erl which one to load.
+        flavor: [jit, emu]
     runs-on: ${{ matrix.arch.gha_runner }}
     timeout-minutes: 45
     steps:
@@ -1336,16 +1341,22 @@ jobs:
           # against the right OTP version on the trend axis.
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
+          # MIM_ERL_FLAGS gets forwarded by local.compose.yml into
+          # MongooseIM's container env as ERL_FLAGS. `-emu_flavor
+          # emu` is what flips the BEAM from beam.smp (JIT) to
+          # beam.emu (interpreter) at boot. Empty on the jit leg
+          # so we use whatever the install defaults to (jit).
+          MIM_ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
         run: |
           mix deps.get
           mix compile
           mix awfy.measure_xmpp \
-            --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}"
+            --label "${{ matrix.target.label }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}"
 
       - uses: actions/upload-artifact@v7
         if: steps.gate.outputs.skip != 'true'
         with:
-          name: results-xmpp-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}
+          name: results-xmpp-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
           path: results/
           retention-days: 30
 
