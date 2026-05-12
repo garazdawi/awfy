@@ -43,42 +43,30 @@ defmodule Awfy.AppBench.Result do
     periods_ns = Enum.map(samples, &throughput_to_period_ns/1)
     stats = compute_statistics(periods_ns)
 
-    scenario = %{
-      __struct__: Benchee.Scenario,
-      name: scenario_name,
-      job_name: job_name,
-      input_name: input_name,
-      input: input_name,
-      tag: nil,
-      function: nil,
-      before_each: nil,
-      after_each: nil,
-      before_scenario: nil,
-      after_scenario: nil,
-      run_time_data: %{
-        __struct__: Benchee.CollectionData,
-        statistics: stats,
-        samples: periods_ns
-      },
-      memory_usage_data: %{
-        __struct__: Benchee.CollectionData,
-        statistics: empty_statistics(),
-        samples: []
-      },
-      reductions_data: %{
-        __struct__: Benchee.CollectionData,
-        statistics: empty_statistics(),
-        samples: []
-      }
-    }
+    # struct/2 fills in every Benchee.Scenario / Benchee.CollectionData
+    # / Benchee.Statistics key with its declared default — important
+    # because SuiteSlim.slim/1 pattern-matches strictly on those
+    # structs and would KeyError on a hand-rolled map that omits any
+    # field (outliers/, inputs/, ...).
+    scenario =
+      struct(Benchee.Scenario, %{
+        name: scenario_name,
+        job_name: job_name,
+        input_name: input_name,
+        input: input_name,
+        run_time_data:
+          struct(Benchee.CollectionData, %{statistics: stats, samples: periods_ns}),
+        memory_usage_data:
+          struct(Benchee.CollectionData, %{statistics: empty_statistics(), samples: []}),
+        reductions_data:
+          struct(Benchee.CollectionData, %{statistics: empty_statistics(), samples: []})
+      })
 
-    %{
-      __struct__: Benchee.Suite,
-      configuration: %{__struct__: Benchee.Configuration, time: 0, warmup: 0},
+    struct(Benchee.Suite, %{
+      configuration: struct(Benchee.Configuration, %{time: 0, warmup: 0}),
       scenarios: [scenario],
-      system: metadata,
-      benchmarks: nil
-    }
+      system: metadata
+    })
   end
 
   defp throughput_to_period_ns(0), do: nil
@@ -98,13 +86,9 @@ defmodule Awfy.AppBench.Result do
       sum = Enum.sum(sorted)
       mean = sum / n
 
-      %{
-        __struct__: Benchee.Statistics,
+      struct(Benchee.Statistics, %{
         average: mean,
-        ips: nil,
         std_dev: stddev(nums, mean),
-        std_dev_ratio: nil,
-        std_dev_ips: nil,
         median: percentile(sorted, 0.5),
         percentiles: %{
           25 => percentile(sorted, 0.25),
@@ -112,35 +96,16 @@ defmodule Awfy.AppBench.Result do
           75 => percentile(sorted, 0.75),
           99 => percentile(sorted, 0.99)
         },
-        mode: nil,
         minimum: List.first(sorted),
         maximum: List.last(sorted),
         sample_size: n,
-        relative_more: nil,
-        relative_less: nil,
-        absolute_difference: nil
-      }
+        outliers: []
+      })
     end
   end
 
   defp empty_statistics do
-    %{
-      __struct__: Benchee.Statistics,
-      average: nil,
-      ips: nil,
-      std_dev: nil,
-      std_dev_ratio: nil,
-      std_dev_ips: nil,
-      median: nil,
-      percentiles: %{},
-      mode: nil,
-      minimum: nil,
-      maximum: nil,
-      sample_size: 0,
-      relative_more: nil,
-      relative_less: nil,
-      absolute_difference: nil
-    }
+    struct(Benchee.Statistics, %{percentiles: %{}, sample_size: 0, outliers: []})
   end
 
   defp percentile([only], _), do: only
