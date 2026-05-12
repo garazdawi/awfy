@@ -72,15 +72,15 @@ case "$REF" in
         # serves old tarballs at ~20 KB/s during US peak (88 MB
         # OTP-20.3 ran into our 30-min cap with curl on run
         # 25740656636); rsync over its native protocol is markedly
-        # more reliable for those bulk downloads. The rsync host
-        # and module name are documented at erlang.org/downloads
-        # ("reachable through rsync rsync.erlang.org::erlang-
-        # download").
+        # more reliable for those bulk downloads when port 873 is
+        # reachable. The rsync host and module name are documented
+        # at erlang.org/downloads ("reachable through rsync
+        # rsync.erlang.org::erlang-download").
         #
-        # rsync requires `rsync` in the image — added to
-        # Dockerfile.linux's otp-build apt list. Falls through to
-        # the github archive fallback (strategy 4 below) if rsync
-        # isn't installed or the daemon is unreachable.
+        # rsync requires `rsync` on the host — Dockerfile.linux's
+        # otp-build apt list adds it, macOS ships it. Networks that
+        # block port 873 (some corporate / ISP setups) fall through
+        # to strategy 3 (erlang.org over HTTPS curl).
         if [ -z "$SRC" ] && command -v rsync >/dev/null 2>&1; then
             rsync_url="rsync://rsync.erlang.org/erlang-download/otp_src_$VERSION.tar.gz"
             echo "fetch-otp-source: fetching $rsync_url (release tarball, erlang.org rsync)" >&2
@@ -92,6 +92,24 @@ case "$REF" in
             else
                 echo "fetch-otp-source: rsync from erlang.org failed (no such ref or daemon unreachable)" >&2
                 rm -f "$WORK/otp_src.tar.gz"
+            fi
+        fi
+
+        # Strategy 3: erlang.org mirror over HTTPS curl. Slower than
+        # rsync for old tarballs but works on networks where port
+        # 873 is blocked. Same speed-limit/speed-time pattern as
+        # the github strategy so a truly stalled pull falls through
+        # to the otp_prebuilt / archive fallbacks instead of
+        # wedging.
+        if [ -z "$SRC" ]; then
+            erlang_url="https://erlang.org/download/otp_src_$VERSION.tar.gz"
+            if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$erlang_url"; then
+                echo "fetch-otp-source: fetching $erlang_url (release tarball, erlang.org https)" >&2
+                if curl -fL --connect-timeout 30 --max-time 1800 \
+                        --speed-limit 10240 --speed-time 60 \
+                        "$erlang_url" | tar xz; then
+                    SRC="otp_src_$VERSION"
+                fi
             fi
         fi
         ;;
