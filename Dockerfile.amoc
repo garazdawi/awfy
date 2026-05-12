@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Pinned amoc-arsenal-xmpp release for the XMPP application-level
+# benchmark. See PLAN/MONGOOSEIM_BENCH_PLAN.md.
+#
+# Mirrors upstream's Dockerfile shape but fetches the source at our
+# pinned commit via the GitHub tarball API rather than COPY-ing from
+# the local working tree. Build is otherwise identical: rebar3
+# release of the amoc_arsenal_xmpp project, which bundles Amoc +
+# Escalus + the arsenal scenarios (including `dynamic_domains_pm`
+# and the recent interarrival parameter that Phase 1 needs).
+#
+# Build args:
+#   AMOC_ARSENAL_PIN — git SHA or tag for amoc-arsenal-xmpp.
+#   OTP_VERSION      — OTP major.minor for the base image. Pinned in
+#                      priv/amoc-otp-version.txt to isolate the
+#                      load-gen's OTP from the broker's OTP axis.
+#
+# Image tag (pushed by CI):
+#   ghcr.io/<repo>:amoc-<otp_version>-<arsenal_pin_short>
+
+ARG OTP_VERSION=27.3
+FROM erlang:${OTP_VERSION} AS build
+
+ARG AMOC_ARSENAL_PIN=eac44cfe79417a96e87a6629916d2c49102da0e4
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Build deps. exml is a NIF so we need libexpat + a C toolchain.
+# gun + fusco are pure-Erlang.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        libexpat1-dev \
+        libssl-dev \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /amoc_arsenal_xmpp
+RUN curl -fsSL "https://github.com/esl/amoc-arsenal-xmpp/archive/${AMOC_ARSENAL_PIN}.tar.gz" \
+        | tar xz --strip-components=1
+
+# Two-step build mirrors upstream — fetching deps before compiling
+# them gives Docker's layer cache something to grip on when only the
+# arsenal source changes.
+RUN rebar3 compile --deps_only
+RUN rebar3 as prod release
+
+# --- runtime stage ---------------------------------------------------
+FROM erlang:${OTP_VERSION}-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libexpat1 \
+        libssl3 \
+        ca-certificates \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/amoc
+COPY --from=build /amoc_arsenal_xmpp/_build/prod/rel/amoc_arsenal_xmpp/ ./
+
+ENV PATH="/opt/amoc/bin:${PATH}"
+
+# Amoc's REST control plane.
+EXPOSE 4000
+
+# `console -noshell -noinput +Bd` matches upstream — keeps the BEAM
+# in the foreground so Docker manages the lifecycle, with no TTY
+# interaction and the break handler disabled so Ctrl-C from `docker
+# logs -f` doesn't accidentally kill the load gen.
+ENTRYPOINT ["./bin/amoc_arsenal_xmpp", "console", "-noshell", "-noinput", "+Bd"]
