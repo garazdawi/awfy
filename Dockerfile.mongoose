@@ -57,6 +57,45 @@ RUN if [ -d /tmp/patches ] && ls /tmp/patches/*.patch >/dev/null 2>&1; then \
         done; \
     fi
 
+# Disable MongooseIM's system_metrics telemetry. The default ships
+# with `report = true` (uncommented section header, implicit default),
+# which prints a multi-line `report_transparency` warning to the log
+# every boot and POSTs an anonymous metrics report to ESL's collector.
+# Neither belongs in a controlled benchmark run — the warning eats log
+# lines we care about, and an outbound POST adds non-determinism.
+RUN awk '/^\[services.service_mongoose_system_metrics\]/{print; print "  report = false"; next} {print}' \
+        rel/files/mongooseim.toml > rel/files/mongooseim.toml.new \
+    && mv rel/files/mongooseim.toml.new rel/files/mongooseim.toml
+
+# Enable the bits amoc-arsenal-xmpp's `dynamic_domains_pm` scenario
+# needs from MongooseIM:
+#
+#   1. Admin GraphQL endpoint reachable from outside loopback —
+#      default ships at `ip_address = "127.0.0.1"` in vars-toml.config
+#      (rendered into `[[listen.http]]` of mongooseim.toml). The
+#      values are stored as Erlang string literals with escaped
+#      quotes (`\"127.0.0.1\"`), so the sed pattern matches the
+#      backslash form.
+#   2. `host = "localhost"` on the admin GraphQL handler is Cowboy's
+#      vhost filter — rejects requests whose Host header doesn't
+#      equal "localhost". The amoc-worker dials `mongooseim:5551`, so
+#      Host arrives as "mongooseim" and the handler returns nothing.
+#      Replace with `host = "_"` (wildcard) — same as MongooseIM
+#      already uses for the domain-admin + user GraphQL handlers.
+#      Other `host = "localhost"` entries in mongooseim.toml live on
+#      commented-out example lines (mod_register clause + s2s allow
+#      rule), so the leading-whitespace anchor keeps the swap scoped.
+#   3. `service_domain_db` and `host_types` aren't declared in
+#      prod.vars-toml.config, so the Mustache block in mongooseim.toml
+#      stays unrendered and the `addDomain` GraphQL mutation fails
+#      with `deps_not_loaded`. Add minimal config so dynamic domains
+#      work; the scenario's default `host_type = <<"localhost">>`
+#      then has a matching type to register against.
+RUN sed -i 's#ip_address = \\"127.0.0.1\\"#ip_address = \\"0.0.0.0\\"#g' rel/vars-toml.config \
+    && sed -i 's#^    host = "localhost"#    host = "_"#' rel/files/mongooseim.toml \
+    && sed -i 's#^{hosts, .*}\.$#{hosts, ""}.\n{host_types, "\\"localhost\\""}.\n{service_domain_db, "  event_cleaning_interval = 1000"}.#' \
+        rel/prod.vars-toml.config
+
 # `./tools/configure with-all` writes configure.out + reltool vars.
 # Defaults are fine for an in-memory single-node setup. `make rel`
 # produces _build/prod/rel/mongooseim/.
