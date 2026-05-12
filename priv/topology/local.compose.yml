@@ -25,6 +25,16 @@
 # Mirrors upstream amoc-arsenal-xmpp's ci/docker-compose.yml so a
 # pin uplift translates one-to-one.
 
+# Force the project name so the amoc-master service's built image
+# resolves to a known tag (`awfy_xmpp-amoc-master:latest`) regardless
+# of the caller's working directory. Without this, compose defaults
+# to the basename of the working dir — locally that happens to give
+# us the same name we hardcoded for amoc-worker's `image:`, but in
+# CI the working dir is the repo root (`awfy`) so the auto-tag
+# becomes `awfy-amoc-master` and amoc-worker's `image: ...-amoc-master`
+# + `pull_policy: never` fails fast with "no such image".
+name: awfy_xmpp
+
 services:
   postgres:
     container_name: awfy-postgres
@@ -117,7 +127,11 @@ services:
   amoc-worker:
     container_name: awfy-amoc-worker
     hostname: amoc-worker
-    image: topology-amoc-master
+    # Reuse the image amoc-master just built (saves 5-10 min of cold
+    # rebuild). The tag matches compose's auto-generated name
+    # `<project>-<service>:latest` — `name:` at the top of this file
+    # pins the project portion to `awfy_xmpp`.
+    image: awfy_xmpp-amoc-master
     pull_policy: never
     depends_on:
       amoc-master:

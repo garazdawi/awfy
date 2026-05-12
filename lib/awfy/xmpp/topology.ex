@@ -164,20 +164,35 @@ defmodule Awfy.Xmpp.Topology do
   defp compose_up(%ScenarioConfig{} = config) do
     env = Enum.to_list(ScenarioConfig.to_env(config))
     {cmd, base_args} = compose_command()
+    args = base_args ++ ["-f", @local_compose_file, "up", "-d", "--build"]
+
+    # CI diagnostics — without these the only visible signal is the
+    # truncated tuple from System.cmd's buffered output. Mix.shell()
+    # is unavailable here (we run before the mix task), so plain IO.
+    IO.puts(
+      :stderr,
+      "[topology] compose: #{cmd} #{Enum.join(args, " ")}\n" <>
+        "[topology] cwd:     #{File.cwd!()}\n" <>
+        "[topology] envvars: #{summarize_env(env)}\n" <>
+        "[topology] passthrough: " <>
+        "MIM_BASE_IMAGE=#{System.get_env("MIM_BASE_IMAGE") || "(unset)"} " <>
+        "MIM_OTP_VERSION=#{System.get_env("MIM_OTP_VERSION") || "(unset)"} " <>
+        "AMOC_OTP_VERSION=#{System.get_env("AMOC_OTP_VERSION") || "(unset)"}"
+    )
 
     # Builds images if they don't exist (first run) and reuses cached
     # layers on subsequent runs. --wait would block on healthchecks
     # but Phase 1 polls separately via wait_ready/2 to give cleaner
     # error messages.
-    case System.cmd(
-           cmd,
-           base_args ++ ["-f", @local_compose_file, "up", "-d", "--build"],
-           env: env,
-           stderr_to_stdout: true
-         ) do
+    case System.cmd(cmd, args, env: env, stderr_to_stdout: true) do
       {_, 0} -> :ok
       {out, status} -> {:error, {:compose_up_failed, status, tail(out, 4_000)}}
     end
+  end
+
+  defp summarize_env(env) do
+    env
+    |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{v}" end)
   end
 
   # Compose-up dumps many kilobytes of layer-pull / layer-extract
