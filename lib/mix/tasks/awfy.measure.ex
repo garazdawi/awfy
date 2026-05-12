@@ -119,7 +119,24 @@ defmodule Mix.Tasks.Awfy.Measure do
     otp_families = otp_families_to_run(bench_filter, opts)
 
     if candidates == [] and otp_families == [] do
-      Mix.raise("no benchmarks selected")
+      # When `--benchmarks` is set and nothing matches, treat the run
+      # as a successful no-op. The bench.yml fill path passes the same
+      # `--benchmarks <list>` to every platform's measure job, so a
+      # filter like `dynamic_domains_pm_*` (only exists on the XMPP
+      # leg) lands on the Windows / synthetic-Linux jobs too — those
+      # have zero matches and would otherwise fail the workflow even
+      # though the user's intent was platform-scoped from the start.
+      # No filter set + empty selection still raises (real
+      # misconfiguration: nothing at all to run).
+      if bench_filter != nil do
+        Mix.shell().info(
+          "no scenarios match --benchmarks #{inspect(opts[:benchmarks])} — exiting successfully"
+        )
+
+        System.halt(0)
+      else
+        Mix.raise("no benchmarks selected")
+      end
     end
 
     Mix.shell().info("=== verify pass (#{length(candidates)} scenarios) ===")
