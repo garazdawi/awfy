@@ -1235,20 +1235,21 @@ jobs:
     runs-on: ${{ matrix.arch.gha_runner }}
     timeout-minutes: 45
     steps:
-      - name: Skip OTP < 27 (MongooseIM 6.6.0 uses -doc, OTP 27+)
+      - name: Skip OTP < 27 (MongooseIM dropped 26 upstream)
         id: gate
         run: |
-          # MongooseIM 6.6.0 declares minimum_otp_vsn = "26" but the
-          # tree uses EEP-59 `-doc` attributes (added in OTP 27),
-          # e.g. src/sasl/cyrsasl_external.erl:167. On OTP 26 those
-          # parse as unknown attributes that appear after function
-          # defs and the compiler aborts `make rel` with
-          # "attribute doc after function definitions". 27 is the
-          # empirical floor regardless of what the manifest says.
+          # MongooseIM 6.6.5 officially dropped OTP 26, and the
+          # 6.6.0 tree pinned here doesn't build on 26 either —
+          # `src/sasl/cyrsasl_external.erl:167` places a `-doc`
+          # (EEP-59, OTP 27+) attribute after the previous function
+          # definition, and OTP 26's compiler rejects it as
+          # "attribute doc after function definitions", aborting
+          # `make rel`. Pin the floor at 27 and save the wasted
+          # build cycle.
           OTP_MAJOR='${{ matrix.target.major }}'
           if [ "$OTP_MAJOR" -lt 27 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "OTP ${{ matrix.target.otp_label }} (major=$OTP_MAJOR) is < 27 — MongooseIM 6.6.0 -doc attrs need OTP >= 27, XMPP bench skipped."
+            echo "OTP ${{ matrix.target.otp_label }} (major=$OTP_MAJOR) is < 27 — MongooseIM dropped 26 in 6.6.5; the pinned 6.6.0 tree also fails to build on 26 (-doc attr). XMPP bench skipped."
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
