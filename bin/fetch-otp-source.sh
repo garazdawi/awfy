@@ -73,16 +73,19 @@ case "$REF" in
         # OTP-20.3 ran into our 30-min cap with curl on run
         # 25740656636); rsync over its native protocol is markedly
         # more reliable for those bulk downloads when port 873 is
-        # reachable. The rsync host and module name are documented
-        # at erlang.org/downloads ("reachable through rsync
-        # rsync.erlang.org::erlang-download").
+        # reachable.
+        #
+        # The rsync host is `erlang.org` (not `rsync.erlang.org` —
+        # that name doesn't resolve to a reachable rsyncd on
+        # common networks). The `erlang-download` module exposes
+        # the same file tree as https://erlang.org/download/.
         #
         # rsync requires `rsync` on the host — Dockerfile.linux's
         # otp-build apt list adds it, macOS ships it. Networks that
         # block port 873 (some corporate / ISP setups) fall through
         # to strategy 3 (erlang.org over HTTPS curl).
         if [ -z "$SRC" ] && command -v rsync >/dev/null 2>&1; then
-            rsync_url="rsync://rsync.erlang.org/erlang-download/otp_src_$VERSION.tar.gz"
+            rsync_url="rsync://erlang.org/erlang-download/otp_src_$VERSION.tar.gz"
             echo "fetch-otp-source: fetching $rsync_url (release tarball, erlang.org rsync)" >&2
             if rsync --contimeout=30 --timeout=60 \
                     "$rsync_url" "$WORK/otp_src.tar.gz" 2>&1 \
