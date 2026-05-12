@@ -56,7 +56,11 @@ services:
       dockerfile: Dockerfile.mongoose
       args:
         MIM_PIN: "${MIM_PIN:-6.6.0}"
-        OTP_VERSION: "${OTP_VERSION:-27.3}"
+        # MIM_OTP_VERSION (broker side) is the axis we sweep across in
+        # CI — `bench.yml`'s measure-xmpp-linux job sets it to each
+        # target OTP. Amoc is pinned on a separate AMOC_OTP_VERSION
+        # var so the load-gen stays constant across the sweep.
+        OTP_VERSION: "${MIM_OTP_VERSION:-27.3}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +84,11 @@ services:
       dockerfile: Dockerfile.amoc
       args:
         AMOC_ARSENAL_PIN: "${AMOC_ARSENAL_PIN:-eac44cfe79417a96e87a6629916d2c49102da0e4}"
-        OTP_VERSION: "${OTP_VERSION:-27.3}"
+        # AMOC_OTP_VERSION is the load-gen's OTP — separate from
+        # MIM_OTP_VERSION (the broker axis we sweep). Stays pinned
+        # via priv/amoc-otp-version.txt; refreshed yearly when we
+        # uplift MongooseIM + Amoc together.
+        OTP_VERSION: "${AMOC_OTP_VERSION:-27.3}"
     depends_on:
       mongooseim:
         condition: service_healthy
