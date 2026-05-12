@@ -1,0 +1,3 @@
+# Placeholder so Dockerfile.mongoose's `COPY patches/mongooseim-<pin>/`
+# has a source dir even when MongooseIM 6.6.0 builds clean against the
+# pinned OTP version (no compat patches needed).
