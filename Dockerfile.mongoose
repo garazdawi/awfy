@@ -107,6 +107,26 @@ RUN sed -i 's#ip_address = \\"127.0.0.1\\"#ip_address = \\"0.0.0.0\\"#g' rel/var
 COPY priv/topology/mongooseim-${MIM_PIN}-prod.vars-toml.config \
      rel/prod.vars-toml.config
 
+# MongooseIM bundles a rebar3 escript whose precompiled .beam files
+# were built against an older OTP. On OTP 29 the BEAM loader refuses
+# to load them ("please re-compile this module with an Erlang/OTP 29
+# compiler"), so `./rebar3 as prod release` dies before any actual
+# build work runs. Bootstrap a fresh rebar3 from source against the
+# current base OTP and drop it on top.
+#
+# `./bootstrap` is rebar3's own zero-deps build script — only uses
+# `erl` (no rebar3 needed to build rebar3). 3.24.0 is the current
+# stable line; bump on the same cadence as MongooseIM's bundle. A
+# pin matters here so a transient `master` rebar3 regression can't
+# tank the MongooseIM image build.
+ARG REBAR3_VERSION=3.24.0
+RUN curl -fsSL "https://github.com/erlang/rebar3/archive/refs/tags/${REBAR3_VERSION}.tar.gz" \
+        | tar xz -C /tmp \
+    && cd "/tmp/rebar3-${REBAR3_VERSION}" \
+    && ./bootstrap \
+    && cp rebar3 /build/rebar3 \
+    && rm -rf "/tmp/rebar3-${REBAR3_VERSION}"
+
 # `./tools/configure with-all` writes configure.out + reltool vars.
 # Defaults are fine for an in-memory single-node setup. `make rel`
 # produces _build/prod/rel/mongooseim/.
