@@ -81,44 +81,53 @@ esac
 if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
     auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
     base="https://api.github.com/repos/erlang/otp/actions/workflows/main.yaml/runs"
+    # Walk up to 20 recent completed runs per query so a single
+    # expired-artifact / artifact-less run (test-only failures still
+    # publish, but artifact retention is ~90 days; an old still-on-
+    # the-page run loses the artifact mid-life) doesn't force the
+    # script back to the github-archive fallback. No
+    # `conclusion == "success"` filter — the build job that uploads
+    # otp_prebuilt succeeds even when downstream doc-check / test
+    # legs fail the overall workflow.
     for q in "head_sha=$SHA" "branch=$REF"; do
-        run_json="$(curl -fsSL "${auth[@]}" "$base?$q&per_page=5" 2>/dev/null)" \
+        run_json="$(curl -fsSL "${auth[@]}" "$base?$q&per_page=20" 2>/dev/null)" \
             || { echo "fetch-otp-source: $q query failed (curl)" >&2; continue; }
-        # No `conclusion == "success"` filter — the workflow uploads
-        # `otp_prebuilt` from the build-side job, but a doc-check or
-        # test-leg failure later in the same workflow run flips the
-        # overall conclusion to "failure" even though the artifact is
-        # perfectly usable. Filter on `status == "completed"` so we
-        # don't grab an in-flight run whose artifact isn't uploaded
-        # yet; the artifact-existence check below handles whatever's
-        # left.
-        run_id="$(echo "$run_json" \
-            | jq -r '[.workflow_runs[] | select(.status == "completed")][0].id // empty' \
-            2>/dev/null)" || run_id=""
-        if [ -z "$run_id" ]; then
+        run_ids="$(echo "$run_json" \
+            | jq -r '.workflow_runs[] | select(.status == "completed") | .id' \
+            2>/dev/null)" || run_ids=""
+        if [ -z "$run_ids" ]; then
             echo "fetch-otp-source: $q matched no completed Build and check run" >&2
             continue
         fi
-        artifact_id="$(curl -fsSL "${auth[@]}" \
-            "https://api.github.com/repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
-            | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
-            2>/dev/null)" || artifact_id=""
-        if [ -z "$artifact_id" ]; then
-            echo "fetch-otp-source: run $run_id has no unexpired otp_prebuilt artifact" >&2
-            continue
-        fi
-        echo "fetch-otp-source: fetching otp_prebuilt artifact $artifact_id (run $run_id)" >&2
-        curl -fsSL -L "${auth[@]}" \
-            "https://api.github.com/repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
-            -o "$WORK/prebuilt.zip" 2>/dev/null \
-            || { echo "fetch-otp-source: artifact $artifact_id download failed" >&2; continue; }
-        unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt" \
-            || { echo "fetch-otp-source: artifact $artifact_id unzip failed" >&2; continue; }
-        tar xzf "$WORK/prebuilt/otp_src.tar.gz" \
-            || { echo "fetch-otp-source: artifact $artifact_id tarball extract failed" >&2; continue; }
-        # The artifact's tarball extracts to "otp/" already.
-        SRC="otp"
-        break
+        for run_id in $run_ids; do
+            artifact_id="$(curl -fsSL "${auth[@]}" \
+                "https://api.github.com/repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
+                | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
+                2>/dev/null)" || artifact_id=""
+            if [ -z "$artifact_id" ]; then
+                echo "fetch-otp-source: run $run_id has no unexpired otp_prebuilt artifact" >&2
+                continue
+            fi
+            echo "fetch-otp-source: fetching otp_prebuilt artifact $artifact_id (run $run_id)" >&2
+            if ! curl -fsSL -L "${auth[@]}" \
+                "https://api.github.com/repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
+                -o "$WORK/prebuilt.zip" 2>/dev/null; then
+                echo "fetch-otp-source: artifact $artifact_id download failed" >&2
+                continue
+            fi
+            if ! unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt"; then
+                echo "fetch-otp-source: artifact $artifact_id unzip failed" >&2
+                continue
+            fi
+            if ! tar xzf "$WORK/prebuilt/otp_src.tar.gz"; then
+                echo "fetch-otp-source: artifact $artifact_id tarball extract failed" >&2
+                continue
+            fi
+            # The artifact's tarball extracts to "otp/" already.
+            SRC="otp"
+            break
+        done
+        [ -n "$SRC" ] && break
     done
 fi
 
