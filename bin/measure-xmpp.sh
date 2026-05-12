@@ -26,7 +26,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # Source the docker-ensure helper so its EXIT trap fires in *this*
 # shell on script exit (otherwise Colima stays up after we're done).
-# shellcheck source=ensure-docker.sh
+# shellcheck source=bin/ensure-docker.sh disable=SC1091
 . "$script_dir/ensure-docker.sh"
 
 cd "$repo_root"

@@ -168,12 +168,17 @@ run_modern() {
     # System.otp_release/0 — see awfy.measure.ex's otp_version_label/0.
     local full_ver
     full_ver=$(ref_full_version "$ref")
+    # shellcheck disable=SC2030,SC2031  # The exports take effect for
+    # the rest of this function — the child `mix awfy.measure` reads
+    # them. Shellcheck's subshell heuristic misreads the for-loop +
+    # function-call structure these are nested under.
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
     # Pin the Elixir version that ends up in meta.json (modern path
     # uses the per-OTP-major target Elixir on PATH, but
     # System.version/0 reads whatever Elixir the host orchestrator
     # was spawned under — usually the latest). awfy.measure prefers
     # AWFY_TARGET_ELIXIR_VERSION over System.version/0.
+    # shellcheck disable=SC2030,SC2031
     export AWFY_TARGET_ELIXIR_VERSION="$elixir_ver"
     # Isolate MIX_HOME so a stale `~/.mix/archives/hex-X.Y.Z` (which
     # was compiled against whatever OTP installed it) doesn't get
@@ -244,9 +249,14 @@ run_legacy() {
     # cluster at the wrong point on the dashboard's X axis.
     local full_ver
     full_ver=$(ref_full_version "$ref")
+    # shellcheck disable=SC2030,SC2031  # subshell-scoped exports are
+    # intentional — the `mix awfy.measure` line below runs inside this
+    # same subshell so the exports reach it; we *want* them isolated
+    # from the outer loop.
     [ -n "$full_ver" ] && export AWFY_OTP_VERSION="$full_ver"
     # Same for elixir — the bundle runs under the target's per-major
     # Elixir, but the host orchestrator is Elixir 1.19.x.
+    # shellcheck disable=SC2030,SC2031
     export AWFY_TARGET_ELIXIR_VERSION="$elixir_ver"
     mix awfy.measure --label "${sha10}-test-macos-arm64-emu" --ignore-preflight
   )

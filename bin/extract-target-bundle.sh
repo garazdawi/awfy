@@ -24,8 +24,11 @@ mkdir -p "$OUTDIR"
 tar xzf "$TARBALL" -C "$OUTDIR" --strip-components=1
 
 echo "[extract] $OUTDIR/ top-level entries:"
+# shellcheck disable=SC2012  # human-readable display; non-alphanumeric
+# filenames in a bundle would be a bigger problem than ls's handling.
 ls -la "$OUTDIR/" | head -20
 echo "[extract] $OUTDIR/lib/ entries:"
+# shellcheck disable=SC2012
 ls -la "$OUTDIR/lib/" 2>/dev/null | head -25
 
 RUNNER="$OUTDIR/lib/awfy_target_runner/ebin/Elixir.Awfy.TargetRunner.beam"

@@ -30,12 +30,15 @@ if [ "$(uname -s)" != "Darwin" ]; then
     # Linux / other Unix — Docker is part of the host setup. Nothing
     # to do, including no trap (we don't manage a lifecycle we didn't
     # start).
+    # shellcheck disable=SC2317  # `exit 0` runs only when sourced
+    # fails (script invoked directly); shellcheck can't see that path.
     return 0 2>/dev/null || exit 0
 fi
 
 if ! command -v colima >/dev/null 2>&1; then
     echo "ensure-docker: macOS host without colima — install with:" >&2
     echo "  brew install colima docker docker-compose" >&2
+    # shellcheck disable=SC2317  # see note on `return 0 || exit 0` above
     return 1 2>/dev/null || exit 1
 fi
 
@@ -43,6 +46,8 @@ fi
 # If it already is, the user (or a prior invocation) owns the lifecycle —
 # we don't install a trap that would stop it from under them.
 if colima status >/dev/null 2>&1; then
+    # shellcheck disable=SC2317  # `exit 0` runs only when sourced
+    # fails (script invoked directly); shellcheck can't see that path.
     return 0 2>/dev/null || exit 0
 fi
 
@@ -66,6 +71,9 @@ __awfy_stop_colima_if_we_started() {
 # Compose with any pre-existing EXIT trap rather than clobbering it.
 __awfy_prev_exit_trap="$(trap -p EXIT | sed -E "s/^trap -- '(.*)' EXIT$/\1/")"
 if [ -n "$__awfy_prev_exit_trap" ]; then
+    # shellcheck disable=SC2064  # the trap body captures the *current*
+    # value of __awfy_prev_exit_trap on purpose — we want to bake in
+    # the pre-existing trap as it stood when ensure-docker was sourced.
     trap "__awfy_stop_colima_if_we_started; $__awfy_prev_exit_trap" EXIT
 else
     trap __awfy_stop_colima_if_we_started EXIT
