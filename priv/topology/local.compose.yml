@@ -26,6 +26,29 @@
 # pin uplift translates one-to-one.
 
 services:
+  postgres:
+    container_name: awfy-postgres
+    # Pinned to one PG major to match what the :aws_clt topology will
+    # provision via RDS. The :aws_clt path pins to the same major so a
+    # schema rev that breaks here breaks there too.
+    image: postgres:15
+    environment:
+      POSTGRES_DB: mongooseim
+      POSTGRES_USER: mongooseim
+      POSTGRES_PASSWORD: mongooseim_secret
+    volumes:
+      # Postgres runs anything in /docker-entrypoint-initdb.d/ on first
+      # boot (volumes are tmpfs in the compose lifecycle below, so
+      # "first boot" is every `up`). The schema file is the canonical
+      # MongooseIM 6.6.0 PG schema, fetched from upstream.
+      - ./mongooseim-6.6.0-pg.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mongooseim", "-d", "mongooseim"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 3s
+
   mongooseim:
     container_name: awfy-mongooseim
     build:
@@ -34,6 +57,9 @@ services:
       args:
         MIM_PIN: "${MIM_PIN:-6.6.0}"
         OTP_VERSION: "${OTP_VERSION:-27.3}"
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "5222:5222"
     healthcheck:
@@ -110,6 +136,13 @@ services:
       AMOC_GRAPHQL_HOST: '<<"mongooseim">>'
       AMOC_GRAPHQL_USER: '<<"admin">>'
       AMOC_GRAPHQL_PASSWORD: '<<"secret">>'
+      # Default is 60s, which on a measurement_duration_s=60 :local
+      # config eats the entire sampling window — every user is still
+      # in the post-create_domain sleep when the run ends. 1s is
+      # enough headroom for the addDomain GraphQL mutation to finish
+      # and propagate before subsequent users in the bucket try to
+      # connect.
+      AMOC_WAIT_TIME_FOR_DOMAIN_CREATION: "1"
       AMOC_DOMAIN_COUNT: "${DOMAINS:-10}"
       AMOC_DOMAIN_BUCKET_SIZE: "1"
       AMOC_INTERARRIVAL: "${INTERARRIVAL_MS:-5}"

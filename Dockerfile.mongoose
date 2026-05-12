@@ -67,34 +67,36 @@ RUN awk '/^\[services.service_mongoose_system_metrics\]/{print; print "  report 
         rel/files/mongooseim.toml > rel/files/mongooseim.toml.new \
     && mv rel/files/mongooseim.toml.new rel/files/mongooseim.toml
 
-# Enable the bits amoc-arsenal-xmpp's `dynamic_domains_pm` scenario
-# needs from MongooseIM:
-#
-#   1. Admin GraphQL endpoint reachable from outside loopback —
-#      default ships at `ip_address = "127.0.0.1"` in vars-toml.config
-#      (rendered into `[[listen.http]]` of mongooseim.toml). The
-#      values are stored as Erlang string literals with escaped
-#      quotes (`\"127.0.0.1\"`), so the sed pattern matches the
-#      backslash form.
-#   2. `host = "localhost"` on the admin GraphQL handler is Cowboy's
-#      vhost filter — rejects requests whose Host header doesn't
-#      equal "localhost". The amoc-worker dials `mongooseim:5551`, so
-#      Host arrives as "mongooseim" and the handler returns nothing.
-#      Replace with `host = "_"` (wildcard) — same as MongooseIM
-#      already uses for the domain-admin + user GraphQL handlers.
-#      Other `host = "localhost"` entries in mongooseim.toml live on
-#      commented-out example lines (mod_register clause + s2s allow
-#      rule), so the leading-whitespace anchor keeps the swap scoped.
-#   3. `service_domain_db` and `host_types` aren't declared in
-#      prod.vars-toml.config, so the Mustache block in mongooseim.toml
-#      stays unrendered and the `addDomain` GraphQL mutation fails
-#      with `deps_not_loaded`. Add minimal config so dynamic domains
-#      work; the scenario's default `host_type = <<"localhost">>`
-#      then has a matching type to register against.
+# Open the admin GraphQL endpoint to in-cluster callers. Defaults:
+#   * `ip_address = "127.0.0.1"` in vars-toml.config (rendered into
+#     `[[listen.http]]`) — loopback-only, so amoc-worker can't reach
+#     the listener over the docker bridge. Stored as Erlang string
+#     literals with escaped quotes (`\"127.0.0.1\"`), so the sed
+#     pattern matches the backslash form.
+#   * `host = "localhost"` on the admin GraphQL handler is Cowboy's
+#     vhost filter — rejects requests whose Host header doesn't equal
+#     "localhost". amoc-worker dials `mongooseim:5551`, so Host
+#     arrives as "mongooseim" and the handler returns nothing. Swap
+#     to `host = "_"` (wildcard); the other graphql handlers already
+#     use that. Anchor on leading whitespace so the substitution
+#     doesn't touch the commented-out mod_register/s2s examples that
+#     also contain `host = "localhost"`.
 RUN sed -i 's#ip_address = \\"127.0.0.1\\"#ip_address = \\"0.0.0.0\\"#g' rel/vars-toml.config \
     && sed -i 's#^    host = "localhost"#    host = "_"#' rel/files/mongooseim.toml \
-    && sed -i 's#^{hosts, .*}\.$#{hosts, ""}.\n{host_types, "\\"localhost\\""}.\n{service_domain_db, "  event_cleaning_interval = 1000"}.#' \
-        rel/prod.vars-toml.config
+    && sed -i 's#^{auth_method, .*}\.$#{auth_method, "dummy"}.#' rel/vars-toml.config
+
+# Drop in our customised prod.vars-toml.config to:
+#   * Empty `hosts` and declare `host_types = ["localhost"]` so
+#     `dynamic_domains_pm`'s default `host_type = <<"localhost">>` has
+#     a matching type to register against.
+#   * Enable `service_domain_db` (without it, the `addDomain` GraphQL
+#     mutation answers `deps_not_loaded`).
+#   * Configure an `outgoing_pools.rdbms.global` pool pointing at the
+#     `postgres` compose service — service_domain_db hard-requires an
+#     RDBMS pool. The schema is loaded into postgres via the init.d
+#     mount in priv/topology/local.compose.yml.
+COPY priv/topology/mongooseim-${MIM_PIN}-prod.vars-toml.config \
+     rel/prod.vars-toml.config
 
 # `./tools/configure with-all` writes configure.out + reltool vars.
 # Defaults are fine for an in-memory single-node setup. `make rel`

@@ -11,6 +11,10 @@
 !Dockerfile.amoc
 !patches/
 patches/OTP-*/
+!priv/topology/
+# The compose YAML itself never rides into a build context, only the
+# config overlays do; excluding it keeps the .yml out of cache keys.
+priv/topology/local.compose.yml
 
 # Re-exclude OTP patches (they're large and not for these images).
 # patches/mongooseim-<pin>/ and patches/amoc-<pin>/ stay included if
