@@ -20,7 +20,8 @@ defmodule Awfy.Xmpp.ScenarioConfig do
     :message_interval_s,
     :delay_before_s,
     :delay_after_s,
-    :measurement_duration_s
+    :measurement_duration_s,
+    :pre_sampling_wait_s
   ]
   defstruct @enforce_keys
 
@@ -32,9 +33,19 @@ defmodule Awfy.Xmpp.ScenarioConfig do
           interarrival_ms: non_neg_integer(),
           message_count: non_neg_integer(),
           message_interval_s: pos_integer(),
+          # Sent to the scenario as AMOC_DELAY_BEFORE_SENDING_MESSAGES —
+          # how long each user waits after connecting before sending its
+          # first message. Per-user value, controls when traffic starts
+          # at the user level.
           delay_before_s: non_neg_integer(),
           delay_after_s: non_neg_integer(),
-          measurement_duration_s: pos_integer()
+          measurement_duration_s: pos_integer(),
+          # Used by Awfy.Xmpp.Runner — how long to wait *after* starting
+          # the scenario before opening the sampling window. Distinct
+          # from delay_before_s: this skips the spawn+connect ramp so
+          # the throughput series captures steady state rather than the
+          # ramp-up. Tune per-topology to match expected ramp duration.
+          pre_sampling_wait_s: non_neg_integer()
         }
 
   @priv_dir Path.expand("../../../priv/scenario-config", __DIR__)
@@ -66,7 +77,8 @@ defmodule Awfy.Xmpp.ScenarioConfig do
        message_interval_s: Map.fetch!(json, "message_interval_s"),
        delay_before_s: Map.fetch!(json, "delay_before_s"),
        delay_after_s: Map.fetch!(json, "delay_after_s"),
-       measurement_duration_s: Map.fetch!(json, "measurement_duration_s")
+       measurement_duration_s: Map.fetch!(json, "measurement_duration_s"),
+       pre_sampling_wait_s: Map.fetch!(json, "pre_sampling_wait_s")
      }}
   rescue
     e in KeyError ->

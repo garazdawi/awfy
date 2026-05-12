@@ -37,37 +37,75 @@ defmodule Awfy.AppBench.Result do
   @spec build([number()], String.t(), keyword()) :: struct()
   def build(samples, scenario_name, opts \\ []) when is_list(samples) and is_binary(scenario_name) do
     metadata = Keyword.get(opts, :metadata, %{})
-    job_name = Keyword.get(opts, :job_name, scenario_name)
+    build_multi([{scenario_name, samples, opts}], metadata: metadata)
+  end
+
+  @doc """
+  Build a `%Benchee.Suite{}` containing multiple scenarios from a list
+  of `{name, samples, opts}` tuples. Used by the XMPP runner so a
+  single .benchee file carries the throughput, CPU%, and memory
+  series from one run as separate Benchee scenarios (so the dashboard
+  can plot them side-by-side and a stability check can flag any one
+  of them).
+
+  Each per-scenario `opts` keyword list may set:
+    * `:unit` — `:throughput_per_s` (default; inverts to period-ns so
+      higher rate sorts as lower-=-better) or `:lower_better_raw`
+      (CPU%, mem MB, anything already on a "lower=better" scale —
+      stored as-is, no inversion).
+    * `:job_name` — overrides the per-scenario job label.
+    * `:input` — fills `input_name` for OtpBenchmarks-style multi-
+      input runs; unused on Phase 1 :local but kept for parity.
+
+  Top-level `opts`:
+    * `:metadata` — populates the suite's `system` map; the runner
+      drops topology metadata + per-scenario timing knobs in here.
+  """
+  @spec build_multi([{String.t(), [number()], keyword()}], keyword()) :: struct()
+  def build_multi(scenarios, opts \\ []) when is_list(scenarios) do
+    metadata = Keyword.get(opts, :metadata, %{})
+
+    benchee_scenarios = Enum.map(scenarios, &build_scenario/1)
+
+    struct(Benchee.Suite, %{
+      configuration: struct(Benchee.Configuration, %{time: 0, warmup: 0}),
+      scenarios: benchee_scenarios,
+      system: metadata
+    })
+  end
+
+  defp build_scenario({name, samples, opts}) do
+    unit = Keyword.get(opts, :unit, :throughput_per_s)
+    job_name = Keyword.get(opts, :job_name, name)
     input_name = Keyword.get(opts, :input, nil)
 
-    periods_ns = Enum.map(samples, &throughput_to_period_ns/1)
-    stats = compute_statistics(periods_ns)
+    transformed = transform(samples, unit)
+    stats = compute_statistics(transformed)
 
     # struct/2 fills in every Benchee.Scenario / Benchee.CollectionData
     # / Benchee.Statistics key with its declared default — important
     # because SuiteSlim.slim/1 pattern-matches strictly on those
     # structs and would KeyError on a hand-rolled map that omits any
     # field (outliers/, inputs/, ...).
-    scenario =
-      struct(Benchee.Scenario, %{
-        name: scenario_name,
-        job_name: job_name,
-        input_name: input_name,
-        input: input_name,
-        run_time_data:
-          struct(Benchee.CollectionData, %{statistics: stats, samples: periods_ns}),
-        memory_usage_data:
-          struct(Benchee.CollectionData, %{statistics: empty_statistics(), samples: []}),
-        reductions_data:
-          struct(Benchee.CollectionData, %{statistics: empty_statistics(), samples: []})
-      })
-
-    struct(Benchee.Suite, %{
-      configuration: struct(Benchee.Configuration, %{time: 0, warmup: 0}),
-      scenarios: [scenario],
-      system: metadata
+    struct(Benchee.Scenario, %{
+      name: name,
+      job_name: job_name,
+      input_name: input_name,
+      input: input_name,
+      run_time_data:
+        struct(Benchee.CollectionData, %{statistics: stats, samples: transformed}),
+      memory_usage_data:
+        struct(Benchee.CollectionData, %{statistics: empty_statistics(), samples: []}),
+      reductions_data:
+        struct(Benchee.CollectionData, %{statistics: empty_statistics(), samples: []})
     })
   end
+
+  defp transform(samples, :throughput_per_s),
+    do: Enum.map(samples, &throughput_to_period_ns/1)
+
+  defp transform(samples, :lower_better_raw),
+    do: Enum.filter(samples, &is_number/1)
 
   defp throughput_to_period_ns(0), do: nil
   defp throughput_to_period_ns(thr) when is_number(thr) and thr > 0, do: 1_000_000_000 / thr

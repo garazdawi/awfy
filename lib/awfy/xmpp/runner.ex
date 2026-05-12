@@ -17,7 +17,7 @@ defmodule Awfy.Xmpp.Runner do
   """
 
   alias Awfy.AppBench.Result
-  alias Awfy.Xmpp.{Amoc, ScenarioConfig, Topology}
+  alias Awfy.Xmpp.{Amoc, DockerStats, ScenarioConfig, Topology}
 
   @doc """
   Run the named scenario end-to-end. On success returns the per-second
@@ -27,7 +27,14 @@ defmodule Awfy.Xmpp.Runner do
   application benchmarks (network-bench Phase 2).
   """
   @spec run(String.t(), :local | :aws_clt, keyword()) ::
-          {:ok, %{samples: [non_neg_integer()], suite: struct(), config: ScenarioConfig.t()}}
+          {:ok,
+           %{
+             throughput: [non_neg_integer()],
+             cpu_pct: [float()],
+             mem_mb: [float()],
+             suite: struct(),
+             config: ScenarioConfig.t()
+           }}
           | {:error, term()}
   def run(scenario_name, topology_tag, opts \\ [])
       when is_binary(scenario_name) and topology_tag in [:local, :aws_clt] do
@@ -48,27 +55,41 @@ defmodule Awfy.Xmpp.Runner do
   defp run_inside_topology(state, config, scenario_name, log) do
     with :ok <- wait_ready(state, log),
          :ok <- log_and_start(state, config, log),
-         :ok <- delay("ramp-up", config.delay_before_s, log),
-         {:ok, samples} <- sample(state, config, log),
+         :ok <- delay("ramp-up", config.pre_sampling_wait_s, log),
+         {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem}} <- sample(state, config, log),
          :ok <- delay("cool-down", config.delay_after_s, log) do
-      suite =
-        Result.build(samples, scenario_name,
-          job_name: scenario_name,
-          metadata: %{
-            "xmpp" => %{
-              "scenario" => scenario_name,
-              "topology" => to_string(state.topology),
-              "users" => config.users,
-              "domains" => config.domains,
-              "interarrival_ms" => config.interarrival_ms,
-              "measurement_duration_s" => config.measurement_duration_s,
-              "samples_collected" => length(samples)
-            }
-          }
-        )
-
-      {:ok, %{samples: samples, suite: suite, config: config}}
+      suite = build_suite(scenario_name, state, config, thr, cpu, mem)
+      {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem, suite: suite, config: config}}
     end
+  end
+
+  # Build a three-scenario suite from the run's streams. CPU% and
+  # mem_mb are the headline trend signals (lower = faster, matches
+  # ESL's own MongooseIM measurement convention); throughput is a
+  # sanity-check scenario so the dashboard can show whether we
+  # actually drove the configured offered load.
+  defp build_suite(scenario_name, state, config, thr, cpu, mem) do
+    metadata = %{
+      "xmpp" => %{
+        "scenario" => scenario_name,
+        "topology" => to_string(state.topology),
+        "users" => config.users,
+        "domains" => config.domains,
+        "interarrival_ms" => config.interarrival_ms,
+        "measurement_duration_s" => config.measurement_duration_s,
+        "throughput_samples_collected" => length(thr),
+        "cpu_mem_samples_collected" => length(cpu)
+      }
+    }
+
+    Result.build_multi(
+      [
+        {"#{scenario_name}.cpu_pct", cpu, [unit: :lower_better_raw]},
+        {"#{scenario_name}.mem_mb", mem, [unit: :lower_better_raw]},
+        {"#{scenario_name}.throughput", thr, [unit: :throughput_per_s]}
+      ],
+      metadata: metadata
+    )
   end
 
   defp wait_ready(state, log) do
@@ -98,12 +119,34 @@ defmodule Awfy.Xmpp.Runner do
     :ok
   end
 
+  # Sample all three streams in parallel for the configured measurement
+  # window: per-second throughput delta from amoc's `messages_sent`
+  # counter, and per-second CPU% + memory MB from `docker stats` on
+  # the broker container. Throughput is the sanity-check signal — the
+  # CPU/mem series are the AWFY trend signals (ESL's MongooseIM team
+  # measures the same way; with a fixed offered load, "how much CPU
+  # does the broker need" is a cleaner regression signal than "how
+  # many msgs/s sustained").
   defp sample(state, %ScenarioConfig{measurement_duration_s: secs} = config, log) do
-    log.("sampling messages_sent for #{secs}s")
-    samples = Amoc.sample_throughput(state, config)
-    log.("collected #{length(samples)} samples")
-    {:ok, samples}
+    log.("sampling throughput + docker stats for #{secs}s")
+    deadline = System.monotonic_time(:millisecond) + secs * 1_000
+
+    throughput_task = Task.async(fn -> Amoc.sample_throughput(state, config) end)
+
+    stats_task =
+      Task.async(fn ->
+        DockerStats.sample_until(broker_container(state), deadline)
+      end)
+
+    thr = Task.await(throughput_task, secs * 1_000 + 30_000)
+    {cpu, mem} = Task.await(stats_task, secs * 1_000 + 30_000)
+
+    log.("collected #{length(thr)} throughput / #{length(cpu)} cpu+mem samples")
+    {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem}}
   end
+
+  defp broker_container(%Topology.State{topology: :local}), do: "awfy-mongooseim"
+  defp broker_container(%Topology.State{topology: :aws_clt}), do: "awfy-mongooseim"
 
   defp log_fn(opts) do
     case Keyword.get(opts, :log, :default) do

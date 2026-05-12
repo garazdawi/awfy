@@ -73,7 +73,7 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     Mix.shell().info("=== xmpp bench: #{scenario} on #{topology} ===")
 
     case Runner.run(scenario, topology) do
-      {:ok, %{samples: samples, suite: suite, config: config}} ->
+      {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem, suite: suite, config: config}} ->
         save_path = Path.join(dir, "#{scenario}.benchee")
         write_suite(save_path, suite)
 
@@ -84,12 +84,16 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
           git_sha: git_sha,
           git_dirty: git_dirty?,
           config: config,
-          samples: samples
+          throughput: thr,
+          cpu_pct: cpu,
+          mem_mb: mem
         })
 
         Mix.shell().info(
-          "\nWrote #{save_path} (#{length(samples)} samples, " <>
-            "median #{format_throughput(suite)} msg/s)"
+          "\nWrote #{save_path} " <>
+            "(cpu median #{format_median(suite, "cpu_pct")}%, " <>
+            "mem median #{format_median(suite, "mem_mb")} MB, " <>
+            "throughput median #{format_throughput(suite, "throughput")} msg/s)"
         )
 
       {:error, reason} ->
@@ -133,15 +137,33 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     end
   end
 
-  defp format_throughput(suite) do
-    case suite do
-      %{scenarios: [%{run_time_data: %{statistics: %{median: median}}} | _]}
-      when is_number(median) and median > 0 ->
+  # Throughput scenarios store period-ns in median (lower=faster); we
+  # invert back to msg/s for the human-readable end-of-run summary.
+  defp format_throughput(suite, suffix) do
+    case find_scenario_median(suite, suffix) do
+      median when is_number(median) and median > 0 ->
         :erlang.float_to_binary(1_000_000_000 / median, decimals: 1)
 
       _ ->
         "n/a"
     end
+  end
+
+  # CPU% + mem MB scenarios store the raw measurement in median; print
+  # the value directly.
+  defp format_median(suite, suffix) do
+    case find_scenario_median(suite, suffix) do
+      median when is_number(median) -> :erlang.float_to_binary(median * 1.0, decimals: 1)
+      _ -> "n/a"
+    end
+  end
+
+  defp find_scenario_median(suite, suffix) do
+    suite
+    |> Map.get(:scenarios, [])
+    |> Enum.find_value(fn s ->
+      if String.ends_with?(s.name, suffix), do: s.run_time_data.statistics.median
+    end)
   end
 
   defp write_meta(dir, ctx) do
@@ -171,7 +193,9 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
         "domains" => ctx.config.domains,
         "interarrival_ms" => ctx.config.interarrival_ms,
         "measurement_duration_s" => ctx.config.measurement_duration_s,
-        "samples" => ctx.samples
+        "throughput" => ctx.throughput,
+        "cpu_pct" => ctx.cpu_pct,
+        "mem_mb" => ctx.mem_mb
       }
     }
 
