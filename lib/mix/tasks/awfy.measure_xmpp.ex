@@ -196,7 +196,20 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
         "throughput" => ctx.throughput,
         "cpu_pct" => ctx.cpu_pct,
         "mem_mb" => ctx.mem_mb
-      }
+      },
+      # Declares this run's application-benchmark families to the
+      # dashboard's geomean aggregator. Cells whose benchmark name
+      # starts with `<name>_` collapse into one family contribution,
+      # and the suite-wide geomean weights "applications" and
+      # "synthetic" categories 50/50 regardless of how many cells
+      # each category produced. Future per-app benchmarks (network,
+      # ...) extend this list.
+      "applications" => [
+        %{
+          "name" => ctx.scenario,
+          "metrics" => ["cpu_pct", "mem_mb", "throughput"]
+        }
+      ]
     }
 
     File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))

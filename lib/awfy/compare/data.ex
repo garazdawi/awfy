@@ -93,7 +93,8 @@ defmodule Awfy.Compare.Data do
         config: get(meta, "config") || %{},
         git: get(meta, "git") || %{},
         benchmarks_meta: get(meta, "benchmarks") || [],
-        otp_benchmarks_meta: get(meta, "otp_benchmarks") || []
+        otp_benchmarks_meta: get(meta, "otp_benchmarks") || [],
+        applications_meta: get(meta, "applications") || []
       }
     else
       _ -> nil
@@ -189,7 +190,16 @@ defmodule Awfy.Compare.Data do
               samples_n: stats.sample_size,
               inner_iter: inner_iter,
               source_sha256: source_sha256,
-              verified: verified
+              verified: verified,
+              # `category` / `family` drive the suite-wide geomean's
+              # 50/50 application-vs-synthetic split. Application
+              # benchmarks (XMPP today, network later) are declared
+              # in meta.json's `applications` block; matching rows
+              # carry `category: :application` + a family name so
+              # their cells collapse into one cell per family before
+              # the geomean folds them in.
+              category: categorize(bname || bench_name, run.applications_meta),
+              family: family_for(bname || bench_name, run.applications_meta)
             }
           end)
       end
@@ -339,65 +349,150 @@ defmodule Awfy.Compare.Data do
   """
   @spec geomean_ratio([map()], [map()]) :: {float(), [String.t()]}
   def geomean_ratio(label_rows, baseline_rows) do
-    label_by_bench = index_by_benchmark(label_rows)
-    base_by_bench = index_by_benchmark(baseline_rows)
+    # Group by `family` instead of `benchmark`: synthetic rows
+    # already have family=benchmark_name (so the behaviour matches
+    # the previous one-cell-per-benchmark shape), application rows
+    # collapse multiple metric-cells into one family cell.
+    label_by_family = index_by_family(label_rows)
+    base_by_family = index_by_family(baseline_rows)
 
     intersection =
       MapSet.intersection(
-        MapSet.new(Map.keys(label_by_bench)),
-        MapSet.new(Map.keys(base_by_bench))
+        MapSet.new(Map.keys(label_by_family)),
+        MapSet.new(Map.keys(base_by_family))
       )
       |> MapSet.to_list()
       |> Enum.sort()
 
     dropped =
       MapSet.union(
-        MapSet.new(Map.keys(label_by_bench)),
-        MapSet.new(Map.keys(base_by_bench))
+        MapSet.new(Map.keys(label_by_family)),
+        MapSet.new(Map.keys(base_by_family))
       )
       |> MapSet.difference(MapSet.new(intersection))
       |> MapSet.to_list()
       |> Enum.sort()
 
-    case intersection do
-      [] ->
-        {nil, dropped}
+    {app_families, synth_families} =
+      Enum.split_with(intersection, fn fam ->
+        category_for_family(fam, label_by_family, base_by_family) == :application
+      end)
 
-      benches ->
-        sum_log =
-          Enum.reduce(benches, 0.0, fn b, acc ->
-            ratio = Map.fetch!(label_by_bench, b) / Map.fetch!(base_by_bench, b)
-            acc + :math.log(ratio)
-          end)
+    g_app = bucket_geomean(app_families, label_by_family, base_by_family)
+    g_synth = bucket_geomean(synth_families, label_by_family, base_by_family)
 
-        gm = :math.exp(sum_log / length(benches))
-        {Float.round(gm, 4), dropped}
+    # 50/50 weighting: combined geomean = geometric mean of the two
+    # bucket geomeans (sqrt(G_app * G_synth)). If only one bucket has
+    # data (no XMPP runs in this label, say) fall through to that
+    # bucket's geomean directly so existing AWFY-only labels keep
+    # producing the same number they always did.
+    gm =
+      case {g_app, g_synth} do
+        {nil, nil} -> nil
+        {nil, gs} -> gs
+        {ga, nil} -> ga
+        {ga, gs} -> :math.sqrt(ga * gs)
+      end
+
+    case gm do
+      nil -> {nil, dropped}
+      v -> {Float.round(v, 4), dropped}
     end
   end
 
-  defp index_by_benchmark(rows) do
+  # Map family-name → median used for the ratio. Each family appears
+  # once in the geomean regardless of how many cells it produced.
+  defp index_by_family(rows) do
     rows
     |> Enum.filter(& &1.median_ms)
-    |> Enum.group_by(& &1.benchmark)
-    |> Map.new(fn {bench, rs} -> {bench, group_median(rs)} end)
+    |> Enum.group_by(& &1.family)
+    |> Map.new(fn {fam, rs} -> {fam, group_median(rs)} end)
   end
 
-  # AWFY rows have one cell per (lang, benchmark) — pick the
-  # erlang cell to match the cross-language table convention.
-  # OtpBenchmarks rows are multi-input — collapse the family's
-  # cells into a single per-family geomean so the family weighs
-  # equally with each AWFY benchmark in the suite-wide ratio.
-  defp group_median(rows) do
-    if Enum.any?(rows, fn r -> Map.get(r, :input) end) do
-      family_geomean(rows)
-    else
-      pick =
-        Enum.find(rows, &(&1.lang == "erlang")) ||
-          Enum.find(rows, &(&1.lang == "elixir")) ||
-          List.first(rows)
+  # Look up the family's category from either side's entry. Same
+  # family name should map to the same category on both label and
+  # baseline rows; we read whichever's present. Default :synthetic
+  # so unknown families behave like AWFY benchmarks have always
+  # behaved.
+  defp category_for_family(family, label_by_family, base_by_family) do
+    Map.get(label_by_family, family, %{}) |> Map.get(:category) ||
+      Map.get(base_by_family, family, %{}) |> Map.get(:category) ||
+      :synthetic
+  end
 
-      pick.median_ms
+  defp bucket_geomean([], _label, _base), do: nil
+
+  defp bucket_geomean(families, label_by_family, base_by_family) do
+    ratios =
+      Enum.flat_map(families, fn fam ->
+        l = Map.fetch!(label_by_family, fam).median
+        b = Map.fetch!(base_by_family, fam).median
+
+        if is_number(l) and l > 0 and is_number(b) and b > 0,
+          do: [l / b],
+          else: []
+      end)
+
+    case ratios do
+      [] ->
+        nil
+
+      _ ->
+        sum_log = Enum.reduce(ratios, 0.0, fn r, acc -> acc + :math.log(r) end)
+        :math.exp(sum_log / length(ratios))
     end
+  end
+
+  @doc false
+  def categorize(name, applications_meta) do
+    if family_for(name, applications_meta) == name, do: :synthetic, else: :application
+  end
+
+  @doc false
+  def family_for(name, applications_meta) do
+    Enum.find_value(applications_meta || [], name, fn app ->
+      fam = get(app, "name")
+
+      if is_binary(fam) and String.starts_with?(name, fam <> "_") do
+        fam
+      end
+    end)
+  end
+
+  # Three shapes feed into the family-keyed geomean index:
+  #   * AWFY synthetic — one cell per (lang, benchmark). Pick the
+  #     erlang cell so the cross-language table convention holds.
+  #   * OtpBenchmarks synthetic multi-input — `input` set per row.
+  #     family_geomean collapses across the inputs.
+  #   * Application multi-metric — `category == :application`, no
+  #     input set, multiple rows under the same family (one per
+  #     metric: cpu_pct / mem_mb / throughput). family_geomean
+  #     collapses across the metrics so the family contributes one
+  #     cell to its bucket.
+  # Returns a map carrying both the collapsed median and the row
+  # category so geomean_ratio can route the family into the right
+  # 50/50 bucket without re-reading row state.
+  defp group_median(rows) do
+    category = List.first(rows) |> Map.get(:category, :synthetic)
+
+    median =
+      cond do
+        category == :application ->
+          family_geomean(rows)
+
+        Enum.any?(rows, fn r -> Map.get(r, :input) end) ->
+          family_geomean(rows)
+
+        true ->
+          pick =
+            Enum.find(rows, &(&1.lang == "erlang")) ||
+              Enum.find(rows, &(&1.lang == "elixir")) ||
+              List.first(rows)
+
+          pick.median_ms
+      end
+
+    %{median: median, category: category}
   end
 
   # Geometric mean of the family's per-input medians, computed in

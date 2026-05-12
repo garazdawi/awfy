@@ -36,7 +36,12 @@ defmodule Awfy.Compare.DataTest do
       {:samples_n, Keyword.get(opts, :samples_n, 10)},
       {:inner_iter, Keyword.get(opts, :inner_iter, 1500)},
       {:source_sha256, Keyword.get(opts, :source_sha256)},
-      {:verified, Keyword.get(opts, :verified, true)}
+      {:verified, Keyword.get(opts, :verified, true)},
+      # `family` defaults to the benchmark name (synthetic behaviour);
+      # tests that exercise the application bucket pass it explicitly.
+      {:family,
+       Keyword.get(opts, :family, Keyword.get(opts, :benchmark, "Bounce"))},
+      {:category, Keyword.get(opts, :category, :synthetic)}
     ])
   end
 
@@ -173,6 +178,78 @@ defmodule Awfy.Compare.DataTest do
 
       assert {gm, []} = Data.geomean_ratio(label, base)
       # erlang/erlang: 200/100 = 2.0
+      assert_in_delta gm, 2.0, 0.0001
+    end
+
+    test "application family — multi-metric cells collapse to one cell" do
+      # Three XMPP metric cells under one family; each contributes
+      # to the family's geomean, the family contributes to its
+      # bucket's geomean. No synthetic rows here, so the bucket
+      # geomean *is* the suite geomean.
+      base = [
+        row(benchmark: "ddpm_cpu_pct", family: "ddpm", category: :application, median_ms: 100.0),
+        row(benchmark: "ddpm_mem_mb", family: "ddpm", category: :application, median_ms: 100.0),
+        row(benchmark: "ddpm_throughput", family: "ddpm", category: :application, median_ms: 100.0)
+      ]
+
+      label =
+        Enum.map(base, fn r -> %{r | median_ms: r.median_ms * 2} end)
+
+      assert {gm, []} = Data.geomean_ratio(label, base)
+      # Family ratio = geomean(2.0, 2.0, 2.0) = 2.0.
+      assert_in_delta gm, 2.0, 0.0001
+    end
+
+    test "applications and synthetic weight 50/50 even with skewed cell counts" do
+      # 3 synthetic benchmarks all 1.0× drift, 1 application family
+      # (3 metric cells) all 2× drift. If we naively geomean over
+      # *cells* the result would lean toward 1.0 (3 cells of 1.0 +
+      # 3 cells of 2.0 = geomean ~1.41). The 50/50 split treats the
+      # one application family as worth as much as the whole AWFY
+      # bucket: geomean(synth=1.0, app=2.0) = sqrt(2) ≈ 1.414.
+      # Same number here numerically but reaches it by collapsing
+      # cells per category first, not by counting them flat.
+      synth_base = [
+        row(benchmark: "A", median_ms: 100.0),
+        row(benchmark: "B", median_ms: 100.0),
+        row(benchmark: "C", median_ms: 100.0)
+      ]
+
+      synth_label = synth_base
+
+      app_base = [
+        row(benchmark: "ddpm_cpu_pct", family: "ddpm", category: :application, median_ms: 100.0),
+        row(benchmark: "ddpm_mem_mb", family: "ddpm", category: :application, median_ms: 100.0),
+        row(benchmark: "ddpm_throughput", family: "ddpm", category: :application, median_ms: 100.0)
+      ]
+
+      app_label =
+        Enum.map(app_base, fn r -> %{r | median_ms: r.median_ms * 2} end)
+
+      assert {gm, []} = Data.geomean_ratio(synth_label ++ app_label, synth_base ++ app_base)
+      assert_in_delta gm, :math.sqrt(2.0), 0.0001
+    end
+
+    test "single application family weighs equally with many synthetic benches" do
+      # 5 synthetic benches all 1.0×, one app family at 4×. The 50/50
+      # split makes the app family worth the entire AWFY half:
+      # combined = sqrt(synth × app) = sqrt(1.0 × 4.0) = 2.0. If the
+      # weighting were cell-count proportional it'd land near 1.26
+      # (geomean over six 1.0× + three 4.0× cells = (1^6 × 4^3)^(1/9)
+      # = 4^(1/3) ≈ 1.59 — neither matches).
+      synth_base =
+        for n <- ["A", "B", "C", "D", "E"], do: row(benchmark: n, median_ms: 100.0)
+
+      app_base = [
+        row(benchmark: "ddpm_cpu_pct", family: "ddpm", category: :application, median_ms: 100.0),
+        row(benchmark: "ddpm_mem_mb", family: "ddpm", category: :application, median_ms: 100.0),
+        row(benchmark: "ddpm_throughput", family: "ddpm", category: :application, median_ms: 100.0)
+      ]
+
+      app_label =
+        Enum.map(app_base, fn r -> %{r | median_ms: r.median_ms * 4} end)
+
+      assert {gm, []} = Data.geomean_ratio(synth_base ++ app_label, synth_base ++ app_base)
       assert_in_delta gm, 2.0, 0.0001
     end
   end
