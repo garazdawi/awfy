@@ -85,13 +85,15 @@ load*. The two answer different questions.
 
 ## Architecture
 
-Scenarios are written against a topology-agnostic API. The same
-`one_to_one.erl` / `presence_storm.erl` modules run unchanged
-against both the local dev topology (one MongooseIM node, in-memory
-Mnesia, Amoc workers in-VM) and the AWS CLT topology (3-node
-MongooseIM cluster, RDS Postgres, distributed Amoc master + 2
-workers). The runner family resolves topology from a config tag and
-handles deploy / discover / connect / teardown.
+Scenarios are upstream amoc-arsenal-xmpp modules consumed unchanged
+— we don't write our own. The Amoc Docker image ships them at the
+pinned commit, and our runner configures them via env vars
+(`MONGOOSE_HOST`, `USERS`, `DOMAINS`, `INTERARRIVAL_MS`, etc.) that
+are interpreted by `amoc_config_env`. Same scenario module runs
+unchanged against `:local` (Amoc workers in-VM) and `:aws_clt`
+(distributed Amoc master + 2 workers); only the env-var values
+differ. The runner resolves topology from a config tag and handles
+deploy / wait / drive / teardown.
 
 ```
 host (modern Elixir/OTP)
@@ -258,8 +260,6 @@ lib/awfy/xmpp/                                       ← orchestrator code in ro
   scenario_config.ex                                   reads priv/scenario-config/*.json
 lib/awfy/app_bench/                                  ← generic helpers, door-open shared
   result.ex                                            throughput+percentiles → .benchee row
-priv/xmpp_scenarios/
-  dynamic_domains_pm.erl                               topology-agnostic Amoc scenario
 priv/topology/
   local.compose.yml                                    docker-compose for :local
   aws_clt.tf.example                                   Terraform reference for :aws_clt
@@ -384,9 +384,12 @@ New module under `lib/awfy/runner/`, sibling to the existing
 * `stop_broker(broker_state)` — `mongooseimctl stop`, kill if it
   doesn't exit within `STOP_TIMEOUT_MS`.
 
-Scenarios are Erlang modules from `priv/xmpp_scenarios/`,
-exporting `init/1` + `user_step/2` per Amoc's behaviour. Same
-contract Amoc uses today, so existing arsenal scenarios drop in.
+Scenarios are upstream amoc-arsenal-xmpp modules baked into the
+Amoc Docker image at the pinned commit (e.g. `dynamic_domains_pm`).
+We don't author scenario code — the arsenal scenarios already
+parametrise their behaviour via `amoc_config_env`, so the
+per-topology JSON config maps directly onto `os:getenv/1` values
+the Amoc container reads.
 
 ### 6. Phase 1 scenario: `dynamic_domains_pm`
 
@@ -500,9 +503,10 @@ so the exit-trap is in the parent script's process.
   polls broker readiness, drives the Amoc container to run
   `dynamic_domains_pm` at 1k users / 10 domains / 5 ms interarrival
   for ~60 s, collects per-second samples, `compose down`.
-* Scenario module written against the abstract topology API (broker
-  endpoints + auth credentials from `Topology.deploy/3`'s return
-  value) — no hard-coded `localhost:5222`.
+* Upstream `dynamic_domains_pm` scenario from amoc-arsenal-xmpp,
+  configured via env vars in the compose file (`MONGOOSE_HOST`,
+  `USERS`, `DOMAINS`, `INTERARRIVAL_MS`). No AWFY-authored scenario
+  code.
 
 **Exit criterion:** `mix awfy.measure --xmpp` runs locally, produces
 a stable `xmpp/dynamic_domains_pm` row in `results/` with sub-15 %
