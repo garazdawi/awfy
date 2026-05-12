@@ -1,22 +1,20 @@
-# Default-exclude everything; the XMPP-bench Dockerfiles fetch upstream
-# source via curl and only need a tiny slice of the repo (patches/) for
-# COPY. Sending the full repo as build context pushed >700 MB on first
-# run because results/, _build/, deps/, tarballs and .git all rode
-# along, and the legacy docker builder choked partway through. Whitelist
-# explicitly what the build actually consumes.
-*
+# Exclude transient + large files that have no business in any
+# build context (cuts the XMPP-bench compose-up context from
+# >700 MB to ~MB; previously the legacy docker builder choked on
+# it). Exclusion-based rather than allow-listed so Dockerfile.linux
+# keeps seeing the rest of the repo (apps/, bin/, mix.exs, …).
 
-# What the Dockerfiles actually COPY:
-!Dockerfile.mongoose
-!Dockerfile.amoc
-!patches/
-patches/OTP-*/
-!priv/topology/
-# The compose YAML itself never rides into a build context, only the
-# config overlays do; excluding it keeps the .yml out of cache keys.
-priv/topology/local.compose.yml
+# Local benchmark output — multi-GB and per-machine.
+results/
 
-# Re-exclude OTP patches (they're large and not for these images).
-# patches/mongooseim-<pin>/ and patches/amoc-<pin>/ stay included if
-# they exist; otherwise the COPY targets nothing and `if [ -d ]`
-# guards in the RUN steps see no files.
+# Elixir / mix output. mix.lock + mix.exs *are* needed; the build
+# directories aren't.
+_build/
+deps/
+
+# Cross-OTP bundle tarballs cached at the repo root by
+# bin/refresh-target-deps.sh — never wanted in a build.
+target_bundle_*.tar.gz
+
+# Node / JS toolchains, if any.
+node_modules/
