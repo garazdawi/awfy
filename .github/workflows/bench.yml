@@ -265,11 +265,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: ./.github/actions/ghcr-login
         with:
-          registry: ghcr.io
+          token: ${{ secrets.GITHUB_TOKEN }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       # OTP >= 26 builds on Trixie (gcc 14, OpenSSL 3.5, glibc 2.40)
       # so the AWFY image's OTP install is OpenSSL 3-compatible —
       # needed for MongooseIM's fast_pbkdf2 NIF on the XMPP-bench
@@ -377,11 +376,10 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: ./.github/actions/ghcr-login
         with:
-          registry: ghcr.io
+          token: ${{ secrets.GITHUB_TOKEN }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -508,9 +506,10 @@ jobs:
           key: target-bundle-${{ matrix.elixir_version }}-${{ steps.find_sha.outputs.sha }}-${{ hashFiles('apps/awfy_target_runner/**', 'bin/build-target-bundle.sh', 'bin/install-elixir-source.sh') }}
       - name: Login to GHCR
         if: steps.find_sha.outputs.skipped != 'true' && steps.bundle_cache.outputs.cache-hit != 'true'
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}
       - name: Extract OTP from build-linux-target image
         if: steps.find_sha.outputs.skipped != 'true' && steps.bundle_cache.outputs.cache-hit != 'true'
         run: |
@@ -578,9 +577,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}
       - name: Pull benchmark image
         run: |
           docker pull "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}"
@@ -954,9 +954,10 @@ jobs:
           v=$(priv/elixir-for-otp.sh "${{ matrix.target.major }}")
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Login to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}
       - name: Extract OTP from per-OTP-SHA image
         run: |
           IMAGE="ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}"
@@ -1279,9 +1280,10 @@ jobs:
 
       - name: Login to GHCR
         if: steps.gate.outputs.skip != 'true'
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        uses: ./.github/actions/ghcr-login
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}
 
       - name: Pull AWFY per-OTP image (used as MongooseIM build base)
         if: steps.gate.outputs.skip != 'true'

@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Authenticate the docker CLI to ghcr.io with a retry loop.
+#
+# GHCR's token endpoint regularly drops connections under load
+# (`https://ghcr.io/token?...: context deadline exceeded`).
+# docker/login-action@v4 doesn't retry — one transient failure tanks
+# the build job. We've watched it kill `build-linux` legs several
+# times across the OTP-26 / master XMPP fill, even with the
+# `!cancelled()` downstream guard in place.
+#
+# Retry up to 5 times with linear backoff (1+2+3+4 = 10s of total
+# sleep) before giving up. Plain shell so the same logic works on
+# every runner shape (gha-hosted, AWS self-hosted Linux/Windows)
+# without bringing in a third-party retry action.
+#
+# Used by every job in bench.yml that touches GHCR — build-linux,
+# build-linux-target, prep-target-bundle (extract step),
+# measure-linux, measure-linux-target, measure-xmpp-linux.
+
+name: GHCR login (with retry)
+description: |
+  Authenticate the local docker CLI to ghcr.io with a 5-attempt
+  retry loop. Required for repos that hit GHCR's token endpoint
+  flakiness in pull/push paths.
+
+inputs:
+  token:
+    description: GitHub token with `read:packages` (and `write:packages` if pushing).
+    required: true
+  username:
+    description: GitHub username for the docker login. Usually `${{ github.actor }}`.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: docker login ghcr.io (retry up to 5)
+      shell: bash
+      env:
+        GHCR_TOKEN: ${{ inputs.token }}
+        GHCR_USER: ${{ inputs.username }}
+      run: |
+        # Linear backoff: 1, 2, 3, 4 seconds between attempts.
+        # Five attempts → max ~10s wall-clock cost on the happy
+        # path's last attempt, ~0s on first-attempt success.
+        for attempt in 1 2 3 4 5; do
+          if echo "$GHCR_TOKEN" \
+              | docker login ghcr.io -u "$GHCR_USER" --password-stdin; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 5 ]; then
+            echo "[ghcr-login] attempt $attempt failed, retrying in ${attempt}s..." >&2
+            sleep "$attempt"
+          fi
+        done
+        echo "[ghcr-login] all 5 attempts failed" >&2
+        exit 1
