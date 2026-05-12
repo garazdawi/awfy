@@ -119,6 +119,18 @@ COPY priv/topology/mongooseim-${MIM_PIN}-prod.vars-toml.config \
 # stable line; bump on the same cadence as MongooseIM's bundle. A
 # pin matters here so a transient `master` rebar3 regression can't
 # tank the MongooseIM image build.
+#
+# ERL_COMPILER_OPTIONS injects `nowarn_deprecated_catch` for every
+# compile in this stage. OTP 29 promoted the legacy `(catch Expr)`
+# form to a deprecation warning, and rebar3 + MongooseIM + several
+# transitive deps build with `warnings_as_errors`, which escalates
+# the warning to a fatal error. The legacy catch form is sprinkled
+# across the dependency tree (rebar3's erlware_commons, MongooseIM
+# core, …); suppressing the warning at the compiler level keeps the
+# build green without forking any of them. Cheaper than chasing
+# rebar3 main, which moves.
+ENV ERL_COMPILER_OPTIONS='[nowarn_deprecated_catch]'
+
 ARG REBAR3_VERSION=3.24.0
 RUN curl -fsSL "https://github.com/erlang/rebar3/archive/refs/tags/${REBAR3_VERSION}.tar.gz" \
         | tar xz -C /tmp \
