@@ -56,12 +56,20 @@ case "$REF" in
             "https://erlang.org/download/otp_src_$VERSION.tar.gz"
         do
             # See the artifact download below for why curl needs an
-            # explicit --connect-timeout / --max-time pair: default
-            # curl has no timeout and a stalled HTTP read wedges
-            # the whole build indefinitely.
+            # explicit timeout: default curl has no timeout and a
+            # stalled HTTP read wedges the whole build.
+            # erlang.org's mirror trickled OTP 20.3 at 20 KB/s on run
+            # 25740656636, which exceeded a flat --max-time 600 with
+            # only 11 MB of 88 MB transferred. `--speed-limit /
+            # --speed-time` are the right shape here: keep the
+            # download running as long as it's making forward
+            # progress, abort if it stalls (under 10 KB/s for 60s).
+            # --max-time 1800 is a 30-min hard cap.
             if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$url"; then
                 echo "fetch-otp-source: fetching $url (release tarball)" >&2
-                curl -fL --connect-timeout 30 --max-time 600 "$url" | tar xz
+                curl -fL --connect-timeout 30 --max-time 1800 \
+                    --speed-limit 10240 --speed-time 60 \
+                    "$url" | tar xz
                 SRC="otp_src_$VERSION"
                 break
             fi
@@ -118,20 +126,19 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
                 continue
             fi
             echo "fetch-otp-source: fetching otp_prebuilt artifact $artifact_id (run $run_id)" >&2
-            # --max-time caps the whole transfer at 10 min — the
-            # zip is ~150 MB, so an honest pull finishes in 1-2 min
-            # on GHA's network even on a bad day; >10 min means the
-            # endpoint has gone unresponsive (GHA's artifact CDN
-            # has had multi-hour outages before, and the earlier
-            # no-timeout call wedged a build-linux master leg for
-            # 15+ min on run 25738975590). Falling through to the
-            # next strategy is strictly better than burning runner
-            # minutes on a stuck curl. --connect-timeout 30 covers
-            # the DNS / TCP handshake stage separately so a
-            # never-responding endpoint fails fast.
+            # The zip is ~150 MB. Default curl has no timeout, which
+            # wedged a build-linux master leg for 15+ min on run
+            # 25738975590. --connect-timeout 30 fails fast on DNS /
+            # TCP handshake stalls. --speed-limit / --speed-time
+            # aborts on stalled transfers (under 10 KB/s for 60s)
+            # while letting slow-but-progressing downloads finish.
+            # --max-time 1800 is a 30-min hard cap. Falling through
+            # to the next strategy is strictly better than burning
+            # runner minutes on a stuck curl.
             if ! curl -fsSL -L "${auth[@]}" \
                 --connect-timeout 30 \
-                --max-time 600 \
+                --max-time 1800 \
+                --speed-limit 10240 --speed-time 60 \
                 "https://api.github.com/repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
                 -o "$WORK/prebuilt.zip" 2>/dev/null; then
                 echo "fetch-otp-source: artifact $artifact_id download failed (timeout or curl error)" >&2
@@ -189,7 +196,9 @@ if [ -z "$SRC" ] && [ "$modern_otp" = "1" ]; then
     archive_url="https://github.com/erlang/otp/archive/$SHA.tar.gz"
     if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$archive_url"; then
         echo "fetch-otp-source: falling back to $archive_url" >&2
-        if curl -fL --connect-timeout 30 --max-time 600 "$archive_url" | tar xz; then
+        if curl -fL --connect-timeout 30 --max-time 1800 \
+                --speed-limit 10240 --speed-time 60 \
+                "$archive_url" | tar xz; then
             # SC2012: github's archive extracts to otp-<SHA>, no
             # spaces or special chars in the dirname. Glob is fine.
             # shellcheck disable=SC2012
