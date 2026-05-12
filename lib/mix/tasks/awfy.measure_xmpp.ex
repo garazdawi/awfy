@@ -172,9 +172,9 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     meta = %{
       "format_version" => @format_version,
       "label" => ctx.label,
-      "otp" => otp_version_label(),
+      "otp" => Helpers.otp_version_label(),
       "elixir" => System.version(),
-      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "timestamp" => Helpers.trend_timestamp() |> DateTime.to_iso8601(),
       "git" => %{
         "sha" => ctx.git_sha,
         "dirty" => ctx.git_dirty
@@ -225,22 +225,6 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     case System.cmd("git", args, stderr_to_stdout: true) do
       {out, 0} -> String.trim(out)
       _ -> nil
-    end
-  end
-
-  defp otp_version_label do
-    release = to_string(System.otp_release())
-    path = Path.join([:code.root_dir() |> to_string(), "releases", release, "OTP_VERSION"])
-
-    case File.read(path) do
-      {:ok, contents} ->
-        case String.trim(contents) do
-          "" -> release
-          v -> v
-        end
-
-      _ ->
-        release
     end
   end
 

@@ -85,4 +85,84 @@ defmodule Awfy.Measure.Helpers do
   @spec maybe_put(keyword(), atom(), any()) :: keyword()
   def maybe_put(opts, _key, nil), do: opts
   def maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  @doc """
+  Resolve the OTP version label that goes into a run's `meta.json`
+  and drives the dashboard's trend-axis grouping.
+
+  Order of precedence:
+    1. `AWFY_OTP_VERSION` env var — set by CI from the resolved
+       feature release (`"20.1"`, `"21.3"`, `"master"`). Lets a
+       host-orchestrated run (e.g. the XMPP path, where the
+       orchestrator runs a fixed OTP but the dockerized broker is
+       on a different one) record the *target* OTP, not the host's.
+    2. The `releases/<release>/OTP_VERSION` file under the install
+       root — the full `X.Y.Z[.P]` string for every modern OTP
+       source build.
+    3. `System.otp_release/0` — the major only; last-resort.
+  """
+  @spec otp_version_label() :: String.t()
+  def otp_version_label do
+    case System.get_env("AWFY_OTP_VERSION") do
+      v when is_binary(v) and v != "" ->
+        v
+
+      _ ->
+        otp_version_label_from_file() || to_string(System.otp_release())
+    end
+  end
+
+  @doc """
+  Read the full OTP version string from the install root's
+  `OTP_VERSION` file. Returns `nil` if the file is missing or empty
+  so callers can chain a fallback.
+  """
+  @spec otp_version_label_from_file() :: String.t() | nil
+  def otp_version_label_from_file do
+    release = to_string(System.otp_release())
+    path = Path.join([:code.root_dir() |> to_string(), "releases", release, "OTP_VERSION"])
+
+    case File.read(path) do
+      {:ok, contents} ->
+        case String.trim(contents) do
+          "" -> nil
+          v -> v
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  @doc """
+  Resolve the timestamp recorded under `meta["timestamp"]` and used
+  as the trend chart's x-axis position. Defaults to measurement
+  wall-clock, but CI overrides via `AWFY_OTP_COMMIT_TIMESTAMP` (the
+  OTP commit's committer date) so old OTP benchmarks measured today
+  plot at the OTP commit's actual point in time rather than
+  clustering at "today" with every other catch-up run. Malformed
+  env-var values warn and fall back rather than silently writing
+  now — silent fallback hid a months-old config bug in a previous
+  iteration.
+  """
+  @spec trend_timestamp() :: DateTime.t()
+  def trend_timestamp do
+    case System.get_env("AWFY_OTP_COMMIT_TIMESTAMP") do
+      nil ->
+        DateTime.utc_now()
+
+      "" ->
+        DateTime.utc_now()
+
+      iso ->
+        case DateTime.from_iso8601(iso) do
+          {:ok, dt, _offset} ->
+            dt
+
+          _ ->
+            IO.warn("AWFY_OTP_COMMIT_TIMESTAMP=#{inspect(iso)} is not ISO 8601, using wall-clock")
+            DateTime.utc_now()
+        end
+    end
+  end
 end

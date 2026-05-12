@@ -129,4 +129,67 @@ defmodule Awfy.Measure.HelpersTest do
       assert Helpers.maybe_put([], :time, 5) == [time: 5]
     end
   end
+
+  describe "otp_version_label/0" do
+    # async: true at the top of the file is fine even with env-var
+    # manipulation as long as each test wraps its mutation in
+    # System.put_env / System.delete_env and resets in `after`. We
+    # don't read AWFY_OTP_VERSION concurrently from anywhere else
+    # during tests.
+    test "AWFY_OTP_VERSION wins when set" do
+      System.put_env("AWFY_OTP_VERSION", "27.3.4.11")
+      assert Helpers.otp_version_label() == "27.3.4.11"
+    after
+      System.delete_env("AWFY_OTP_VERSION")
+    end
+
+    test "empty AWFY_OTP_VERSION falls through to file/release" do
+      System.put_env("AWFY_OTP_VERSION", "")
+      # Whatever the host's release is, it's not the empty string.
+      assert Helpers.otp_version_label() != ""
+    after
+      System.delete_env("AWFY_OTP_VERSION")
+    end
+
+    test "falls back to System.otp_release when env var unset and no OTP_VERSION file" do
+      System.delete_env("AWFY_OTP_VERSION")
+      # The host's OTP_VERSION file usually exists, so this lands on
+      # the file or the System.otp_release tail. Either way the value
+      # is non-empty and matches the release major prefix.
+      label = Helpers.otp_version_label()
+      assert is_binary(label) and label != ""
+      assert String.starts_with?(label, to_string(System.otp_release()))
+    end
+  end
+
+  describe "trend_timestamp/0" do
+    test "AWFY_OTP_COMMIT_TIMESTAMP wins when set to valid ISO 8601" do
+      iso = "2022-06-23T12:34:56Z"
+      System.put_env("AWFY_OTP_COMMIT_TIMESTAMP", iso)
+      dt = Helpers.trend_timestamp()
+      assert DateTime.to_iso8601(dt) == iso
+    after
+      System.delete_env("AWFY_OTP_COMMIT_TIMESTAMP")
+    end
+
+    test "missing env var falls back to wall-clock" do
+      System.delete_env("AWFY_OTP_COMMIT_TIMESTAMP")
+      before = DateTime.utc_now()
+      dt = Helpers.trend_timestamp()
+      after_ = DateTime.utc_now()
+      assert DateTime.compare(dt, before) in [:eq, :gt]
+      assert DateTime.compare(dt, after_) in [:eq, :lt]
+    end
+
+    test "malformed env var warns and falls back" do
+      System.put_env("AWFY_OTP_COMMIT_TIMESTAMP", "not-a-date")
+
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        dt = Helpers.trend_timestamp()
+        assert %DateTime{} = dt
+      end)
+    after
+      System.delete_env("AWFY_OTP_COMMIT_TIMESTAMP")
+    end
+  end
 end

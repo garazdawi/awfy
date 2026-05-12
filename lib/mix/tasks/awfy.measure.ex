@@ -317,9 +317,9 @@ defmodule Mix.Tasks.Awfy.Measure do
     meta = %{
       "format_version" => @format_version,
       "label" => ctx.label,
-      "otp" => otp_version_label(),
+      "otp" => Helpers.otp_version_label(),
       "elixir" => target_elixir_version(),
-      "timestamp" => trend_timestamp() |> DateTime.to_iso8601(),
+      "timestamp" => Helpers.trend_timestamp() |> DateTime.to_iso8601(),
       "git" => %{
         "sha" => ctx.git_sha,
         "dirty" => ctx.git_dirty
@@ -522,64 +522,6 @@ defmodule Mix.Tasks.Awfy.Measure do
 
       _ ->
         ""
-    end
-  end
-
-  # Timestamp used as the trend-axis position for a run. Defaults to
-  # measurement wall-clock, but CI overrides it to the OTP commit's
-  # committer date via AWFY_OTP_COMMIT_TIMESTAMP — that way old OTP
-  # benchmarks measured today plot at the OTP commit's actual point in
-  # time rather than clustering at "today" with every other catch-up
-  # run. If the env var is malformed we warn and fall back rather than
-  # silently writing now (silent fallback hid a months-old config bug
-  # in a previous iteration).
-  defp trend_timestamp do
-    case System.get_env("AWFY_OTP_COMMIT_TIMESTAMP") do
-      nil ->
-        DateTime.utc_now()
-
-      "" ->
-        DateTime.utc_now()
-
-      iso ->
-        case DateTime.from_iso8601(iso) do
-          {:ok, dt, _offset} ->
-            dt
-
-          _ ->
-            IO.warn("AWFY_OTP_COMMIT_TIMESTAMP=#{inspect(iso)} is not ISO 8601, using wall-clock")
-            DateTime.utc_now()
-        end
-    end
-  end
-
-  # The recorded OTP version drives the trend chart's x axis. Prefer
-  # an explicit AWFY_OTP_VERSION (set by CI from the resolved feature
-  # release — "20.1", "21.3", "master") so plots can distinguish
-  # patch-level runs once we benchmark them. Otherwise read the
-  # OTP_VERSION file under the install root, which has the full
-  # "X.Y.Z[.P]" string for every modern OTP source build. Last resort:
-  # System.otp_release/0, which only carries the major.
-  defp otp_version_label do
-    case System.get_env("AWFY_OTP_VERSION") do
-      v when is_binary(v) and v != "" ->
-        v
-
-      _ ->
-        otp_version_label_from_file() || to_string(System.otp_release())
-    end
-  end
-
-  defp otp_version_label_from_file do
-    release = to_string(System.otp_release())
-    path = Path.join([:code.root_dir() |> to_string(), "releases", release, "OTP_VERSION"])
-
-    case File.read(path) do
-      {:ok, contents} -> contents |> String.trim() |> case do
-                           "" -> nil
-                           v -> v
-                         end
-      _ -> nil
     end
   end
 
