@@ -55,9 +55,13 @@ case "$REF" in
             "https://github.com/erlang/otp/releases/download/$REF/otp_src_$VERSION.tar.gz" \
             "https://erlang.org/download/otp_src_$VERSION.tar.gz"
         do
-            if curl -fsLI -o /dev/null "$url"; then
+            # See the artifact download below for why curl needs an
+            # explicit --connect-timeout / --max-time pair: default
+            # curl has no timeout and a stalled HTTP read wedges
+            # the whole build indefinitely.
+            if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$url"; then
                 echo "fetch-otp-source: fetching $url (release tarball)" >&2
-                curl -fL "$url" | tar xz
+                curl -fL --connect-timeout 30 --max-time 600 "$url" | tar xz
                 SRC="otp_src_$VERSION"
                 break
             fi
@@ -90,7 +94,7 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
     # otp_prebuilt succeeds even when downstream doc-check / test
     # legs fail the overall workflow.
     for q in "head_sha=$SHA" "branch=$REF"; do
-        run_json="$(curl -fsSL "${auth[@]}" "$base?$q&per_page=20" 2>/dev/null)" \
+        run_json="$(curl -fsSL --connect-timeout 30 --max-time 60 "${auth[@]}" "$base?$q&per_page=20" 2>/dev/null)" \
             || { echo "fetch-otp-source: $q query failed (curl)" >&2; continue; }
         run_ids="$(echo "$run_json" \
             | jq -r '.workflow_runs[] | select(.status == "completed") | .id' \
@@ -105,7 +109,7 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
             # so the default page size of 30 can hide `otp_prebuilt`
             # past the first page. Bumping to the API max guarantees
             # we see it in one request.
-            artifact_id="$(curl -fsSL "${auth[@]}" \
+            artifact_id="$(curl -fsSL --connect-timeout 30 --max-time 60 "${auth[@]}" \
                 "https://api.github.com/repos/erlang/otp/actions/runs/$run_id/artifacts?per_page=100" 2>/dev/null \
                 | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
                 2>/dev/null)" || artifact_id=""
@@ -114,10 +118,24 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
                 continue
             fi
             echo "fetch-otp-source: fetching otp_prebuilt artifact $artifact_id (run $run_id)" >&2
+            # --max-time caps the whole transfer at 10 min — the
+            # zip is ~150 MB, so an honest pull finishes in 1-2 min
+            # on GHA's network even on a bad day; >10 min means the
+            # endpoint has gone unresponsive (GHA's artifact CDN
+            # has had multi-hour outages before, and the earlier
+            # no-timeout call wedged a build-linux master leg for
+            # 15+ min on run 25738975590). Falling through to the
+            # next strategy is strictly better than burning runner
+            # minutes on a stuck curl. --connect-timeout 30 covers
+            # the DNS / TCP handshake stage separately so a
+            # never-responding endpoint fails fast.
             if ! curl -fsSL -L "${auth[@]}" \
+                --connect-timeout 30 \
+                --max-time 600 \
                 "https://api.github.com/repos/erlang/otp/actions/artifacts/$artifact_id/zip" \
                 -o "$WORK/prebuilt.zip" 2>/dev/null; then
-                echo "fetch-otp-source: artifact $artifact_id download failed" >&2
+                echo "fetch-otp-source: artifact $artifact_id download failed (timeout or curl error)" >&2
+                rm -f "$WORK/prebuilt.zip"
                 continue
             fi
             if ! unzip -q "$WORK/prebuilt.zip" -d "$WORK/prebuilt"; then
@@ -169,9 +187,9 @@ esac
 
 if [ -z "$SRC" ] && [ "$modern_otp" = "1" ]; then
     archive_url="https://github.com/erlang/otp/archive/$SHA.tar.gz"
-    if curl -fsLI -o /dev/null "$archive_url"; then
+    if curl -fsLI --connect-timeout 30 --max-time 60 -o /dev/null "$archive_url"; then
         echo "fetch-otp-source: falling back to $archive_url" >&2
-        if curl -fL "$archive_url" | tar xz; then
+        if curl -fL --connect-timeout 30 --max-time 600 "$archive_url" | tar xz; then
             # SC2012: github's archive extracts to otp-<SHA>, no
             # spaces or special chars in the dirname. Glob is fine.
             # shellcheck disable=SC2012
