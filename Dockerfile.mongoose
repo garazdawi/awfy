@@ -1,0 +1,89 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+
+# Per-pin MongooseIM image for the XMPP application-level benchmark.
+# See PLAN/MONGOOSEIM_BENCH_PLAN.md.
+#
+# Phase 1: builds against a public Erlang base image (debian-bookworm)
+# at the OTP version Amoc is pinned to. Phase 2 will repoint the
+# FROM line at the AWFY per-ref OTP image so each broker measures
+# against a specific target OTP. Until then this gives us a working
+# end-to-end pipeline with one fixed OTP version.
+#
+# Build args:
+#   MIM_PIN          — MongooseIM git tag or SHA. Defaults to the
+#                      contents of priv/mongooseim-pin.txt; build
+#                      caller passes the resolved value as a flag.
+#   OTP_VERSION      — OTP major.minor for the base image. Phase 1
+#                      tracks priv/amoc-otp-version.txt so the
+#                      build base matches the load-gen base.
+#
+# Cache key: (MIM_PIN, OTP_VERSION, patches/mongooseim-<pin>/ hash).
+# Image tag (pushed by CI):
+#   ghcr.io/<repo>:mongooseim-<otp_version>-<mim_pin>
+
+ARG OTP_VERSION=27.3
+FROM erlang:${OTP_VERSION} AS build
+
+ARG MIM_PIN=6.6.0
+ENV DEBIAN_FRONTEND=noninteractive
+
+# MongooseIM build deps. libssl-dev for crypto NIFs, libexpat1-dev for
+# XML parsing, unixodbc-dev because the build stages it even though
+# we won't enable RDBMS at runtime in Phase 1.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        libssl-dev \
+        libexpat1-dev \
+        unixodbc-dev \
+        zlib1g-dev \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN curl -fsSL "https://github.com/esl/MongooseIM/archive/refs/tags/${MIM_PIN}.tar.gz" \
+        | tar xz --strip-components=1
+
+# Apply any compat patches under patches/mongooseim-<pin>/ ahead of
+# the build. Empty when MongooseIM builds clean against the target
+# OTP; populated when upstream lags an OTP change.
+COPY patches/mongooseim-${MIM_PIN}/ /tmp/patches/
+RUN if [ -d /tmp/patches ] && ls /tmp/patches/*.patch >/dev/null 2>&1; then \
+        for p in /tmp/patches/*.patch; do \
+            echo "Applying $p"; \
+            patch -p1 -N < "$p"; \
+        done; \
+    fi
+
+# `./tools/configure with-all` writes configure.out + reltool vars.
+# Defaults are fine for an in-memory single-node setup. `make rel`
+# produces _build/prod/rel/mongooseim/.
+RUN ./tools/configure with-all
+RUN make rel
+
+# --- runtime stage ---------------------------------------------------
+FROM erlang:${OTP_VERSION}-slim AS runtime
+
+# Same NIF runtime deps as the build stage minus the -dev packages.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libssl3 \
+        libexpat1 \
+        libodbc2 \
+        zlib1g \
+        ca-certificates \
+        procps \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/mongooseim
+COPY --from=build /build/_build/prod/rel/mongooseim/ ./
+
+# c2s on 5222 (XMPP), mongooseimctl uses the internal distribution
+# socket which doesn't need to be exposed.
+EXPOSE 5222
+
+# `foreground` keeps mongooseimctl attached to the container's
+# stdout/stderr, so Docker can manage the lifecycle and we can stream
+# logs back to the host runner.
+ENTRYPOINT ["./bin/mongooseimctl", "foreground"]
