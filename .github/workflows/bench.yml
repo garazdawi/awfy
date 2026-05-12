@@ -241,6 +241,12 @@ jobs:
   # hardware accuracy, and AWS measure jobs `docker pull` the same
   # tag from GHCR.
   build-linux:
+    # Per-matrix display name. `otp_label` is the resolve-script's
+    # human-readable form (master / maint-26 / 28.5 / …) so the
+    # workflow UI shows `build-linux OTP 28.5 (arm64)` instead of
+    # the default which inlines every matrix var including the
+    # 40-char SHA.
+    name: build-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }})
     needs: resolve
     if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
@@ -334,6 +340,7 @@ jobs:
   # target-Elixir bundle (apps/awfy_target_runner/), built against
   # the OTP we just installed.
   build-linux-target:
+    name: build-linux-target OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }})
     needs: resolve
     # `has_legacy_build` covers any legacy platform — prep-target-bundle
     # extracts from this image regardless of which platform queued the work.
@@ -409,6 +416,7 @@ jobs:
   # first (any will do — Elixir BEAM bytecode is forward-compatible
   # within an OTP major).
   prep-target-bundle:
+    name: prep-target-bundle OTP ${{ matrix.otp_major }} (Elixir ${{ matrix.elixir_version }})
     needs: [resolve, build-linux-target]
     # Matrix is over OTP majors / Elixir versions, not target entries.
     # Gate on has_legacy_build because macOS/Windows legacy measure
@@ -505,6 +513,7 @@ jobs:
   # (`--cpuset-cpus=0`) only fires on AWS — GHA runners share
   # tenancy and pinning there gives us nothing.
   measure-linux:
+    name: measure-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }}, ${{ matrix.flavor }})
     needs: [resolve, build-linux]
     if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
@@ -583,6 +592,7 @@ jobs:
   # windows-latest images dropped WMIC); the AWS AMI is pinned to a
   # version where WMIC is still present.
   measure-windows:
+    name: measure-windows OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: resolve
     if: needs.resolve.outputs.has_modern_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
@@ -744,6 +754,7 @@ jobs:
   # local-fill via `mix awfy.fill`; see SETUP.md § 3). Independent
   # of `runner_pool`.
   measure-macos:
+    name: measure-macos OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: resolve
     # Temporarily disabled — re-measuring macos-arm64 locally on M5
     # hardware after the OtpBenchmarks auto-batching change so the
@@ -874,6 +885,7 @@ jobs:
   #   * Windows: install-otp-windows.ps1 against the function release.
   # ---------------------------------------------------------------
   measure-linux-target:
+    name: measure-linux-target OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }}, ${{ matrix.flavor }})
     needs: [resolve, build-linux-target, prep-target-bundle]
     if: needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
@@ -957,6 +969,7 @@ jobs:
           retention-days: 30
 
   measure-windows-target:
+    name: measure-windows-target OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: [resolve, prep-target-bundle]
     if: needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
@@ -1075,6 +1088,7 @@ jobs:
           retention-days: 30
 
   measure-macos-target:
+    name: measure-macos-target OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: [resolve, prep-target-bundle]
     # Temporarily disabled — see measure-macos above. Revert
     # together when the local sweep is in.
@@ -1180,6 +1194,7 @@ jobs:
   # `{minimum_otp_vsn, "26"}`). The major check fires at step level
   # because matrix context isn't in scope at job-level `if:`.
   measure-xmpp-linux:
+    name: measure-xmpp-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }})
     needs: [resolve, build-linux]
     if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
     permissions:
