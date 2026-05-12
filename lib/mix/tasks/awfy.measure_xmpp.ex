@@ -91,9 +91,9 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
         Mix.shell().info(
           "\nWrote #{save_path} " <>
-            "(cpu median #{format_median(suite, "cpu_pct")}%, " <>
-            "mem median #{format_median(suite, "mem_mb")} MB, " <>
-            "throughput median #{format_throughput(suite, "throughput")} msg/s)"
+            "(cpu median #{format_median(suite, "_cpu_pct/erlang")}%, " <>
+            "mem median #{format_median(suite, "_mem_mb/erlang")} MB, " <>
+            "throughput median #{format_throughput(suite, "_throughput/erlang")} msg/s)"
         )
 
       {:error, reason} ->

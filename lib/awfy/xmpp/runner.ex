@@ -82,11 +82,19 @@ defmodule Awfy.Xmpp.Runner do
       }
     }
 
+    # Names follow the AWFY dashboard convention `<benchmark>/<lang>`
+    # so `Awfy.Compare.Data.parse_name/1` carves them into a
+    # benchmark + lang pair. Each metric becomes its own benchmark
+    # family on the dashboard (`<scenario>_cpu_pct`, `<scenario>_mem_mb`,
+    # `<scenario>_throughput`) — they'd otherwise collide on the same
+    # (benchmark, lang) key and only the last would render. The
+    # whole stack is Erlang under the hood, so lang=erlang here is
+    # accurate, not a placeholder.
     Result.build_multi(
       [
-        {"#{scenario_name}.cpu_pct", cpu, [unit: :lower_better_raw]},
-        {"#{scenario_name}.mem_mb", mem, [unit: :lower_better_raw]},
-        {"#{scenario_name}.throughput", thr, [unit: :throughput_per_s]}
+        {"#{scenario_name}_cpu_pct/erlang", cpu, [unit: :lower_better_raw]},
+        {"#{scenario_name}_mem_mb/erlang", mem, [unit: :lower_better_raw]},
+        {"#{scenario_name}_throughput/erlang", thr, [unit: :throughput_per_s]}
       ],
       metadata: metadata
     )
