@@ -100,8 +100,13 @@ if [ -z "$SRC" ] && [ -n "${GH_TOKEN:-}" ]; then
             continue
         fi
         for run_id in $run_ids; do
+            # per_page=100 — main.yaml's run uploads 50+ artifacts
+            # (per-suite test results, doc tarballs, scan results, …)
+            # so the default page size of 30 can hide `otp_prebuilt`
+            # past the first page. Bumping to the API max guarantees
+            # we see it in one request.
             artifact_id="$(curl -fsSL "${auth[@]}" \
-                "https://api.github.com/repos/erlang/otp/actions/runs/$run_id/artifacts" 2>/dev/null \
+                "https://api.github.com/repos/erlang/otp/actions/runs/$run_id/artifacts?per_page=100" 2>/dev/null \
                 | jq -r '[.artifacts[] | select(.name == "otp_prebuilt" and .expired == false)][0].id // empty' \
                 2>/dev/null)" || artifact_id=""
             if [ -z "$artifact_id" ]; then
