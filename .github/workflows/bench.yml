@@ -76,6 +76,11 @@ on:
         description: "Comma-separated benchmark names (Bounce,CD,…) — empty = full suite. Pair with 'fill' to backfill a single benchmark across refs that don't yet have its data."
         required: false
         default: ""
+      xmpp_only:
+        description: "Skip the synthetic AWFY + OtpBenchmarks measure jobs and only run measure-xmpp-linux across the OTP matrix. With otp_refs=all the publish wipe is restricted to existing XMPP run-dirs, so synthetic data stays put."
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -138,6 +143,12 @@ jobs:
       # results, so the dashboard ends up with only the freshly-built
       # data (and consistent labels).
       wipe_gh_pages: ${{ steps.r.outputs.wipe_gh_pages }}
+      # When true, every synthetic measure job (measure-linux /
+      # measure-linux-target / measure-windows* / measure-macos*) and
+      # the legacy build/prep jobs feeding them skip; only
+      # measure-xmpp-linux runs. The publish wipe also narrows to
+      # XMPP run-dirs so synthetic data on gh-pages survives.
+      xmpp_only: ${{ inputs.xmpp_only || 'false' }}
       # Resolved once at the top so every downstream `runs-on:` and
       # measure step can branch consistently. Push events are pinned
       # to GHA regardless of the dispatch input — pushes don't pay
@@ -373,7 +384,7 @@ jobs:
     needs: resolve
     # `has_legacy_build` covers any legacy platform — prep-target-bundle
     # extracts from this image regardless of which platform queued the work.
-    if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
     permissions:
       contents: read
       packages: write
@@ -470,7 +481,7 @@ jobs:
     # including the OTPs whose build legs succeeded. The matrix is
     # per-major and each row finds its own SHA, so partial success
     # is the right answer here.
-    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
+    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -570,7 +581,7 @@ jobs:
     # every measure-linux row. Per-matrix-row docker pulls fail
     # cleanly when an image is missing, so partial success is the
     # right behaviour.
-    if: ${{ !cancelled() && needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
+    if: ${{ !cancelled() && needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -650,7 +661,7 @@ jobs:
   measure-windows:
     name: measure-windows OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: resolve
-    if: needs.resolve.outputs.has_modern_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    if: needs.resolve.outputs.has_modern_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
@@ -817,7 +828,7 @@ jobs:
     # GHA leg doesn't race the local run for the same labels. Revert
     # to the commented condition below when the local sweep is in.
     if: false
-    # if: needs.resolve.outputs.has_modern_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # if: needs.resolve.outputs.has_modern_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
     permissions:
       contents: read
     strategy:
@@ -944,7 +955,7 @@ jobs:
     name: measure-linux-target OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }}, ${{ matrix.flavor }})
     needs: [resolve, build-linux-target, prep-target-bundle]
     # `!cancelled()` — see prep-target-bundle for the rationale.
-    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
+    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
     permissions:
       contents: read
       packages: read
@@ -1030,7 +1041,7 @@ jobs:
     name: measure-windows-target OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: [resolve, prep-target-bundle]
     # `!cancelled()` — see prep-target-bundle for the rationale.
-    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true' }}
+    if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
     permissions:
       contents: read
       actions: read
@@ -1152,7 +1163,7 @@ jobs:
     # Temporarily disabled — see measure-macos above. Revert
     # together when the local sweep is in.
     if: false
-    # if: needs.resolve.outputs.has_legacy_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # if: needs.resolve.outputs.has_legacy_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
     permissions:
       contents: read
       actions: read
@@ -1429,13 +1440,29 @@ jobs:
       # so deleting it here is safe — the regenerator reads from
       # the .benchee files in the surviving run-dirs.
       - name: Wipe existing gh-pages content (`all` mode)
-        if: needs.resolve.outputs.wipe_gh_pages == 'true'
+        if: needs.resolve.outputs.wipe_gh_pages == 'true' && needs.resolve.outputs.xmpp_only != 'true'
         run: |
           echo "[publish] wiping non-macos content from gh-pages worktree"
           find _pages -mindepth 1 -maxdepth 1 \
             ! -name '.git' \
             ! -name '*-test-macos-*' \
             -exec rm -rf {} +
+
+      # XMPP-only `all` mode: keep every synthetic run-dir, drop just
+      # the XMPP run-dirs so the new long-window measurements replace
+      # the previous shorter ones. XMPP run-dirs are identified by
+      # presence of `dynamic_domains_pm.benchee` — the only contents
+      # `mix awfy.measure_xmpp` writes (no synthetic .benchee siblings).
+      - name: Wipe existing XMPP run-dirs (xmpp_only + `all` mode)
+        if: needs.resolve.outputs.wipe_gh_pages == 'true' && needs.resolve.outputs.xmpp_only == 'true'
+        run: |
+          echo "[publish] wiping XMPP run-dirs (synthetic data preserved)"
+          find _pages -mindepth 2 -maxdepth 2 -name 'dynamic_domains_pm.benchee' -printf '%h\n' \
+            | sort -u \
+            | while read -r dir; do
+                echo "  rm -rf $dir"
+                rm -rf "$dir"
+              done
 
       # Push events run as a smoke test of the workflow itself, but
       # their measurement output is noise we don't want polluting
