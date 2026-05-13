@@ -567,6 +567,27 @@ the BEAM-side code mostly reuses Phase 1.
   not a silent gap.
 * Topology cost telemetry — track per-measurement AWS spend so a
   noisy scenario that runs long doesn't surprise us at month-end.
+* **Replace `docker stats` sampling with MongooseIM's prometheus
+  endpoint.** Phase 1 / multi-broker CETS samples CPU% + mem MB via
+  one `docker stats --no-stream` call per broker, parallelised — fast
+  enough for the 1 sample/s cadence but coarse (container-level, not
+  BEAM-level) and Docker-host-specific. Each broker already exposes
+  prometheus metrics on `:9091/metrics` (`[instrumentation.prometheus]`
+  in the prod-vars config). Scrape that instead:
+    * `erlang_vm_memory_bytes{kind=...}` for per-subsystem memory
+      (heap, binary, ets) — the dashboard sparkline gains a per-broker
+      breakdown of *which* memory bucket grew across an OTP regression.
+    * `erlang_scheduler_wall_time_total` deltas → CPU% (excludes the
+      Postgres container's overhead, which container-CPU includes).
+    * Per-broker message-queue depth + run-queue lengths as new
+      sample series, plotted alongside CPU/mem on the per-bench page
+      so a regression's *shape* (queues stacking up vs CPU saturation)
+      is visible without re-running.
+  Migration plan: add a `MetricSource` behaviour in `Awfy.Xmpp` with
+  `DockerStats` + `Prometheus` impls, switch :local to Prometheus once
+  parity is verified locally, leave :aws_clt on docker-stats one cycle
+  then flip. Keep the `samples_by_bench` shape in `meta.json` so the
+  dashboard renderers don't churn.
 
 ## OTP coverage limitations
 
