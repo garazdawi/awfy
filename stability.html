@@ -252,8 +252,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
     </tr>
   </thead>
   <tbody>
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="unicode" data-min="0.132246" data-p25="0.153637" data-median="0.166867" data-p75="0.398251" data-p99="0.687413" data-max="0.882448" data-mean="0.290459" data-stddev="0.193567" >
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="xmpp" data-min="1.8e-5" data-p25="2.2e-5" data-median="2.3e-5" data-p75="7.6e-5" data-p99="9.5e-5" data-max="9.5e-5" data-mean="4.4e-5" data-stddev="3.0e-5" data-samples="18.130,21.500,91.120,22.720,22.070,75.930,22.230,91.330,22.730,22.480,92.410,22.090,24.850,39.100,22.440,89.020,22.650,21.500,89.610,22.230,67.370,22.520,21.880,92.050,22.690,24.000,69.390,20.280,94.580,22.140" data-samples-unit="%">
   <td class="rank">1</td>
+  <td>xmpp_cpu</td>
+  <td>erlang</td>
+  <td>linux-arm64</td>
+  <td>jit</td>
+  <td class="num">0.000023</td>
+  <td class="num stability-bad">234.78 %</td>
+  <td class="num">130.43 %</td>
+  <td class="num">30</td>
+</tr>
+
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="unicode" data-min="0.132246" data-p25="0.153637" data-median="0.166867" data-p75="0.398251" data-p99="0.687413" data-max="0.882448" data-mean="0.290459" data-stddev="0.193567" >
+  <td class="rank">2</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -265,7 +277,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.203038" data-p25="0.219875" data-median="0.495242" data-p75="0.814353" data-p99="0.868952" data-max="1.203441" data-mean="0.488015" data-stddev="0.269372" >
-  <td class="rank">2</td>
+  <td class="rank">3</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -277,7 +289,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="1.02e-4" data-p25="1.02e-4" data-median="1.02e-4" data-p75="2.05e-4" data-p99="4.1e-4" data-max="0.042803" data-mean="1.68e-4" data-stddev="2.73e-4" >
-  <td class="rank">3</td>
+  <td class="rank">4</td>
   <td>ets/key_binary</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -289,7 +301,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="2.05e-4" data-p99="3.07e-4" data-max="6.14e-4" data-mean="1.16e-4" data-stddev="7.7e-5" >
-  <td class="rank">4</td>
+  <td class="rank">5</td>
   <td>maps/keys_n32</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -301,7 +313,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="1.02e-4" data-p25="1.02e-4" data-median="1.02e-4" data-p75="2.05e-4" data-p99="2.05e-4" data-max="5.12e-4" data-mean="1.53e-4" data-stddev="5.3e-5" >
-  <td class="rank">5</td>
+  <td class="rank">6</td>
   <td>ets/mixed_bag</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -313,7 +325,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="1.02e-4" data-p25="1.02e-4" data-median="1.02e-4" data-p75="2.05e-4" data-p99="3.07e-4" data-max="6.14e-4" data-mean="1.39e-4" data-stddev="5.2e-5" >
-  <td class="rank">6</td>
+  <td class="rank">7</td>
   <td>maps/put_n1000</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -325,7 +337,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="1.02e-4" data-p25="1.02e-4" data-median="1.02e-4" data-p75="2.05e-4" data-p99="2.05e-4" data-max="6.14e-4" data-mean="1.39e-4" data-stddev="5.1e-5" >
-  <td class="rank">7</td>
+  <td class="rank">8</td>
   <td>phash2/tuple_10</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -337,7 +349,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.0" data-p25="0.0" data-median="0.1024" data-p75="0.1024" data-p99="0.1024" data-max="0.512" data-mean="0.05298" data-stddev="0.055489" >
-  <td class="rank">8</td>
+  <td class="rank">9</td>
   <td>unicode/graphemes_combining_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -349,7 +361,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="0.0" data-p25="0.0" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="0.005325" data-mean="7.3e-5" data-stddev="5.5e-5" >
-  <td class="rank">9</td>
+  <td class="rank">10</td>
   <td>phash2/list_10</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -361,7 +373,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.0" data-p25="0.0" data-median="0.1024" data-p75="0.1024" data-p99="0.1024" data-max="0.4096" data-mean="0.053178" data-stddev="0.052648" >
-  <td class="rank">10</td>
+  <td class="rank">11</td>
   <td>unicode/lexemes_mixed_seps</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -373,7 +385,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="0.0" data-median="1.02e-4" data-p75="1.02e-4" data-p99="1.02e-4" data-max="5.12e-4" data-mean="5.6e-5" data-stddev="5.2e-5" >
-  <td class="rank">11</td>
+  <td class="rank">12</td>
   <td>maps/put_n5</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -385,7 +397,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="0.0" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="4.1e-4" data-mean="7.4e-5" data-stddev="5.2e-5" >
-  <td class="rank">12</td>
+  <td class="rank">13</td>
   <td>maps/put_n32</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -397,7 +409,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="binary_match" data-min="0.0" data-p25="0.0" data-median="0.01024" data-p75="0.01024" data-p99="0.01024" data-max="0.0512" data-mean="0.005394" data-stddev="0.005144" >
-  <td class="rank">13</td>
+  <td class="rank">14</td>
   <td>binary_match/all_no_match_64k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -409,7 +421,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="0.0" data-p25="0.0" data-median="1.02e-4" data-p75="1.02e-4" data-p99="1.02e-4" data-max="0.001126" data-mean="6.4e-5" data-stddev="5.1e-5" >
-  <td class="rank">14</td>
+  <td class="rank">15</td>
   <td>phash2/binary_8</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -421,7 +433,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="0.0" data-median="0.1024" data-p75="0.1024" data-p99="0.1024" data-max="0.3072" data-mean="0.06239" data-stddev="0.050682" >
-  <td class="rank">15</td>
+  <td class="rank">16</td>
   <td>ets/bulk_select_half</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -433,7 +445,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="mnesia_tpcb" data-min="0.0" data-p25="0.0" data-median="0.1024" data-p75="0.1024" data-p99="0.2048" data-max="0.7168" data-mean="0.071268" data-stddev="0.050191" >
-  <td class="rank">16</td>
+  <td class="rank">17</td>
   <td>mnesia_tpcb/disc_only</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -445,7 +457,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="0.0" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="0.001024" data-mean="7.7e-5" data-stddev="4.7e-5" >
-  <td class="rank">17</td>
+  <td class="rank">18</td>
   <td>ets/update_counter_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -457,7 +469,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.1024" data-p25="0.1024" data-median="0.1024" data-p75="0.2048" data-p99="0.2048" data-max="0.4096" data-mean="0.129068" data-stddev="0.045514" >
-  <td class="rank">18</td>
+  <td class="rank">19</td>
   <td>maps/new_n1000</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -468,20 +480,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">23058</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="xmpp" data-min="2.4e-5" data-p25="2.6e-5" data-median="2.8e-5" data-p75="5.0e-5" data-p99="5.6e-5" data-max="5.6e-5" data-mean="3.5e-5" data-stddev="1.2e-5" data-samples="25.290,51.220,28.020,29.750,30.860,55.610,54.490,33.190,26.450,25.910,51.780,38.320,26.160,26.810,25.240,50.090,26.000,23.720,27.550,49.750,49.430,27.570,24.800,26.730,50.020" data-samples-unit="%">
-  <td class="rank">19</td>
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="xmpp" data-min="3.8e-5" data-p25="4.9e-5" data-median="5.8e-5" data-p75="0.0001" data-p99="1.44e-4" data-max="1.44e-4" data-mean="7.4e-5" data-stddev="3.3e-5" data-samples="98.810,42.330,93.320,52.360,49.140,143.890,53.270,54.050,76.570,51.130,133.300,61.720,62.800,119.880,53.400,109.640,42.530,43.170,133.580,43.240,61.180,58.370,38.100,115.850,55.780,56.850,99.980,39.020,123.990,37.880" data-samples-unit="%">
+  <td class="rank">20</td>
   <td>xmpp_cpu</td>
   <td>erlang</td>
-  <td>linux-arm64</td>
-  <td>jit</td>
-  <td class="num">0.000028</td>
-  <td class="num stability-bad">85.71 %</td>
-  <td class="num">42.86 %</td>
-  <td class="num">25</td>
+  <td>linux-x86_64</td>
+  <td>emu</td>
+  <td class="num">0.000058</td>
+  <td class="num stability-bad">87.93 %</td>
+  <td class="num">56.90 %</td>
+  <td class="num">30</td>
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="6.1e-5" data-p25="7.2e-5" data-median="7.2e-5" data-p75="1.33e-4" data-p99="1.74e-4" data-max="0.003697" data-mean="0.0001" data-stddev="1.33e-4" >
-  <td class="rank">20</td>
+  <td class="rank">21</td>
   <td>ets/update_element_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -492,8 +504,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">4994000</td>
 </tr>
 
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="xmpp" data-min="2.8e-5" data-p25="3.0e-5" data-median="3.5e-5" data-p75="5.9e-5" data-p99="8.1e-5" data-max="8.1e-5" data-mean="4.4e-5" data-stddev="1.8e-5" data-samples="58.330,28.470,32.370,61.740,31.080,48.260,56.330,32.150,80.500,32.010,33.140,78.950,29.700,37.650,62.270,29.730,45.610,34.740,29.610,76.790,28.280,30.000,78.230,28.830,29.330,62.870,29.140,59.110,34.510,30.730" data-samples-unit="%">
+  <td class="rank">22</td>
+  <td>xmpp_cpu</td>
+  <td>erlang</td>
+  <td>linux-arm64</td>
+  <td>emu</td>
+  <td class="num">0.000035</td>
+  <td class="num stability-bad">82.86 %</td>
+  <td class="num">51.43 %</td>
+  <td class="num">30</td>
+</tr>
+
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="estone" data-min="4.627375" data-p25="6.202917" data-median="9.477875" data-p75="13.811125" data-p99="14.899331" data-max="15.082666" data-mean="9.933882" data-stddev="3.549103" >
-  <td class="rank">21</td>
+  <td class="rank">23</td>
   <td>estone/lists</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -505,7 +529,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="unicode" data-min="0.337475" data-p25="0.342931" data-median="0.521801" data-p75="0.731609" data-p99="0.772991" data-max="0.809219" data-mean="0.529896" data-stddev="0.174735" >
-  <td class="rank">22</td>
+  <td class="rank">24</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -516,8 +540,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">5655</td>
 </tr>
 
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="xmpp" data-min="2.6e-5" data-p25="3.7e-5" data-median="6.6e-5" data-p75="8.1e-5" data-p99="1.14e-4" data-max="1.14e-4" data-mean="6.5e-5" data-stddev="2.7e-5" data-samples="25.940,48.390,63.970,32.640,105.210,65.990,38.450,65.970,36.550,113.810,75.500,36.770,45.550,40.820,106.130,64.670,36.140,78.250,67.190,101.070,68.620,33.140,95.890,67.440,97.790,32.970,31.960,104.330,74.030,80.710" data-samples-unit="%">
+  <td class="rank">25</td>
+  <td>xmpp_cpu</td>
+  <td>erlang</td>
+  <td>linux-x86_64</td>
+  <td>jit</td>
+  <td class="num">0.000066</td>
+  <td class="num stability-bad">66.67 %</td>
+  <td class="num">40.91 %</td>
+  <td class="num">30</td>
+</tr>
+
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.2048" data-p25="0.2048" data-median="0.3072" data-p75="0.4096" data-p99="0.6144" data-max="1.7408" data-mean="0.308765" data-stddev="0.09701" >
-  <td class="rank">23</td>
+  <td class="rank">26</td>
   <td>unicode/nfc_precomposed_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -529,7 +565,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.7168" data-p25="0.8192" data-median="1.536" data-p75="1.8432" data-p99="2.048" data-max="3.072" data-mean="1.353493" data-stddev="0.467607" >
-  <td class="rank">24</td>
+  <td class="rank">27</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -541,7 +577,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="maps" data-min="5.3e-5" data-p25="6.0e-5" data-median="6.9e-5" data-p75="9.5e-5" data-p99="1.55e-4" data-max="4.19e-4" data-mean="7.9e-5" data-stddev="2.2e-5" >
-  <td class="rank">25</td>
+  <td class="rank">28</td>
   <td>maps/put_n32</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -553,7 +589,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="1.02e-4" data-p25="1.02e-4" data-median="2.05e-4" data-p75="2.05e-4" data-p99="3.07e-4" data-max="4.1e-4" data-mean="1.64e-4" data-stddev="5.3e-5" >
-  <td class="rank">26</td>
+  <td class="rank">29</td>
   <td>ets/key_tuple</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -565,7 +601,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="1.02e-4" data-p25="1.02e-4" data-median="2.05e-4" data-p75="2.05e-4" data-p99="2.05e-4" data-max="0.001229" data-mean="1.64e-4" data-stddev="5.2e-5" >
-  <td class="rank">27</td>
+  <td class="rank">30</td>
   <td>ets/mixed_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -577,7 +613,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="0.002048" data-p25="0.002048" data-median="0.002048" data-p75="0.003072" data-p99="0.00512" data-max="0.0256" data-mean="0.00258" data-stddev="9.52e-4" >
-  <td class="rank">28</td>
+  <td class="rank">31</td>
   <td>phash2/map_100</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -589,7 +625,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="3.6e-5" data-p25="4.7e-5" data-median="5.0e-5" data-p75="7.2e-5" data-p99="1.15e-4" data-max="5.62e-4" data-mean="5.8e-5" data-stddev="2.0e-5" >
-  <td class="rank">29</td>
+  <td class="rank">32</td>
   <td>maps/put_n32</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -601,7 +637,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.004096" data-p25="0.004096" data-median="0.004096" data-p75="0.006144" data-p99="0.008192" data-max="0.017408" data-mean="0.005143" data-stddev="0.001328" >
-  <td class="rank">30</td>
+  <td class="rank">33</td>
   <td>unicode/lexemes_csv_few</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -613,7 +649,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="iolist_size" data-min="0.002048" data-p25="0.002048" data-median="0.002048" data-p75="0.003072" data-p99="0.003072" data-max="0.00512" data-mean="0.002315" data-stddev="4.56e-4" >
-  <td class="rank">31</td>
+  <td class="rank">34</td>
   <td>iolist_size/shallow_1k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -624,20 +660,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">129250</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="xmpp" data-min="3.3e-5" data-p25="4.9e-5" data-median="5.8e-5" data-p75="7.8e-5" data-p99="9.6e-5" data-max="9.6e-5" data-mean="6.2e-5" data-stddev="1.9e-5" data-samples="33.930,81.890,83.740,48.290,49.000,69.390,93.260,58.530,60.060,58.090,95.610,56.660,44.550,48.880,92.060,48.290,52.250,32.990,91.890,74.740,53.130,37.480,62.760,78.430,49.150" data-samples-unit="%">
-  <td class="rank">32</td>
-  <td>xmpp_cpu</td>
-  <td>erlang</td>
-  <td>linux-x86_64</td>
-  <td>jit</td>
-  <td class="num">0.000058</td>
-  <td class="num stability-bad">50.00 %</td>
-  <td class="num">32.76 %</td>
-  <td class="num">25</td>
-</tr>
-
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="base64" data-min="0.01024" data-p25="0.01024" data-median="0.02048" data-p75="0.02048" data-p99="0.02048" data-max="0.04096" data-mean="0.016999" data-stddev="0.004937" >
-  <td class="rank">33</td>
+  <td class="rank">35</td>
   <td>base64/decode_n3k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -649,7 +673,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="base64" data-min="0.02048" data-p25="0.02048" data-median="0.02048" data-p75="0.03072" data-p99="0.03072" data-max="0.07168" data-mean="0.023292" data-stddev="0.004865" >
-  <td class="rank">34</td>
+  <td class="rank">36</td>
   <td>base64/mime_decode_n3k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -661,7 +685,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="2.05e-4" data-p25="2.05e-4" data-median="2.05e-4" data-p75="3.07e-4" data-p99="5.12e-4" data-max="0.001331" data-mean="2.59e-4" data-stddev="8.5e-5" >
-  <td class="rank">35</td>
+  <td class="rank">37</td>
   <td>phash2/map_5</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -673,7 +697,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.416235" data-p25="0.429412" data-median="0.441758" data-p75="0.624974" data-p99="0.723239" data-max="1.059002" data-mean="0.520081" data-stddev="0.10738" >
-  <td class="rank">36</td>
+  <td class="rank">38</td>
   <td>unicode/graphemes_bmp_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -685,7 +709,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="5.8e-5" data-p25="6.3e-5" data-median="7.6e-5" data-p75="9.6e-5" data-p99="1.26e-4" data-max="5.54e-4" data-mean="8.2e-5" data-stddev="2.0e-5" >
-  <td class="rank">37</td>
+  <td class="rank">39</td>
   <td>maps/put_n100</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -697,7 +721,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="3.3e-5" data-p25="3.6e-5" data-median="4.0e-5" data-p75="5.3e-5" data-p99="1.12e-4" data-max="1.16e-4" data-mean="4.6e-5" data-stddev="1.3e-5" >
-  <td class="rank">38</td>
+  <td class="rank">40</td>
   <td>maps/put_n5</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -708,20 +732,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">65170000</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="xmpp" data-min="3.9e-5" data-p25="5.3e-5" data-median="5.6e-5" data-p75="7.6e-5" data-p99="9.2e-5" data-max="9.2e-5" data-mean="6.1e-5" data-stddev="1.4e-5" data-samples="42.410,47.270,51.830,80.130,56.990,56.060,65.800,82.690,92.330,55.330,52.850,41.630,83.670,58.940,51.000,56.780,56.530,76.290,55.040,54.880,54.110,79.630,81.090,55.650,39.470" data-samples-unit="%">
-  <td class="rank">39</td>
-  <td>xmpp_cpu</td>
-  <td>erlang</td>
-  <td>linux-x86_64</td>
-  <td>emu</td>
-  <td class="num">0.000056</td>
-  <td class="num stability-bad">41.07 %</td>
-  <td class="num">25.00 %</td>
-  <td class="num">25</td>
-</tr>
-
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="79.621375" data-p25="79.938521" data-median="80.44925" data-p75="111.476062" data-p99="113.47875" data-max="113.47875" data-mean="93.194755" data-stddev="15.491778" >
-  <td class="rank">40</td>
+  <td class="rank">41</td>
   <td>Json</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -733,7 +745,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="base64" data-min="0.3072" data-p25="0.3072" data-median="0.3072" data-p75="0.4096" data-p99="0.6144" data-max="1.024" data-mean="0.358529" data-stddev="0.06716" >
-  <td class="rank">41</td>
+  <td class="rank">42</td>
   <td>base64/decode_n64k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -745,7 +757,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.02048" data-p25="0.03072" data-median="0.03072" data-p75="0.04096" data-p99="0.06144" data-max="0.1024" data-mean="0.034537" data-stddev="0.010024" >
-  <td class="rank">42</td>
+  <td class="rank">43</td>
   <td>unicode/lexemes_csv_many</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -757,7 +769,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="3.1e-5" data-p25="3.1e-5" data-median="3.1e-5" data-p75="4.1e-5" data-p99="6.1e-5" data-max="0.001024" data-mean="3.6e-5" data-stddev="2.1e-5" >
-  <td class="rank">43</td>
+  <td class="rank">44</td>
   <td>maps/get_n100</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -769,7 +781,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="3.1e-5" data-p25="3.1e-5" data-median="3.1e-5" data-p75="4.1e-5" data-p99="7.2e-5" data-max="1.84e-4" data-mean="3.6e-5" data-stddev="8.0e-6" >
-  <td class="rank">44</td>
+  <td class="rank">45</td>
   <td>phash2/atom</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -781,7 +793,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="estone" data-min="2.886417" data-p25="3.020865" data-median="4.378771" data-p75="4.42626" data-p99="4.549607" data-max="4.61475" data-mean="3.945088" data-stddev="0.666781" >
-  <td class="rank">45</td>
+  <td class="rank">46</td>
   <td>estone/large_local_dataset_work</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -793,7 +805,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="1.3e-5" data-p25="1.5e-5" data-median="1.6e-5" data-p75="2.0e-5" data-p99="2.3e-5" data-max="4.7e-5" data-mean="1.7e-5" data-stddev="3.0e-6" >
-  <td class="rank">46</td>
+  <td class="rank">47</td>
   <td>maps/put_n5</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -805,7 +817,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="unicode" data-min="0.049" data-p25="0.055833" data-median="0.059417" data-p75="0.073625" data-p99="0.322625" data-max="0.377209" data-mean="0.079076" data-stddev="0.059785" >
-  <td class="rank">47</td>
+  <td class="rank">48</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -817,7 +829,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="unicode" data-min="0.050125" data-p25="0.056458" data-median="0.060333" data-p75="0.073917" data-p99="0.327958" data-max="0.372083" data-mean="0.081011" data-stddev="0.061654" >
-  <td class="rank">48</td>
+  <td class="rank">49</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -829,7 +841,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="174.395179" data-p25="180.404395" data-median="183.646985" data-p75="231.617076" data-p99="234.498872" data-max="234.498872" data-mean="202.567856" data-stddev="25.695966" >
-  <td class="rank">49</td>
+  <td class="rank">50</td>
   <td>Json</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -841,7 +853,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="1.3e-5" data-p25="1.6e-5" data-median="1.8e-5" data-p75="2.1e-5" data-p99="2.4e-5" data-max="4.6e-5" data-mean="1.8e-5" data-stddev="3.0e-6" >
-  <td class="rank">50</td>
+  <td class="rank">51</td>
   <td>maps/put_n5</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -853,7 +865,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="unicode" data-min="0.078619" data-p25="0.082442" data-median="0.104459" data-p75="0.110475" data-p99="0.607378" data-max="0.723119" data-mean="0.169008" data-stddev="0.159869" >
-  <td class="rank">51</td>
+  <td class="rank">52</td>
   <td>unicode/graphemes_ascii_4k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -862,18 +874,6 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num stability-bad">26.84 %</td>
   <td class="num">153.04 %</td>
   <td class="num">17713</td>
-</tr>
-
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="xmpp" data-min="2.1e-5" data-p25="2.4e-5" data-median="2.7e-5" data-p75="3.1e-5" data-p99="4.7e-5" data-max="4.7e-5" data-mean="2.9e-5" data-stddev="7.0e-6" data-samples="22.740,25.390,26.730,27.430,46.940,29.970,28.410,27.750,28.670,41.550,25.890,25.330,26.060,23.250,38.700,20.690,22.160,22.090,30.810,39.390,24.040,22.680,23.680,35.530,39.960" data-samples-unit="%">
-  <td class="rank">52</td>
-  <td>xmpp_cpu</td>
-  <td>erlang</td>
-  <td>linux-arm64</td>
-  <td>emu</td>
-  <td class="num">0.000027</td>
-  <td class="num stability-bad">25.93 %</td>
-  <td class="num">25.93 %</td>
-  <td class="num">25</td>
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="iolist_size" data-min="0.003072" data-p25="0.003072" data-median="0.004096" data-p75="0.004096" data-p99="0.00512" data-max="0.016384" data-mean="0.003721" data-stddev="5.52e-4" >
@@ -2328,8 +2328,32 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">80680000</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="maps" data-min="1.09e-4" data-p25="1.13e-4" data-median="1.14e-4" data-p75="1.19e-4" data-p99="1.41e-4" data-max="8.42e-4" data-mean="1.17e-4" data-stddev="1.2e-5" >
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="xmpp" data-min="1.17096" data-p25="1.240695" data-median="1.28041" data-p75="1.308901" data-p99="2.012072" data-max="2.012072" data-mean="1.342036" data-stddev="0.190248" data-samples="497,511,525,574,598,649,692,685,702,758,755,752,778,767,854,778,784,792,809,808,764,803,825,806,770,799,770,810,789,766,829,795,815,766,795,773,808,783,815,789,798,806,769,796,769,816,827,779,781" data-samples-unit="msg/s">
   <td class="rank">174</td>
+  <td>xmpp_speed</td>
+  <td>erlang</td>
+  <td>linux-arm64</td>
+  <td>jit</td>
+  <td class="num">1.280</td>
+  <td class="num stability-warn">5.33 %</td>
+  <td class="num">14.86 %</td>
+  <td class="num">49</td>
+</tr>
+
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="xmpp" data-min="0.863558" data-p25="0.913242" data-median="0.929368" data-p75="0.962464" data-p99="1.30039" data-max="1.30039" data-mean="0.96464" data-stddev="0.099485" data-samples="787,769,814,888,866,940,957,953,1005,1009,1051,1095,1076,1075,1063,1097,1130,1057,1100,1100,1039,1142,1098,1053,1069,1080,1129,1080,1100,1078,1084,1158,1085,1081,1071,1083,1148,1070,1088,1032,1089,1146,1040,1079,1085,1075" data-samples-unit="msg/s">
+  <td class="rank">175</td>
+  <td>xmpp_speed</td>
+  <td>erlang</td>
+  <td>linux-x86_64</td>
+  <td>emu</td>
+  <td class="num">0.929368</td>
+  <td class="num stability-warn">5.30 %</td>
+  <td class="num">10.70 %</td>
+  <td class="num">46</td>
+</tr>
+
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="maps" data-min="1.09e-4" data-p25="1.13e-4" data-median="1.14e-4" data-p75="1.19e-4" data-p99="1.41e-4" data-max="8.42e-4" data-mean="1.17e-4" data-stddev="1.2e-5" >
+  <td class="rank">176</td>
   <td>maps/keys_n32</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2341,7 +2365,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="1256.39048" data-p25="1257.827105" data-median="1275.21288" data-p75="1324.343693" data-p99="1336.361998" data-max="1336.361998" data-mean="1285.79456" data-stddev="36.458049" >
-  <td class="rank">175</td>
+  <td class="rank">177</td>
   <td>Havlak</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -2353,7 +2377,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="mnesia_tpcb" data-min="0.071112" data-p25="0.07496" data-median="0.076051" data-p75="0.078907" data-p99="0.172122" data-max="1.072757" data-mean="0.080701" data-stddev="0.017066" >
-  <td class="rank">176</td>
+  <td class="rank">178</td>
   <td>mnesia_tpcb/disc_only</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2365,7 +2389,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="7.994811" data-p25="8.281322" data-median="8.500041" data-p75="8.722375" data-p99="9.404643" data-max="9.470272" data-mean="8.509605" data-stddev="0.324603" >
-  <td class="rank">177</td>
+  <td class="rank">179</td>
   <td>estone/timer</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2377,7 +2401,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="base64" data-min="1.44e-4" data-p25="1.71e-4" data-median="1.75e-4" data-p75="1.8e-4" data-p99="1.96e-4" data-max="2.19e-4" data-mean="1.75e-4" data-stddev="8.0e-6" >
-  <td class="rank">178</td>
+  <td class="rank">180</td>
   <td>base64/decode_n63</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2389,7 +2413,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="base64" data-min="1.775497" data-p25="2.109198" data-median="2.214525" data-p75="2.222718" data-p99="2.298364" data-max="2.747881" data-mean="2.150282" data-stddev="0.145132" >
-  <td class="rank">179</td>
+  <td class="rank">181</td>
   <td>base64/decode_n64k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2401,7 +2425,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.065111" data-p25="0.070922" data-median="0.072636" data-p75="0.074619" data-p99="0.108137" data-max="0.672138" data-mean="0.075277" data-stddev="0.020571" >
-  <td class="rank">180</td>
+  <td class="rank">182</td>
   <td>unicode/graphemes_combining_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2413,7 +2437,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="AWFY" data-min="2415.4112" data-p25="2415.4112" data-median="2479.3088" data-p75="2541.568" data-p99="2541.568" data-max="2541.568" data-mean="2478.762667" data-stddev="63.080173" >
-  <td class="rank">181</td>
+  <td class="rank">183</td>
   <td>Richards</td>
   <td>erlang</td>
   <td>windows-x86_64</td>
@@ -2425,7 +2449,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="mnesia_tpcb" data-min="0.046959" data-p25="0.048841" data-median="0.049757" data-p75="0.05136" data-p99="0.073384" data-max="0.113108" data-mean="0.051126" data-stddev="0.005007" >
-  <td class="rank">182</td>
+  <td class="rank">184</td>
   <td>mnesia_tpcb/ram</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2437,7 +2461,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="base64" data-min="1.51e-4" data-p25="1.74e-4" data-median="1.78e-4" data-p75="1.83e-4" data-p99="1.99e-4" data-max="2.26e-4" data-mean="1.79e-4" data-stddev="8.0e-6" >
-  <td class="rank">183</td>
+  <td class="rank">185</td>
   <td>base64/decode_n63</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2449,7 +2473,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="AWFY" data-min="903.0656" data-p25="909.9776" data-median="934.912" data-p75="957.1328" data-p99="980.48" data-max="980.48" data-mean="935.8336" data-stddev="27.929494" >
-  <td class="rank">184</td>
+  <td class="rank">186</td>
   <td>NBody</td>
   <td>erlang</td>
   <td>windows-x86_64</td>
@@ -2461,7 +2485,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="7.7824" data-p25="8.0896" data-median="8.192" data-p75="8.4992" data-p99="9.00096" data-max="9.3184" data-mean="8.278803" data-stddev="0.227869" >
-  <td class="rank">185</td>
+  <td class="rank">187</td>
   <td>estone/large_dataset_work</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -2473,7 +2497,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="244.867458" data-p25="255.226008" data-median="262.874125" data-p75="268.245367" data-p99="282.572385" data-max="282.572385" data-mean="261.423668" data-stddev="9.705129" >
-  <td class="rank">186</td>
+  <td class="rank">188</td>
   <td>Storage</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -2485,7 +2509,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.110696" data-p25="0.114683" data-median="0.116618" data-p75="0.120435" data-p99="0.136744" data-max="0.513738" data-mean="0.118465" data-stddev="0.008046" >
-  <td class="rank">187</td>
+  <td class="rank">189</td>
   <td>unicode/nfc_decomposed_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2497,7 +2521,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="1401.61825" data-p25="1401.61825" data-median="1411.970875" data-p75="1471.152584" data-p99="1471.152584" data-max="1471.152584" data-mean="1428.247236" data-stddev="37.515941" >
-  <td class="rank">188</td>
+  <td class="rank">190</td>
   <td>DeltaBlue</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -2509,7 +2533,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="2.0e-5" data-p25="2.1e-5" data-median="2.1e-5" data-p75="2.2e-5" data-p99="2.5e-5" data-max="4.1e-5" data-mean="2.2e-5" data-stddev="1.0e-6" >
-  <td class="rank">189</td>
+  <td class="rank">191</td>
   <td>maps/merge_n5_n5</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2521,7 +2545,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="phash2" data-min="2.0e-5" data-p25="2.0e-5" data-median="2.1e-5" data-p75="2.1e-5" data-p99="2.2e-5" data-max="3.0e-5" data-mean="2.1e-5" data-stddev="0.0" >
-  <td class="rank">190</td>
+  <td class="rank">192</td>
   <td>phash2/list_10</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2532,20 +2556,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">242550000</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="xmpp" data-min="0.944287" data-p25="0.988142" data-median="1.017294" data-p75="1.036269" data-p99="1.440922" data-max="1.440922" data-mean="1.052775" data-stddev="0.120092" data-samples="694,707,710,754,834,815,884,915,918,944,1040,972,1007,1034,980,1012,1000,991,993,980,1031,973,975,1038,965,964,995,1000,1029,987,1024,969,986,1059,972,974,1001,995,1026,1028,971,977,1031,1034,989,983" data-samples-unit="msg/s">
-  <td class="rank">191</td>
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="xmpp" data-min="0.961538" data-p25="1.017294" data-median="1.036269" data-p75="1.066098" data-p99="1.508296" data-max="1.508296" data-mean="1.076271" data-stddev="0.120656" data-samples="663,705,706,746,834,786,853,867,903,964,918,965,938,940,966,975,983,1040,971,977,943,989,1017,963,997,963,974,941,977,998,1025,956,959,978,996,1032,972,965,931,1005,974,962,962,1013,983,962,983" data-samples-unit="msg/s">
+  <td class="rank">193</td>
   <td>xmpp_speed</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
-  <td>emu</td>
-  <td class="num">1.017</td>
-  <td class="num stability-good">4.73 %</td>
-  <td class="num">11.81 %</td>
-  <td class="num">46</td>
+  <td>jit</td>
+  <td class="num">1.036</td>
+  <td class="num stability-good">4.71 %</td>
+  <td class="num">11.64 %</td>
+  <td class="num">47</td>
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="382.728524" data-p25="431.195973" data-median="444.512861" data-p75="451.903717" data-p99="484.020891" data-max="484.020891" data-mean="440.656513" data-stddev="20.382881" >
-  <td class="rank">192</td>
+  <td class="rank">194</td>
   <td>Storage</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -2557,7 +2581,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="3.7e-5" data-p25="4.2e-5" data-median="4.3e-5" data-p75="4.4e-5" data-p99="4.6e-5" data-max="4.9e-5" data-mean="4.3e-5" data-stddev="2.0e-6" >
-  <td class="rank">193</td>
+  <td class="rank">195</td>
   <td>maps/put_n100</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2569,7 +2593,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="maps" data-min="6.2e-5" data-p25="6.3e-5" data-median="6.5e-5" data-p75="6.6e-5" data-p99="7.6e-5" data-max="1.1e-4" data-mean="6.6e-5" data-stddev="3.0e-6" >
-  <td class="rank">194</td>
+  <td class="rank">196</td>
   <td>maps/merge_n5_n5</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2581,7 +2605,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="maps" data-min="0.009304" data-p25="0.009854" data-median="0.010068" data-p75="0.010316" data-p99="0.010997" data-max="0.051542" data-mean="0.010108" data-stddev="4.9e-4" >
-  <td class="rank">195</td>
+  <td class="rank">197</td>
   <td>maps/keys_n1000</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -2593,7 +2617,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="unicode" data-min="0.094203" data-p25="0.096227" data-median="0.097659" data-p75="0.100683" data-p99="0.130022" data-max="0.727617" data-mean="0.100949" data-stddev="0.015663" >
-  <td class="rank">196</td>
+  <td class="rank">198</td>
   <td>unicode/nfc_pure_ascii_4k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -2605,7 +2629,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="2.1e-5" data-p25="2.2e-5" data-median="2.2e-5" data-p75="2.3e-5" data-p99="2.4e-5" data-max="4.5e-5" data-mean="2.2e-5" data-stddev="1.0e-6" >
-  <td class="rank">197</td>
+  <td class="rank">199</td>
   <td>maps/new_n5</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2617,7 +2641,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="2.1e-5" data-p25="2.2e-5" data-median="2.2e-5" data-p75="2.3e-5" data-p99="2.4e-5" data-max="4.4e-5" data-mean="2.2e-5" data-stddev="1.0e-6" >
-  <td class="rank">198</td>
+  <td class="rank">200</td>
   <td>maps/new_n5</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2629,7 +2653,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="2.0e-5" data-p25="2.1e-5" data-median="2.2e-5" data-p75="2.2e-5" data-p99="2.5e-5" data-max="4.7e-5" data-mean="2.2e-5" data-stddev="1.0e-6" >
-  <td class="rank">199</td>
+  <td class="rank">201</td>
   <td>maps/merge_n5_n5</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2641,7 +2665,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="109.676459" data-p25="119.830292" data-median="124.899771" data-p75="125.505583" data-p99="126.853291" data-max="126.853291" data-mean="122.224321" data-stddev="4.797392" >
-  <td class="rank">200</td>
+  <td class="rank">202</td>
   <td>Bounce</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -2653,7 +2677,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="maps" data-min="7.7e-5" data-p25="8.6e-5" data-median="8.9e-5" data-p75="9.0e-5" data-p99="1.08e-4" data-max="1.3e-4" data-mean="8.8e-5" data-stddev="6.0e-6" >
-  <td class="rank">201</td>
+  <td class="rank">203</td>
   <td>maps/keys_n32</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2665,7 +2689,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="341.727716" data-p25="343.167897" data-median="357.599231" data-p75="359.138373" data-p99="360.937865" data-max="360.937865" data-mean="352.457236" data-stddev="8.094224" >
-  <td class="rank">202</td>
+  <td class="rank">204</td>
   <td>estone/msgp_medium</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -2677,7 +2701,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="1750.562959" data-p25="1750.562959" data-median="1801.119625" data-p75="1829.890291" data-p99="1829.890291" data-max="1829.890291" data-mean="1793.857625" data-stddev="40.159169" >
-  <td class="rank">203</td>
+  <td class="rank">205</td>
   <td>Sieve</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -2689,7 +2713,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="0.046637" data-p25="0.04932" data-median="0.050287" data-p75="0.051517" data-p99="0.053942" data-max="0.063783" data-mean="0.050309" data-stddev="0.001602" >
-  <td class="rank">204</td>
+  <td class="rank">206</td>
   <td>maps/new_n1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2701,7 +2725,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="0.019558" data-p25="0.023746" data-median="0.024446" data-p75="0.024813" data-p99="0.02667" data-max="0.047163" data-mean="0.02376" data-stddev="0.001778" >
-  <td class="rank">205</td>
+  <td class="rank">207</td>
   <td>ets/bulk_insert_1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2713,7 +2737,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.1e-5" data-p25="2.3e-5" data-median="2.3e-5" data-p75="2.4e-5" data-p99="2.5e-5" data-max="4.8e-5" data-mean="2.3e-5" data-stddev="1.0e-6" >
-  <td class="rank">206</td>
+  <td class="rank">208</td>
   <td>ets/key_atom</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2725,7 +2749,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="9.9e-5" data-p25="1.12e-4" data-median="1.15e-4" data-p75="1.17e-4" data-p99="1.31e-4" data-max="2.94e-4" data-mean="1.15e-4" data-stddev="6.0e-6" >
-  <td class="rank">207</td>
+  <td class="rank">209</td>
   <td>ets/key_atom</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2737,7 +2761,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="unicode" data-min="0.212715" data-p25="0.217572" data-median="0.221123" data-p75="0.227164" data-p99="0.28535" data-max="0.560661" data-mean="0.224935" data-stddev="0.015209" >
-  <td class="rank">208</td>
+  <td class="rank">210</td>
   <td>unicode/nfc_precomposed_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2749,7 +2773,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="1428.386292" data-p25="1428.386292" data-median="1448.801417" data-p75="1491.123708" data-p99="1491.123708" data-max="1491.123708" data-mean="1456.103806" data-stddev="31.999836" >
-  <td class="rank">209</td>
+  <td class="rank">211</td>
   <td>DeltaBlue</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -2761,7 +2785,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="maps" data-min="0.002545" data-p25="0.002595" data-median="0.002629" data-p75="0.002707" data-p99="0.003031" data-max="0.004955" data-mean="0.002661" data-stddev="1.06e-4" >
-  <td class="rank">210</td>
+  <td class="rank">212</td>
   <td>maps/merge_n32_n32</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2773,7 +2797,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="0.001822" data-p25="0.00183" data-median="0.001844" data-p75="0.001908" data-p99="0.002067" data-max="0.002586" data-mean="0.001878" data-stddev="6.8e-5" >
-  <td class="rank">211</td>
+  <td class="rank">213</td>
   <td>base64/encode_n63</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -2785,7 +2809,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="0.027808" data-p25="0.028663" data-median="0.029258" data-p75="0.029896" data-p99="0.031971" data-max="0.042092" data-mean="0.029297" data-stddev="8.82e-4" >
-  <td class="rank">212</td>
+  <td class="rank">214</td>
   <td>ets/bulk_match_all</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2797,7 +2821,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="34.544333" data-p25="36.287916" data-median="36.997333" data-p75="37.841708" data-p99="39.129687" data-max="39.899666" data-mean="37.0321" data-stddev="1.09219" >
-  <td class="rank">213</td>
+  <td class="rank">215</td>
   <td>List</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -2809,7 +2833,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="0.001396" data-p25="0.001505" data-median="0.001548" data-p75="0.00157" data-p99="0.001719" data-max="0.003211" data-mean="0.001542" data-stddev="5.4e-5" >
-  <td class="rank">214</td>
+  <td class="rank">216</td>
   <td>maps/merge_n32_n32</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2821,7 +2845,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.3e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.5e-5" data-p99="2.6e-5" data-max="4.8e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">215</td>
+  <td class="rank">217</td>
   <td>ets/lookup_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2833,7 +2857,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.2e-5" data-p25="2.3e-5" data-median="2.4e-5" data-p75="2.4e-5" data-p99="2.6e-5" data-max="4.6e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">216</td>
+  <td class="rank">218</td>
   <td>ets/key_int</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2845,7 +2869,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.2e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.5e-5" data-p99="2.6e-5" data-max="5.2e-5" data-mean="2.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">217</td>
+  <td class="rank">219</td>
   <td>ets/lookup_duplicate_bag</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2857,7 +2881,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.2e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.5e-5" data-p99="2.6e-5" data-max="4.7e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">218</td>
+  <td class="rank">220</td>
   <td>ets/lookup_bag</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -2869,7 +2893,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="6.975162" data-p25="7.137174" data-median="7.261841" data-p75="7.439658" data-p99="8.127105" data-max="8.352137" data-mean="7.314978" data-stddev="0.23046" >
-  <td class="rank">219</td>
+  <td class="rank">221</td>
   <td>estone/pattern</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2881,7 +2905,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="unicode" data-min="0.033391" data-p25="0.034122" data-median="0.034718" data-p75="0.035562" data-p99="0.043108" data-max="0.06699" data-mean="0.035438" data-stddev="0.00221" >
-  <td class="rank">220</td>
+  <td class="rank">222</td>
   <td>unicode/lexemes_mixed_seps</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2893,7 +2917,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="114.98025" data-p25="124.311125" data-median="126.375208" data-p75="129.55225" data-p99="143.166458" data-max="143.166458" data-mean="127.587776" data-stddev="5.196301" >
-  <td class="rank">221</td>
+  <td class="rank">223</td>
   <td>Storage</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -2905,7 +2929,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="110.68" data-p25="120.586479" data-median="125.102396" data-p75="125.764115" data-p99="126.348708" data-max="126.348708" data-mean="122.499964" data-stddev="4.579569" >
-  <td class="rank">222</td>
+  <td class="rank">224</td>
   <td>Bounce</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -2917,7 +2941,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="6.082336" data-p25="6.096667" data-median="6.209172" data-p75="6.353513" data-p99="7.200147" data-max="7.232581" data-mean="6.262566" data-stddev="0.201047" >
-  <td class="rank">223</td>
+  <td class="rank">225</td>
   <td>estone/alloc</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -2928,20 +2952,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">799</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="xmpp" data-min="1.106195" data-p25="1.157407" data-median="1.183432" data-p75="1.206273" data-p99="1.818182" data-max="1.818182" data-mean="1.241647" data-stddev="0.161168" data-samples="550,601,584,613,676,694,766,777,750,783,840,880,831,873,857,869,867,867,848,849,904,856,849,867,829,845,879,863,833,845,863,827,843,868,842,833,850,852,847,864,849,839,835,878,877,830" data-samples-unit="msg/s">
-  <td class="rank">224</td>
-  <td>xmpp_speed</td>
-  <td>erlang</td>
-  <td>linux-x86_64</td>
-  <td>jit</td>
-  <td class="num">1.183</td>
-  <td class="num stability-good">4.13 %</td>
-  <td class="num">13.62 %</td>
-  <td class="num">46</td>
-</tr>
-
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="AWFY" data-min="525.0048" data-p25="537.3952" data-median="548.4544" data-p75="560.0256" data-p99="608.3584" data-max="608.3584" data-mean="552.22272" data-stddev="22.001305" >
-  <td class="rank">225</td>
+  <td class="rank">226</td>
   <td>Storage</td>
   <td>elixir</td>
   <td>windows-x86_64</td>
@@ -2953,7 +2965,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="0.009144" data-p25="0.009563" data-median="0.009704" data-p75="0.009962" data-p99="0.01073" data-max="0.041854" data-mean="0.009786" data-stddev="4.57e-4" >
-  <td class="rank">226</td>
+  <td class="rank">227</td>
   <td>maps/keys_n1000</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -2965,7 +2977,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.29575" data-p25="0.307964" data-median="0.315518" data-p75="0.320727" data-p99="0.403439" data-max="0.845845" data-mean="0.31778" data-stddev="0.023538" >
-  <td class="rank">227</td>
+  <td class="rank">228</td>
   <td>unicode/nfc_pure_ascii_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -2977,7 +2989,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="AWFY" data-min="1346.3552" data-p25="1350.144" data-median="1364.3776" data-p75="1405.184" data-p99="1417.8304" data-max="1417.8304" data-mean="1373.2352" data-stddev="31.00872" >
-  <td class="rank">228</td>
+  <td class="rank">229</td>
   <td>NBody</td>
   <td>elixir</td>
   <td>windows-x86_64</td>
@@ -2989,7 +3001,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="2.763375" data-p25="3.062562" data-median="3.123541" data-p75="3.188375" data-p99="3.56183" data-max="3.879" data-mean="3.124376" data-stddev="0.124488" >
-  <td class="rank">229</td>
+  <td class="rank">230</td>
   <td>estone/large_dataset_work</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3000,8 +3012,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">1601</td>
 </tr>
 
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="xmpp" data-min="1.01626" data-p25="1.034126" data-median="1.05042" data-p75="1.076426" data-p99="1.526718" data-max="1.526718" data-mean="1.095435" data-stddev="0.116016" data-samples="655,696,711,755,755,826,818,841,870,885,925,926,933,929,965,931,938,967,962,984,948,969,939,979,979,959,943,969,943,965,952,979,977,955,957,940,982,957,945,975,943,975,953,961,976,984,967,955,946" data-samples-unit="msg/s">
+  <td class="rank">231</td>
+  <td>xmpp_speed</td>
+  <td>erlang</td>
+  <td>linux-arm64</td>
+  <td>emu</td>
+  <td class="num">1.050</td>
+  <td class="num stability-good">4.03 %</td>
+  <td class="num">11.04 %</td>
+  <td class="num">49</td>
+</tr>
+
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="2.3e-5" data-p25="2.4e-5" data-median="2.5e-5" data-p75="2.5e-5" data-p99="2.6e-5" data-max="3.2e-5" data-mean="2.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">230</td>
+  <td class="rank">232</td>
   <td>phash2/binary_64</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3013,7 +3037,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.3e-5" data-p25="2.5e-5" data-median="2.5e-5" data-p75="2.6e-5" data-p99="2.8e-5" data-max="4.3e-5" data-mean="2.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">231</td>
+  <td class="rank">233</td>
   <td>ets/insert_bag</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3025,7 +3049,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.2e-5" data-p25="2.5e-5" data-median="2.5e-5" data-p75="2.6e-5" data-p99="2.7e-5" data-max="3.5e-5" data-mean="2.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">232</td>
+  <td class="rank">234</td>
   <td>ets/update_element_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3037,7 +3061,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="2.306819" data-p25="2.389239" data-median="2.440096" data-p75="2.486788" data-p99="2.698644" data-max="4.680481" data-mean="2.447918" data-stddev="0.13943" >
-  <td class="rank">233</td>
+  <td class="rank">235</td>
   <td>estone/float_arith</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3049,7 +3073,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="0.027217" data-p25="0.028667" data-median="0.029271" data-p75="0.029831" data-p99="0.031689" data-max="0.058112" data-mean="0.029273" data-stddev="7.83e-4" >
-  <td class="rank">234</td>
+  <td class="rank">236</td>
   <td>ets/bulk_match_all</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3061,7 +3085,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="base64" data-min="0.019389" data-p25="0.019527" data-median="0.019597" data-p75="0.020303" data-p99="0.024028" data-max="0.036623" data-mean="0.019984" data-stddev="0.001367" >
-  <td class="rank">235</td>
+  <td class="rank">237</td>
   <td>base64/mime_decode_n3k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3073,7 +3097,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="1413.966364" data-p25="1415.692149" data-median="1421.056659" data-p75="1471.926224" data-p99="1488.820362" data-max="1488.820362" data-mean="1436.225011" data-stddev="35.222844" >
-  <td class="rank">236</td>
+  <td class="rank">238</td>
   <td>Havlak</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -3085,7 +3109,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="0.004202" data-p25="0.004634" data-median="0.004726" data-p75="0.00482" data-p99="0.005069" data-max="0.006513" data-mean="0.004724" data-stddev="1.5e-4" >
-  <td class="rank">237</td>
+  <td class="rank">239</td>
   <td>maps/keys_n1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3097,7 +3121,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="iolist_size" data-min="0.003202" data-p25="0.003236" data-median="0.003311" data-p75="0.003365" data-p99="0.003562" data-max="0.003817" data-mean="0.003308" data-stddev="8.1e-5" >
-  <td class="rank">238</td>
+  <td class="rank">240</td>
   <td>iolist_size/deep_1k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3109,7 +3133,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="1.75e-4" data-p25="1.79e-4" data-median="1.81e-4" data-p75="1.86e-4" data-p99="1.95e-4" data-max="5.82e-4" data-mean="1.83e-4" data-stddev="6.0e-6" >
-  <td class="rank">239</td>
+  <td class="rank">241</td>
   <td>maps/new_n32</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3121,7 +3145,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="4.8e-5" data-p25="5.1e-5" data-median="5.2e-5" data-p75="5.3e-5" data-p99="5.9e-5" data-max="6.8e-5" data-mean="5.3e-5" data-stddev="2.0e-6" >
-  <td class="rank">240</td>
+  <td class="rank">242</td>
   <td>phash2/tuple_10</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3133,7 +3157,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.5e-5" data-p25="2.5e-5" data-median="2.6e-5" data-p75="2.6e-5" data-p99="2.8e-5" data-max="5.6e-5" data-mean="2.6e-5" data-stddev="1.0e-6" >
-  <td class="rank">241</td>
+  <td class="rank">243</td>
   <td>ets/update_counter_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3145,7 +3169,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="7.1e-5" data-p25="7.6e-5" data-median="7.8e-5" data-p75="7.9e-5" data-p99="9.1e-5" data-max="9.3e-5" data-mean="7.8e-5" data-stddev="3.0e-6" >
-  <td class="rank">242</td>
+  <td class="rank">244</td>
   <td>maps/new_n32</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3157,7 +3181,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.048916" data-p25="0.051649" data-median="0.052487" data-p75="0.053664" data-p99="0.059935" data-max="0.122306" data-mean="0.052981" data-stddev="0.002535" >
-  <td class="rank">243</td>
+  <td class="rank">245</td>
   <td>unicode/lexemes_mixed_seps</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3169,7 +3193,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="ets" data-min="0.041074" data-p25="0.042338" data-median="0.043113" data-p75="0.043991" data-p99="0.047226" data-max="0.090905" data-mean="0.043295" data-stddev="0.001633" >
-  <td class="rank">244</td>
+  <td class="rank">246</td>
   <td>ets/bulk_select_half</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3181,7 +3205,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="base64" data-min="0.003398" data-p25="0.003512" data-median="0.003584" data-p75="0.003649" data-p99="0.003818" data-max="0.00407" data-mean="0.003588" data-stddev="9.5e-5" >
-  <td class="rank">245</td>
+  <td class="rank">247</td>
   <td>base64/encode_n3k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3193,7 +3217,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="2.786083" data-p25="2.986365" data-median="3.042438" data-p75="3.102438" data-p99="3.20654" data-max="3.630291" data-mean="3.04213" data-stddev="0.084501" >
-  <td class="rank">246</td>
+  <td class="rank">248</td>
   <td>estone/large_local_dataset_work</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3205,7 +3229,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="3.63e-4" data-p25="3.87e-4" data-median="3.94e-4" data-p75="4.02e-4" data-p99="4.2e-4" data-max="4.38e-4" data-mean="3.94e-4" data-stddev="1.2e-5" >
-  <td class="rank">247</td>
+  <td class="rank">249</td>
   <td>phash2/map_32</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3217,7 +3241,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="binary_match" data-min="0.008224" data-p25="0.008306" data-median="0.008611" data-p75="0.008631" data-p99="0.008729" data-max="0.009193" data-mean="0.008515" data-stddev="1.6e-4" >
-  <td class="rank">248</td>
+  <td class="rank">250</td>
   <td>binary_match/all_frequent_64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3229,7 +3253,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="119.808" data-p25="126.687854" data-median="129.307104" data-p75="131.532739" data-p99="147.617083" data-max="147.617083" data-mean="129.997007" data-stddev="5.101689" >
-  <td class="rank">249</td>
+  <td class="rank">251</td>
   <td>Storage</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -3241,7 +3265,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="726.097657" data-p25="742.738824" data-median="757.07228" data-p75="771.072705" data-p99="781.933102" data-max="781.933102" data-mean="755.470526" data-stddev="16.811034" >
-  <td class="rank">250</td>
+  <td class="rank">252</td>
   <td>Permute</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -3253,7 +3277,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="maps" data-min="2.61e-4" data-p25="2.67e-4" data-median="2.7e-4" data-p75="2.77e-4" data-p99="3.08e-4" data-max="7.1e-4" data-mean="2.73e-4" data-stddev="1.1e-5" >
-  <td class="rank">251</td>
+  <td class="rank">253</td>
   <td>maps/new_n32</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3265,7 +3289,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="0.020933" data-p25="0.022587" data-median="0.022804" data-p75="0.023429" data-p99="0.024797" data-max="0.040988" data-mean="0.022992" data-stddev="6.68e-4" >
-  <td class="rank">252</td>
+  <td class="rank">254</td>
   <td>ets/bulk_select_half</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3277,7 +3301,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="unicode" data-min="0.071208" data-p25="0.075902" data-median="0.077208" data-p75="0.078731" data-p99="0.085287" data-max="0.091333" data-mean="0.077525" data-stddev="0.002397" >
-  <td class="rank">253</td>
+  <td class="rank">255</td>
   <td>unicode/nfc_precomposed_4k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3289,7 +3313,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="unicode" data-min="0.06875" data-p25="0.074543" data-median="0.07569" data-p75="0.077304" data-p99="0.083355" data-max="0.116479" data-mean="0.076048" data-stddev="0.0024" >
-  <td class="rank">254</td>
+  <td class="rank">256</td>
   <td>unicode/nfc_precomposed_4k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3301,7 +3325,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="3314.346762" data-p25="3314.346762" data-median="3375.475772" data-p75="3436.604781" data-p99="3436.604781" data-max="3436.604781" data-mean="3375.475772" data-stddev="86.449474" >
-  <td class="rank">255</td>
+  <td class="rank">257</td>
   <td>DeltaBlue</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -3313,7 +3337,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="binary_match" data-min="0.006881" data-p25="0.007395" data-median="0.007455" data-p75="0.007664" data-p99="0.009184" data-max="0.025816" data-mean="0.007571" data-stddev="5.23e-4" >
-  <td class="rank">256</td>
+  <td class="rank">258</td>
   <td>binary_match/all_frequent_64k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3325,7 +3349,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.6e-5" data-p25="2.7e-5" data-median="2.8e-5" data-p75="2.8e-5" data-p99="3.0e-5" data-max="3.5e-5" data-mean="2.8e-5" data-stddev="1.0e-6" >
-  <td class="rank">257</td>
+  <td class="rank">259</td>
   <td>ets/insert_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3337,7 +3361,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.7e-5" data-p25="2.8e-5" data-median="2.8e-5" data-p75="2.9e-5" data-p99="3.3e-5" data-max="5.2e-5" data-mean="2.9e-5" data-stddev="1.0e-6" >
-  <td class="rank">258</td>
+  <td class="rank">260</td>
   <td>ets/lookup_ordered_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3349,7 +3373,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.6e-5" data-p25="2.8e-5" data-median="2.8e-5" data-p75="2.9e-5" data-p99="3.0e-5" data-max="3.8e-5" data-mean="2.8e-5" data-stddev="1.0e-6" >
-  <td class="rank">259</td>
+  <td class="rank">261</td>
   <td>ets/insert_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3361,7 +3385,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="2.7e-5" data-p25="2.7e-5" data-median="2.8e-5" data-p75="2.8e-5" data-p99="2.8e-5" data-max="3.1e-5" data-mean="2.8e-5" data-stddev="0.0" >
-  <td class="rank">260</td>
+  <td class="rank">262</td>
   <td>maps/get_n5</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3373,7 +3397,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="maps" data-min="0.009573" data-p25="0.009968" data-median="0.010019" data-p75="0.010325" data-p99="0.011887" data-max="0.059477" data-mean="0.010215" data-stddev="7.13e-4" >
-  <td class="rank">261</td>
+  <td class="rank">263</td>
   <td>maps/keys_n1000</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3385,7 +3409,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="estone" data-min="6.931525" data-p25="7.351217" data-median="7.44825" data-p75="7.616308" data-p99="7.786575" data-max="8.146065" data-mean="7.457397" data-stddev="0.191545" >
-  <td class="rank">262</td>
+  <td class="rank">264</td>
   <td>estone/large_dataset_work</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3397,7 +3421,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="334.703866" data-p25="338.081731" data-median="348.981096" data-p75="350.440367" data-p99="353.731625" data-max="353.731625" data-mean="345.481691" data-stddev="6.625828" >
-  <td class="rank">263</td>
+  <td class="rank">265</td>
   <td>estone/msgp</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3409,7 +3433,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="iolist_size" data-min="0.003825" data-p25="0.004117" data-median="0.004191" data-p75="0.004265" data-p99="0.004465" data-max="0.005189" data-mean="0.004188" data-stddev="1.21e-4" >
-  <td class="rank">264</td>
+  <td class="rank">266</td>
   <td>iolist_size/deep_1k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3421,7 +3445,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="0.022225" data-p25="0.023037" data-median="0.023375" data-p75="0.023858" data-p99="0.025835" data-max="0.048" data-mean="0.023492" data-stddev="7.33e-4" >
-  <td class="rank">265</td>
+  <td class="rank">267</td>
   <td>ets/bulk_select_half</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3433,7 +3457,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="1555.991948" data-p25="1568.58845" data-median="1608.663065" data-p75="1625.050156" data-p99="1629.750817" data-max="1629.750817" data-mean="1600.767224" data-stddev="31.517223" >
-  <td class="rank">266</td>
+  <td class="rank">268</td>
   <td>NBody</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -3445,7 +3469,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="9.9e-5" data-p25="1.12e-4" data-median="1.14e-4" data-p75="1.16e-4" data-p99="1.35e-4" data-max="2.3e-4" data-mean="1.15e-4" data-stddev="7.0e-6" >
-  <td class="rank">267</td>
+  <td class="rank">269</td>
   <td>ets/key_int</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3457,7 +3481,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="0.002218" data-p25="0.002228" data-median="0.002247" data-p75="0.002306" data-p99="0.00246" data-max="0.003001" data-mean="0.002275" data-stddev="6.3e-5" >
-  <td class="rank">268</td>
+  <td class="rank">270</td>
   <td>base64/decode_n63</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3469,7 +3493,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="2.7e-5" data-p25="2.8e-5" data-median="2.9e-5" data-p75="2.9e-5" data-p99="3.1e-5" data-max="5.7e-5" data-mean="2.9e-5" data-stddev="1.0e-6" >
-  <td class="rank">269</td>
+  <td class="rank">271</td>
   <td>ets/lookup_ordered_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3480,20 +3504,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">173200000</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="xmpp" data-min="1.004016" data-p25="1.026694" data-median="1.046025" data-p75="1.062699" data-p99="1.481481" data-max="1.481481" data-mean="1.08488" data-stddev="0.112785" data-samples="675,696,717,727,796,817,842,850,868,929,936,940,956,954,990,979,963,947,956,984,982,957,944,973,982,955,948,966,996,969,962,941,956,978,969,979,949,962,977,962,978,946,953,994,968,958,950,968,979,974" data-samples-unit="msg/s">
-  <td class="rank">270</td>
-  <td>xmpp_speed</td>
-  <td>erlang</td>
-  <td>linux-arm64</td>
-  <td>jit</td>
-  <td class="num">1.046</td>
-  <td class="num stability-good">3.44 %</td>
-  <td class="num">10.78 %</td>
-  <td class="num">50</td>
-</tr>
-
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="17.071688" data-p25="18.131754" data-median="18.410413" data-p75="18.756037" data-p99="19.544445" data-max="19.566257" data-mean="18.448083" data-stddev="0.455326" >
-  <td class="rank">271</td>
+  <td class="rank">272</td>
   <td>estone/fcalls</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3505,7 +3517,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="base64" data-min="0.234697" data-p25="0.236213" data-median="0.237907" data-p75="0.244252" data-p99="0.265906" data-max="0.537287" data-mean="0.24079" data-stddev="0.010014" >
-  <td class="rank">272</td>
+  <td class="rank">273</td>
   <td>base64/encode_n64k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3517,7 +3529,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="unicode" data-min="0.027583" data-p25="0.027926" data-median="0.028182" data-p75="0.028866" data-p99="0.033812" data-max="0.041468" data-mean="0.028819" data-stddev="0.001454" >
-  <td class="rank">273</td>
+  <td class="rank">274</td>
   <td>unicode/lexemes_mixed_seps</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -3529,7 +3541,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="0.019325" data-p25="0.023608" data-median="0.024108" data-p75="0.024408" data-p99="0.026064" data-max="0.035233" data-mean="0.023487" data-stddev="0.001521" >
-  <td class="rank">274</td>
+  <td class="rank">275</td>
   <td>ets/bulk_insert_1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3541,7 +3553,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="unicode" data-min="0.025024" data-p25="0.02539" data-median="0.025595" data-p75="0.026238" data-p99="0.029058" data-max="0.079476" data-mean="0.025912" data-stddev="0.001317" >
-  <td class="rank">275</td>
+  <td class="rank">276</td>
   <td>unicode/lexemes_csv_many</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3553,7 +3565,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="unicode" data-min="0.505211" data-p25="0.555765" data-median="0.566195" data-p75="0.574471" data-p99="0.645637" data-max="1.292619" data-mean="0.56508" data-stddev="0.026339" >
-  <td class="rank">276</td>
+  <td class="rank">277</td>
   <td>unicode/nfc_precomposed_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3565,7 +3577,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="1.75e-4" data-p25="1.8e-4" data-median="1.82e-4" data-p75="1.86e-4" data-p99="2.25e-4" data-max="8.31e-4" data-mean="1.85e-4" data-stddev="1.6e-5" >
-  <td class="rank">277</td>
+  <td class="rank">278</td>
   <td>ets/mixed_bag</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3577,7 +3589,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="534.385043" data-p25="537.2245" data-median="546.384767" data-p75="555.113666" data-p99="559.492805" data-max="559.492805" data-mean="545.619505" data-stddev="9.420761" >
-  <td class="rank">278</td>
+  <td class="rank">279</td>
   <td>Mandelbrot</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -3589,7 +3601,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="0.005855" data-p25="0.005906" data-median="0.006009" data-p75="0.006102" data-p99="0.006281" data-max="0.006443" data-mean="0.006016" data-stddev="1.06e-4" >
-  <td class="rank">279</td>
+  <td class="rank">280</td>
   <td>phash2/tuple_1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3601,7 +3613,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="1.48e-4" data-p25="1.52e-4" data-median="1.54e-4" data-p75="1.57e-4" data-p99="1.78e-4" data-max="6.75e-4" data-mean="1.56e-4" data-stddev="9.0e-6" >
-  <td class="rank">280</td>
+  <td class="rank">281</td>
   <td>ets/key_tuple</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3613,7 +3625,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="586.560883" data-p25="603.674773" data-median="608.724047" data-p75="623.426167" data-p99="665.094096" data-max="665.094096" data-mean="613.781116" data-stddev="18.626742" >
-  <td class="rank">281</td>
+  <td class="rank">282</td>
   <td>Queens</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -3625,7 +3637,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="4.203613" data-p25="4.409286" data-median="4.4386" data-p75="4.553209" data-p99="5.719648" data-max="6.244846" data-mean="4.510162" data-stddev="0.212127" >
-  <td class="rank">282</td>
+  <td class="rank">283</td>
   <td>estone/alloc</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3637,7 +3649,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="3.072" data-p25="3.1744" data-median="3.1744" data-p75="3.2768" data-p99="3.4816" data-max="3.9936" data-mean="3.20746" data-stddev="0.069178" >
-  <td class="rank">283</td>
+  <td class="rank">284</td>
   <td>estone/int_arith</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -3649,7 +3661,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="binary_match" data-min="0.001145" data-p25="0.001156" data-median="0.001162" data-p75="0.001193" data-p99="0.001449" data-max="0.003713" data-mean="0.001202" data-stddev="8.2e-5" >
-  <td class="rank">284</td>
+  <td class="rank">285</td>
   <td>binary_match/first_no_match_64k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3661,7 +3673,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="phash2" data-min="0.002422" data-p25="0.002423" data-median="0.002427" data-p75="0.0025" data-p99="0.002599" data-max="0.003764" data-mean="0.002451" data-stddev="5.4e-5" >
-  <td class="rank">285</td>
+  <td class="rank">286</td>
   <td>phash2/binary_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3673,7 +3685,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="phash2" data-min="0.005838" data-p25="0.005885" data-median="0.005978" data-p75="0.006074" data-p99="0.006277" data-max="0.006773" data-mean="0.00599" data-stddev="1.11e-4" >
-  <td class="rank">286</td>
+  <td class="rank">287</td>
   <td>phash2/tuple_1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3685,7 +3697,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="0.002934" data-p25="0.00311" data-median="0.003166" data-p75="0.00321" data-p99="0.003408" data-max="0.004114" data-mean="0.00316" data-stddev="9.3e-5" >
-  <td class="rank">287</td>
+  <td class="rank">288</td>
   <td>maps/new_n100</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3697,7 +3709,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="812.225736" data-p25="832.825419" data-median="851.669071" data-p75="859.437694" data-p99="869.707318" data-max="869.707318" data-mean="846.29749" data-stddev="19.163308" >
-  <td class="rank">288</td>
+  <td class="rank">289</td>
   <td>Bounce</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -3709,7 +3721,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="0.002735" data-p25="0.0029" data-median="0.002954" data-p75="0.002992" data-p99="0.003178" data-max="0.00404" data-mean="0.002946" data-stddev="8.2e-5" >
-  <td class="rank">289</td>
+  <td class="rank">290</td>
   <td>maps/new_n100</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3721,7 +3733,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="ets" data-min="9.5e-5" data-p25="9.7e-5" data-median="9.7e-5" data-p75="0.0001" data-p99="1.04e-4" data-max="1.66e-4" data-mean="9.8e-5" data-stddev="3.0e-6" >
-  <td class="rank">290</td>
+  <td class="rank">291</td>
   <td>ets/insert_ordered_set</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3733,7 +3745,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="1237.156465" data-p25="1237.182842" data-median="1276.348636" data-p75="1276.599004" data-p99="1277.089696" data-max="1277.089696" data-mean="1264.548732" data-stddev="18.812308" >
-  <td class="rank">291</td>
+  <td class="rank">292</td>
   <td>Bounce</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -3745,7 +3757,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="base64" data-min="0.004799" data-p25="0.005018" data-median="0.005085" data-p75="0.005175" data-p99="0.005366" data-max="0.00564" data-mean="0.00509" data-stddev="1.24e-4" >
-  <td class="rank">292</td>
+  <td class="rank">293</td>
   <td>base64/decode_n3k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3757,7 +3769,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="4.50726" data-p25="4.667448" data-median="4.745386" data-p75="4.813282" data-p99="4.984728" data-max="5.04372" data-mean="4.748209" data-stddev="0.110739" >
-  <td class="rank">293</td>
+  <td class="rank">294</td>
   <td>estone/trav</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3769,7 +3781,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="binary_match" data-min="0.001178" data-p25="0.001188" data-median="0.001206" data-p75="0.001225" data-p99="0.001519" data-max="0.003219" data-mean="0.001242" data-stddev="8.8e-5" >
-  <td class="rank">294</td>
+  <td class="rank">295</td>
   <td>binary_match/first_eventual_64k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3781,7 +3793,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="iolist_size" data-min="0.002673" data-p25="0.002699" data-median="0.002772" data-p75="0.002784" data-p99="0.003126" data-max="0.005864" data-mean="0.002774" data-stddev="1.06e-4" >
-  <td class="rank">295</td>
+  <td class="rank">296</td>
   <td>iolist_size/deep_1k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3793,7 +3805,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="unicode" data-min="0.003573" data-p25="0.003638" data-median="0.0037" data-p75="0.003751" data-p99="0.004177" data-max="0.005785" data-mean="0.003715" data-stddev="1.09e-4" >
-  <td class="rank">296</td>
+  <td class="rank">297</td>
   <td>unicode/lexemes_csv_few</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3805,7 +3817,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="phash2" data-min="3.64e-4" data-p25="3.9e-4" data-median="3.94e-4" data-p75="4.02e-4" data-p99="4.28e-4" data-max="5.39e-4" data-mean="3.95e-4" data-stddev="1.2e-5" >
-  <td class="rank">297</td>
+  <td class="rank">298</td>
   <td>phash2/map_32</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3817,7 +3829,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="phash2" data-min="9.6e-5" data-p25="9.8e-5" data-median="9.9e-5" data-p75="1.01e-4" data-p99="1.05e-4" data-max="1.76e-4" data-mean="0.0001" data-stddev="3.0e-6" >
-  <td class="rank">298</td>
+  <td class="rank">299</td>
   <td>phash2/binary_64</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -3829,7 +3841,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="3.1e-5" data-p25="3.3e-5" data-median="3.3e-5" data-p75="3.4e-5" data-p99="3.6e-5" data-max="5.3e-5" data-mean="3.3e-5" data-stddev="1.0e-6" >
-  <td class="rank">299</td>
+  <td class="rank">300</td>
   <td>ets/key_binary</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3841,7 +3853,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="60.45075" data-p25="63.656229" data-median="65.184541" data-p75="65.604229" data-p99="71.929406" data-max="72.506666" data-mean="64.67901" data-stddev="1.793601" >
-  <td class="rank">300</td>
+  <td class="rank">301</td>
   <td>Towers</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -3853,7 +3865,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="phash2" data-min="0.00106" data-p25="0.001113" data-median="0.001138" data-p75="0.001147" data-p99="0.001224" data-max="0.003058" data-mean="0.00113" data-stddev="3.7e-5" >
-  <td class="rank">301</td>
+  <td class="rank">302</td>
   <td>phash2/map_100</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3865,7 +3877,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="maps" data-min="0.046842" data-p25="0.049379" data-median="0.050233" data-p75="0.050862" data-p99="0.053119" data-max="0.059458" data-mean="0.050099" data-stddev="0.001301" >
-  <td class="rank">302</td>
+  <td class="rank">303</td>
   <td>maps/new_n1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -3874,18 +3886,6 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num stability-good">2.95 %</td>
   <td class="num">2.59 %</td>
   <td class="num">59870</td>
-</tr>
-
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="xmpp" data-min="1.190476" data-p25="1.204819" data-median="1.218027" data-p75="1.240695" data-p99="1.949318" data-max="1.949318" data-mean="1.288642" data-stddev="0.171644" data-samples="513,547,578,604,641,662,682,727,739,763,787,806,821,831,814,824,831,832,802,817,833,830,821,815,833,824,834,811,819,837,810,833,823,817,839,811,823,823,838,822,815,829,840,822,829,810,830,838,818" data-samples-unit="msg/s">
-  <td class="rank">303</td>
-  <td>xmpp_speed</td>
-  <td>erlang</td>
-  <td>linux-arm64</td>
-  <td>emu</td>
-  <td class="num">1.218</td>
-  <td class="num stability-good">2.95 %</td>
-  <td class="num">14.09 %</td>
-  <td class="num">49</td>
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="ets" data-min="3.3e-5" data-p25="3.4e-5" data-median="3.4e-5" data-p75="3.5e-5" data-p99="3.6e-5" data-max="3.8e-5" data-mean="3.4e-5" data-stddev="1.0e-6" >
@@ -6984,20 +6984,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">711</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="xmpp" data-min="3.66e-4" data-p25="3.71e-4" data-median="3.74e-4" data-p75="3.75e-4" data-p99="4.11e-4" data-max="4.11e-4" data-mean="3.74e-4" data-stddev="8.0e-6" data-samples="366.400,367.200,368.300,369.600,370.200,370.600,370.900,371.900,372.000,373.200,373.300,410.800,373.700,373.600,373.700,373.900,374.100,374.700,374.800,374.900,375.100,375.200,375.300,375.300,375.300" data-samples-unit="MB">
-  <td class="rank">562</td>
-  <td>xmpp_mem</td>
-  <td>erlang</td>
-  <td>linux-arm64</td>
-  <td>jit</td>
-  <td class="num">0.000374</td>
-  <td class="num stability-good">1.07 %</td>
-  <td class="num">2.14 %</td>
-  <td class="num">25</td>
-</tr>
-
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="534.104557" data-p25="541.711051" data-median="543.399615" data-p75="547.417099" data-p99="549.20707" data-max="549.20707" data-mean="543.038583" data-stddev="4.878197" >
-  <td class="rank">563</td>
+  <td class="rank">562</td>
   <td>Mandelbrot</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -7009,7 +6997,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="estone" data-min="11.707024" data-p25="11.828679" data-median="11.891648" data-p75="11.952293" data-p99="12.462113" data-max="12.753185" data-mean="11.898301" data-stddev="0.110395" >
-  <td class="rank">564</td>
+  <td class="rank">563</td>
   <td>estone/trav</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7021,7 +7009,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="9.6e-5" data-p25="9.7e-5" data-median="9.7e-5" data-p75="9.8e-5" data-p99="1.43e-4" data-max="1.54e-4" data-mean="9.9e-5" data-stddev="6.0e-6" >
-  <td class="rank">565</td>
+  <td class="rank">564</td>
   <td>ets/update_element_set</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7033,7 +7021,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="phash2" data-min="9.6e-5" data-p25="9.7e-5" data-median="9.7e-5" data-p75="9.8e-5" data-p99="9.8e-5" data-max="1.01e-4" data-mean="9.7e-5" data-stddev="1.0e-6" >
-  <td class="rank">566</td>
+  <td class="rank">565</td>
   <td>phash2/list_10</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7045,7 +7033,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="9.7e-5" data-p25="9.8e-5" data-median="9.8e-5" data-p75="9.9e-5" data-p99="1.02e-4" data-max="1.17e-4" data-mean="9.9e-5" data-stddev="1.0e-6" >
-  <td class="rank">567</td>
+  <td class="rank">566</td>
   <td>ets/key_binary</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7057,7 +7045,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="2801.259053" data-p25="2801.259053" data-median="2815.607724" data-p75="2829.956395" data-p99="2829.956395" data-max="2829.956395" data-mean="2815.607724" data-stddev="20.292085" >
-  <td class="rank">568</td>
+  <td class="rank">567</td>
   <td>Richards</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -7069,7 +7057,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="phash2" data-min="1.94e-4" data-p25="1.97e-4" data-median="1.98e-4" data-p75="1.99e-4" data-p99="2.22e-4" data-max="5.72e-4" data-mean="0.0002" data-stddev="9.0e-6" >
-  <td class="rank">569</td>
+  <td class="rank">568</td>
   <td>phash2/map_5</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7081,7 +7069,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="70.2464" data-p25="70.7584" data-median="71.0656" data-p75="71.4752" data-p99="75.264" data-max="75.264" data-mean="71.195403" data-stddev="0.854106" >
-  <td class="rank">570</td>
+  <td class="rank">569</td>
   <td>estone/binary_h</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -7093,7 +7081,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="1838.427601" data-p25="1838.427601" data-median="1848.589156" data-p75="1857.009978" data-p99="1857.009978" data-max="1857.009978" data-mean="1848.008912" data-stddev="9.304767" >
-  <td class="rank">571</td>
+  <td class="rank">570</td>
   <td>Richards</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -7105,7 +7093,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="6.379625" data-p25="6.486333" data-median="6.523125" data-p75="6.551458" data-p99="8.252536" data-max="10.841625" data-mean="6.55743" data-stddev="0.356724" >
-  <td class="rank">572</td>
+  <td class="rank">571</td>
   <td>estone/bif_dispatch</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7117,7 +7105,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="phash2" data-min="6.9e-4" data-p25="0.0007" data-median="7.06e-4" data-p75="7.07e-4" data-p99="7.58e-4" data-max="0.001197" data-mean="7.06e-4" data-stddev="1.4e-5" >
-  <td class="rank">573</td>
+  <td class="rank">572</td>
   <td>phash2/map_32</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7129,7 +7117,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="0.038924" data-p25="0.046933" data-median="0.04722" data-p75="0.047401" data-p99="0.048056" data-max="0.067343" data-mean="0.045474" data-stddev="0.003394" >
-  <td class="rank">574</td>
+  <td class="rank">573</td>
   <td>ets/bulk_insert_1000</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7141,7 +7129,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="base64" data-min="0.081419" data-p25="0.082374" data-median="0.082467" data-p75="0.083191" data-p99="0.089276" data-max="0.132854" data-mean="0.083475" data-stddev="0.002468" >
-  <td class="rank">575</td>
+  <td class="rank">574</td>
   <td>base64/encode_n3k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7153,7 +7141,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="270.866742" data-p25="271.722242" data-median="272.58278" data-p75="274.421206" data-p99="274.690481" data-max="274.690481" data-mean="272.833323" data-stddev="1.317927" >
-  <td class="rank">576</td>
+  <td class="rank">575</td>
   <td>estone/msgp</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7165,7 +7153,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="0.003392" data-p25="0.003615" data-median="0.003633" data-p75="0.00365" data-p99="0.003833" data-max="0.004426" data-mean="0.003627" data-stddev="6.8e-5" >
-  <td class="rank">577</td>
+  <td class="rank">576</td>
   <td>phash2/list_1000</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7177,7 +7165,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="ets" data-min="1.01e-4" data-p25="1.04e-4" data-median="1.04e-4" data-p75="1.05e-4" data-p99="1.19e-4" data-max="3.13e-4" data-mean="1.06e-4" data-stddev="4.0e-6" >
-  <td class="rank">578</td>
+  <td class="rank">577</td>
   <td>ets/key_binary</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7189,7 +7177,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="2.629453" data-p25="2.680983" data-median="2.692168" data-p75="2.706783" data-p99="3.476212" data-max="3.703728" data-mean="2.731722" data-stddev="0.166784" >
-  <td class="rank">579</td>
+  <td class="rank">578</td>
   <td>estone/links</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7201,7 +7189,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="2.07e-4" data-p25="2.08e-4" data-median="2.09e-4" data-p75="2.1e-4" data-p99="2.16e-4" data-max="3.64e-4" data-mean="2.09e-4" data-stddev="3.0e-6" >
-  <td class="rank">580</td>
+  <td class="rank">579</td>
   <td>ets/mixed_ordered_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7213,7 +7201,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="19.120558" data-p25="19.700919" data-median="19.842292" data-p75="19.888959" data-p99="20.28808" data-max="20.321195" data-mean="19.790897" data-stddev="0.164496" >
-  <td class="rank">581</td>
+  <td class="rank">580</td>
   <td>estone/bif_dispatch</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7225,7 +7213,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="2185.696697" data-p25="2185.696697" data-median="2185.949649" data-p75="2206.300376" data-p99="2206.300376" data-max="2206.300376" data-mean="2192.648907" data-stddev="11.823195" >
-  <td class="rank">582</td>
+  <td class="rank">581</td>
   <td>Havlak</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -7237,7 +7225,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="606.333" data-p25="617.101313" data-median="619.355667" data-p75="622.925542" data-p99="624.463375" data-max="624.463375" data-mean="618.758597" data-stddev="5.38229" >
-  <td class="rank">583</td>
+  <td class="rank">582</td>
   <td>Havlak</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -7249,7 +7237,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="344.24554" data-p25="348.827063" data-median="351.087713" data-p75="352.110605" data-p99="354.260704" data-max="354.260704" data-mean="350.400409" data-stddev="2.456429" >
-  <td class="rank">584</td>
+  <td class="rank">583</td>
   <td>Json</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -7261,7 +7249,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="1.05e-4" data-p25="1.07e-4" data-median="1.07e-4" data-p75="1.08e-4" data-p99="1.2e-4" data-max="4.62e-4" data-mean="1.08e-4" data-stddev="5.0e-6" >
-  <td class="rank">585</td>
+  <td class="rank">584</td>
   <td>ets/update_counter_set</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7273,7 +7261,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="base64" data-min="0.257744" data-p25="0.261144" data-median="0.262161" data-p75="0.263569" data-p99="0.269953" data-max="0.341259" data-mean="0.2626" data-stddev="0.002689" >
-  <td class="rank">586</td>
+  <td class="rank">585</td>
   <td>base64/decode_n64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7285,7 +7273,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="184.458518" data-p25="185.003932" data-median="185.456046" data-p75="186.719235" data-p99="187.861157" data-max="187.861157" data-mean="185.805433" data-stddev="0.943355" >
-  <td class="rank">587</td>
+  <td class="rank">586</td>
   <td>Json</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -7297,7 +7285,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="base64" data-min="0.164662" data-p25="0.166533" data-median="0.167293" data-p75="0.168069" data-p99="0.174106" data-max="0.350995" data-mean="0.167657" data-stddev="0.00255" >
-  <td class="rank">588</td>
+  <td class="rank">587</td>
   <td>base64/encode_n64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7309,7 +7297,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="estone" data-min="21.471617" data-p25="22.9498" data-median="23.062108" data-p75="23.161253" data-p99="32.747081" data-max="34.472527" data-mean="23.105579" data-stddev="1.291411" >
-  <td class="rank">589</td>
+  <td class="rank">588</td>
   <td>estone/trav</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7321,7 +7309,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="phash2" data-min="0.007235" data-p25="0.007293" data-median="0.007351" data-p75="0.00736" data-p99="0.007791" data-max="0.024851" data-mean="0.007374" data-stddev="5.07e-4" >
-  <td class="rank">590</td>
+  <td class="rank">589</td>
   <td>phash2/tuple_1000</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7333,7 +7321,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="estone" data-min="133.323125" data-p25="134.683666" data-median="135.171125" data-p75="135.910104" data-p99="137.163875" data-max="137.163875" data-mean="135.17256" data-stddev="0.933884" >
-  <td class="rank">591</td>
+  <td class="rank">590</td>
   <td>estone/msgp</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7345,7 +7333,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.09e-4" data-p25="1.11e-4" data-median="1.11e-4" data-p75="1.12e-4" data-p99="1.16e-4" data-max="2.11e-4" data-mean="1.11e-4" data-stddev="2.0e-6" >
-  <td class="rank">592</td>
+  <td class="rank">591</td>
   <td>ets/key_atom</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7357,7 +7345,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="289.504624" data-p25="296.306679" data-median="298.650731" data-p75="298.986929" data-p99="300.137288" data-max="300.137288" data-mean="297.316897" data-stddev="2.886081" >
-  <td class="rank">593</td>
+  <td class="rank">592</td>
   <td>Queens</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -7369,7 +7357,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="1450.91875" data-p25="1451.519636" data-median="1458.3575" data-p75="1464.586271" data-p99="1464.984125" data-max="1464.984125" data-mean="1458.154469" data-stddev="7.066091" >
-  <td class="rank">594</td>
+  <td class="rank">593</td>
   <td>Richards</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -7381,7 +7369,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.1e-4" data-p25="1.11e-4" data-median="1.12e-4" data-p75="1.12e-4" data-p99="1.18e-4" data-max="2.35e-4" data-mean="1.12e-4" data-stddev="2.0e-6" >
-  <td class="rank">595</td>
+  <td class="rank">594</td>
   <td>ets/key_int</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7393,7 +7381,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="phash2" data-min="1.08e-4" data-p25="1.11e-4" data-median="1.12e-4" data-p75="1.12e-4" data-p99="1.16e-4" data-max="3.38e-4" data-mean="1.12e-4" data-stddev="2.0e-6" >
-  <td class="rank">596</td>
+  <td class="rank">595</td>
   <td>phash2/tuple_10</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7405,7 +7393,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.12e-4" data-p25="1.13e-4" data-median="1.13e-4" data-p75="1.14e-4" data-p99="1.18e-4" data-max="4.52e-4" data-mean="1.14e-4" data-stddev="3.0e-6" >
-  <td class="rank">597</td>
+  <td class="rank">596</td>
   <td>ets/lookup_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7417,7 +7405,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="1.11e-4" data-p25="1.12e-4" data-median="1.13e-4" data-p75="1.13e-4" data-p99="1.2e-4" data-max="3.14e-4" data-mean="1.13e-4" data-stddev="3.0e-6" >
-  <td class="rank">598</td>
+  <td class="rank">597</td>
   <td>ets/key_tuple</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7429,7 +7417,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.12e-4" data-p25="1.13e-4" data-median="1.14e-4" data-p75="1.14e-4" data-p99="1.19e-4" data-max="4.59e-4" data-mean="1.14e-4" data-stddev="3.0e-6" >
-  <td class="rank">599</td>
+  <td class="rank">598</td>
   <td>ets/lookup_bag</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7441,7 +7429,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="1.01e-4" data-p25="1.14e-4" data-median="1.14e-4" data-p75="1.15e-4" data-p99="1.4e-4" data-max="6.23e-4" data-mean="1.15e-4" data-stddev="1.0e-5" >
-  <td class="rank">600</td>
+  <td class="rank">599</td>
   <td>ets/lookup_bag</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7453,7 +7441,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="2879.982197" data-p25="2879.982197" data-median="2892.650109" data-p75="2905.318021" data-p99="2905.318021" data-max="2905.318021" data-mean="2892.650109" data-stddev="17.915133" >
-  <td class="rank">601</td>
+  <td class="rank">600</td>
   <td>DeltaBlue</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -7465,7 +7453,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="1126.079206" data-p25="1127.708987" data-median="1131.514995" data-p75="1137.60823" data-p99="1145.308115" data-max="1145.308115" data-mean="1133.097788" data-stddev="6.517011" >
-  <td class="rank">602</td>
+  <td class="rank">601</td>
   <td>Towers</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -7477,7 +7465,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="0.001072" data-p25="0.001143" data-median="0.001149" data-p75="0.001153" data-p99="0.001225" data-max="0.003241" data-mean="0.001142" data-stddev="3.3e-5" >
-  <td class="rank">603</td>
+  <td class="rank">602</td>
   <td>phash2/map_100</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7489,7 +7477,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="ets" data-min="0.0001" data-p25="1.14e-4" data-median="1.15e-4" data-p75="1.15e-4" data-p99="1.36e-4" data-max="6.14e-4" data-mean="1.16e-4" data-stddev="8.0e-6" >
-  <td class="rank">604</td>
+  <td class="rank">603</td>
   <td>ets/lookup_duplicate_bag</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7501,7 +7489,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="phash2" data-min="0.002206" data-p25="0.00221" data-median="0.002212" data-p75="0.002229" data-p99="0.002401" data-max="0.005117" data-mean="0.002236" data-stddev="6.0e-5" >
-  <td class="rank">605</td>
+  <td class="rank">604</td>
   <td>phash2/binary_4k</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7513,7 +7501,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="67.9936" data-p25="68.8384" data-median="69.12" data-p75="69.4272" data-p99="80.4864" data-max="80.4864" data-mean="69.558044" data-stddev="1.97698" >
-  <td class="rank">606</td>
+  <td class="rank">605</td>
   <td>estone/ets</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -7525,7 +7513,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="1236.163762" data-p25="1244.816096" data-median="1254.815047" data-p75="1255.451337" data-p99="1255.758475" data-max="1255.758475" data-mean="1250.987253" data-stddev="7.602738" >
-  <td class="rank">607</td>
+  <td class="rank">606</td>
   <td>Bounce</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -7537,7 +7525,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="717.504318" data-p25="725.393346" data-median="728.619443" data-p75="731.545233" data-p99="732.099084" data-max="732.099084" data-mean="727.608205" data-stddev="4.996224" >
-  <td class="rank">608</td>
+  <td class="rank">607</td>
   <td>NBody</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -7549,7 +7537,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="1138.798748" data-p25="1139.136806" data-median="1141.95543" data-p75="1148.750863" data-p99="1154.636188" data-max="1154.636188" data-mean="1143.546154" data-stddev="6.42448" >
-  <td class="rank">609</td>
+  <td class="rank">608</td>
   <td>NBody</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -7561,7 +7549,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="AWFY" data-min="727.7568" data-p25="729.7024" data-median="733.184" data-p75="735.8464" data-p99="772.3008" data-max="772.3008" data-mean="736.079127" data-stddev="12.454896" >
-  <td class="rank">610</td>
+  <td class="rank">609</td>
   <td>Storage</td>
   <td>erlang</td>
   <td>windows-x86_64</td>
@@ -7573,7 +7561,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="binary_match" data-min="3.49e-4" data-p25="3.58e-4" data-median="3.59e-4" data-p75="3.61e-4" data-p99="3.66e-4" data-max="4.67e-4" data-mean="3.6e-4" data-stddev="3.0e-6" >
-  <td class="rank">611</td>
+  <td class="rank">610</td>
   <td>binary_match/first_frequent_64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7585,7 +7573,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="12.0832" data-p25="12.288" data-median="12.3904" data-p75="12.3904" data-p99="12.793856" data-max="13.0048" data-mean="12.370679" data-stddev="0.118932" >
-  <td class="rank">612</td>
+  <td class="rank">611</td>
   <td>estone/trav</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -7597,7 +7585,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="136.026875" data-p25="136.617125" data-median="137.261417" data-p75="137.750354" data-p99="139.270583" data-max="139.270583" data-mean="137.19272" data-stddev="0.742914" >
-  <td class="rank">613</td>
+  <td class="rank">612</td>
   <td>estone/msgp</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7609,7 +7597,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="170.72425" data-p25="172.270136" data-median="172.843959" data-p75="173.688646" data-p99="175.799625" data-max="175.799625" data-mean="172.961664" data-stddev="1.038991" >
-  <td class="rank">614</td>
+  <td class="rank">613</td>
   <td>Permute</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -7621,7 +7609,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="1.22e-4" data-p25="1.24e-4" data-median="1.24e-4" data-p75="1.25e-4" data-p99="1.32e-4" data-max="3.05e-4" data-mean="1.25e-4" data-stddev="3.0e-6" >
-  <td class="rank">615</td>
+  <td class="rank">614</td>
   <td>ets/mixed_bag</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7633,7 +7621,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="183.232833" data-p25="187.231916" data-median="188.140625" data-p75="188.744125" data-p99="191.765791" data-max="191.765791" data-mean="187.645796" data-stddev="2.116818" >
-  <td class="rank">616</td>
+  <td class="rank">615</td>
   <td>Storage</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -7645,7 +7633,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="estone" data-min="21.40975" data-p25="21.599958" data-median="21.688291" data-p75="21.774" data-p99="22.498298" data-max="22.714958" data-mean="21.701355" data-stddev="0.161495" >
-  <td class="rank">617</td>
+  <td class="rank">616</td>
   <td>estone/binary_h</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7657,7 +7645,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.25e-4" data-p25="1.27e-4" data-median="1.27e-4" data-p75="1.28e-4" data-p99="1.32e-4" data-max="4.72e-4" data-mean="1.27e-4" data-stddev="3.0e-6" >
-  <td class="rank">618</td>
+  <td class="rank">617</td>
   <td>ets/lookup_ordered_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7669,7 +7657,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="1.26e-4" data-p25="1.27e-4" data-median="1.27e-4" data-p75="1.28e-4" data-p99="1.34e-4" data-max="2.37e-4" data-mean="1.28e-4" data-stddev="2.0e-6" >
-  <td class="rank">619</td>
+  <td class="rank">618</td>
   <td>ets/mixed_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7681,7 +7669,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="347.461552" data-p25="352.844817" data-median="354.094923" data-p75="355.628396" data-p99="361.240333" data-max="361.240333" data-mean="354.281476" data-stddev="2.521051" >
-  <td class="rank">620</td>
+  <td class="rank">619</td>
   <td>Queens</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -7693,7 +7681,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.26e-4" data-p25="1.27e-4" data-median="1.28e-4" data-p75="1.28e-4" data-p99="1.31e-4" data-max="3.79e-4" data-mean="1.28e-4" data-stddev="2.0e-6" >
-  <td class="rank">621</td>
+  <td class="rank">620</td>
   <td>ets/insert_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7705,7 +7693,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="47.251375" data-p25="47.552093" data-median="47.752167" data-p75="47.917917" data-p99="49.049172" data-max="49.060917" data-mean="47.782997" data-stddev="0.314618" >
-  <td class="rank">622</td>
+  <td class="rank">621</td>
   <td>Json</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -7717,7 +7705,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="2265.940356" data-p25="2265.940356" data-median="2266.509945" data-p75="2283.247336" data-p99="2283.247336" data-max="2283.247336" data-mean="2271.899212" data-stddev="9.831889" >
-  <td class="rank">623</td>
+  <td class="rank">622</td>
   <td>CD</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -7729,7 +7717,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="binary_match" data-min="0.001127" data-p25="0.001181" data-median="0.001185" data-p75="0.00119" data-p99="0.001366" data-max="0.002028" data-mean="0.001201" data-stddev="4.0e-5" >
-  <td class="rank">624</td>
+  <td class="rank">623</td>
   <td>binary_match/first_no_match_64k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7741,7 +7729,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="estone" data-min="4.404807" data-p25="4.443797" data-median="4.455669" data-p75="4.47754" data-p99="4.590233" data-max="4.727433" data-mean="4.475839" data-stddev="0.049333" >
-  <td class="rank">625</td>
+  <td class="rank">624</td>
   <td>estone/large_local_dataset_work</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -7753,7 +7741,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="estone" data-min="1.538831" data-p25="1.549266" data-median="1.554038" data-p75="1.561027" data-p99="1.619663" data-max="1.90928" data-mean="1.557803" data-stddev="0.019012" >
-  <td class="rank">626</td>
+  <td class="rank">625</td>
   <td>estone/float_arith</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7765,7 +7753,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="estone" data-min="17.561441" data-p25="17.620458" data-median="17.692434" data-p75="17.751152" data-p99="18.021373" data-max="18.480963" data-mean="17.694971" data-stddev="0.095427" >
-  <td class="rank">627</td>
+  <td class="rank">626</td>
   <td>estone/bif_dispatch</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -7777,7 +7765,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="estone" data-min="6.544208" data-p25="6.579021" data-median="6.601917" data-p75="6.627146" data-p99="6.689766" data-max="6.72075" data-mean="6.604968" data-stddev="0.03242" >
-  <td class="rank">628</td>
+  <td class="rank">627</td>
   <td>estone/bif_dispatch</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -7789,7 +7777,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="91.72" data-p25="92.494104" data-median="92.819417" data-p75="93.170042" data-p99="93.807626" data-max="93.810041" data-mean="92.834882" data-stddev="0.46895" >
-  <td class="rank">629</td>
+  <td class="rank">628</td>
   <td>List</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -7798,6 +7786,18 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num stability-good">0.73 %</td>
   <td class="num">0.51 %</td>
   <td class="num">108</td>
+</tr>
+
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="xmpp" data-min="0.001086" data-p25="0.001096" data-median="0.001102" data-p75="0.001104" data-p99="0.0012" data-max="0.0012" data-mean="0.001107" data-stddev="2.6e-5" data-samples="1086.300,1086.500,1088.400,1089.800,1089.200,1089.900,1093.700,1096.000,1096.100,1098.600,1097.400,1097.800,1128.100,1102.200,1102.500,1104.300,1103.100,1186.600,1102.300,1101.500,1102.200,1101.400,1199.700,1104.200,1103.600,1103.700,1104.500,1152.100,1103.900,1103.400" data-samples-unit="MB">
+  <td class="rank">629</td>
+  <td>xmpp_mem</td>
+  <td>erlang</td>
+  <td>linux-x86_64</td>
+  <td>jit</td>
+  <td class="num">0.001102</td>
+  <td class="num stability-good">0.73 %</td>
+  <td class="num">2.36 %</td>
+  <td class="num">30</td>
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="422.26975" data-p25="422.85751" data-median="424.64775" data-p75="425.914281" data-p99="429.7325" data-max="429.7325" data-mean="424.641205" data-stddev="2.115231" >
@@ -8748,20 +8748,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">10</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="xmpp" data-min="3.58e-4" data-p25="3.62e-4" data-median="3.63e-4" data-p75="3.63e-4" data-p99="3.64e-4" data-max="3.64e-4" data-mean="3.62e-4" data-stddev="2.0e-6" data-samples="357.900,358.500,359.200,359.800,360.400,360.800,361.500,361.600,362.500,362.700,362.900,363.000,363.100,363.200,363.400,363.300,363.400,363.400,363.400,363.600,363.600,363.500,363.600,363.700,363.800" data-samples-unit="MB">
-  <td class="rank">709</td>
-  <td>xmpp_mem</td>
-  <td>erlang</td>
-  <td>linux-arm64</td>
-  <td>emu</td>
-  <td class="num">0.000363</td>
-  <td class="num stability-good">0.28 %</td>
-  <td class="num">0.55 %</td>
-  <td class="num">25</td>
-</tr>
-
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="80.17225" data-p25="80.53775" data-median="80.650292" data-p75="80.75625" data-p99="84.218291" data-max="84.218291" data-mean="80.727804" data-stddev="0.475911" >
-  <td class="rank">710</td>
+  <td class="rank">709</td>
   <td>Json</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -8773,7 +8761,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="1097.970621" data-p25="1099.999168" data-median="1102.303313" data-p75="1102.981959" data-p99="1103.593806" data-max="1103.593806" data-mean="1101.653113" data-stddev="2.145006" >
-  <td class="rank">711</td>
+  <td class="rank">710</td>
   <td>CD</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -8785,7 +8773,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="phash2" data-min="0.008027" data-p25="0.00813" data-median="0.00814" data-p75="0.008152" data-p99="0.008599" data-max="0.012456" data-mean="0.008144" data-stddev="1.3e-4" >
-  <td class="rank">712</td>
+  <td class="rank">711</td>
   <td>phash2/tuple_1000</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -8797,7 +8785,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="309.96037" data-p25="312.174036" data-median="312.459187" data-p75="312.998788" data-p99="315.40637" data-max="315.40637" data-mean="312.455504" data-stddev="1.25973" >
-  <td class="rank">713</td>
+  <td class="rank">712</td>
   <td>Mandelbrot</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -8809,7 +8797,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="148.703625" data-p25="150.06625" data-median="150.226167" data-p75="150.446791" data-p99="151.978917" data-max="151.978917" data-mean="150.236122" data-stddev="0.580368" >
-  <td class="rank">714</td>
+  <td class="rank">713</td>
   <td>Queens</td>
   <td>elixir</td>
   <td>macos-arm64</td>
@@ -8821,7 +8809,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="962.961835" data-p25="963.241384" data-median="964.605521" data-p75="965.681088" data-p99="967.014416" data-max="967.014416" data-mean="964.626418" data-stddev="1.450207" >
-  <td class="rank">715</td>
+  <td class="rank">714</td>
   <td>CD</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -8833,7 +8821,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="phash2" data-min="0.007561" data-p25="0.007593" data-median="0.007601" data-p75="0.007611" data-p99="0.007675" data-max="0.008507" data-mean="0.007604" data-stddev="2.9e-5" >
-  <td class="rank">716</td>
+  <td class="rank">715</td>
   <td>phash2/tuple_1000</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -8845,7 +8833,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="513.514342" data-p25="515.548121" data-median="516.298519" data-p75="516.769896" data-p99="518.083562" data-max="518.083562" data-mean="516.217793" data-stddev="0.951002" >
-  <td class="rank">717</td>
+  <td class="rank">716</td>
   <td>Permute</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -8857,7 +8845,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="AWFY" data-min="317.24375" data-p25="317.45298" data-median="317.92925" data-p75="318.193635" data-p99="318.650417" data-max="318.650417" data-mean="317.872068" data-stddev="0.414649" >
-  <td class="rank">718</td>
+  <td class="rank">717</td>
   <td>NBody</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -8869,7 +8857,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="0.078438" data-p25="0.078695" data-median="0.078769" data-p75="0.078875" data-p99="0.080056" data-max="0.088852" data-mean="0.078844" data-stddev="4.34e-4" >
-  <td class="rank">719</td>
+  <td class="rank">718</td>
   <td>base64/encode_n3k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -8881,7 +8869,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="AWFY" data-min="3010.323739" data-p25="3010.323739" data-median="3013.604259" data-p75="3016.884779" data-p99="3016.884779" data-max="3016.884779" data-mean="3013.604259" data-stddev="4.639356" >
-  <td class="rank">720</td>
+  <td class="rank">719</td>
   <td>DeltaBlue</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -8893,7 +8881,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="292.981936" data-p25="294.964462" data-median="295.327097" data-p75="295.592121" data-p99="297.157929" data-max="297.157929" data-mean="295.242975" data-stddev="0.69921" >
-  <td class="rank">721</td>
+  <td class="rank">720</td>
   <td>Permute</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -8905,7 +8893,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="286.564109" data-p25="286.894553" data-median="287.237109" data-p75="287.500438" data-p99="288.684718" data-max="288.684718" data-mean="287.25117" data-stddev="0.44304" >
-  <td class="rank">722</td>
+  <td class="rank">721</td>
   <td>Permute</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -8917,7 +8905,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="121.341293" data-p25="121.644443" data-median="121.704615" data-p75="121.890458" data-p99="143.268727" data-max="143.268727" data-mean="122.762157" data-stddev="3.276185" >
-  <td class="rank">723</td>
+  <td class="rank">722</td>
   <td>Towers</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -8926,6 +8914,18 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num stability-good">0.20 %</td>
   <td class="num">2.69 %</td>
   <td class="num">66</td>
+</tr>
+
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="xmpp" data-min="0.001037" data-p25="0.00104" data-median="0.001042" data-p75="0.001042" data-p99="0.00111" data-max="0.00111" data-mean="0.001044" data-stddev="1.3e-5" data-samples="1036.900,1037.900,1038.400,1039.000,1039.400,1039.700,1109.700,1040.100,1040.200,1040.200,1041.600,1041.600,1041.600,1041.900,1042.100,1041.800,1041.900,1061.700,1041.900,1042.000,1042.000,1042.200,1042.400,1042.600,1042.400,1043.300,1042.400,1042.800,1042.500,1042.500" data-samples-unit="MB">
+  <td class="rank">723</td>
+  <td>xmpp_mem</td>
+  <td>erlang</td>
+  <td>linux-arm64</td>
+  <td>emu</td>
+  <td class="num">0.001042</td>
+  <td class="num stability-good">0.19 %</td>
+  <td class="num">1.25 %</td>
+  <td class="num">30</td>
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="112.991833" data-p25="113.207239" data-median="113.298615" data-p75="113.424558" data-p99="131.933376" data-max="131.933376" data-mean="114.067313" data-stddev="2.89334" >
@@ -8988,8 +8988,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">10</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="2.786581" data-p25="2.795077" data-median="2.797461" data-p75="2.800054" data-p99="2.822244" data-max="2.889225" data-mean="2.798284" data-stddev="0.006312" >
+<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="xmpp" data-min="0.00109" data-p25="0.001098" data-median="0.0011" data-p75="0.0011" data-p99="0.001222" data-max="0.001222" data-mean="0.001106" data-stddev="2.6e-5" data-samples="1130.100,1090.100,1090.200,1091.000,1093.000,1093.600,1093.300,1096.200,1174.200,1098.000,1097.600,1098.100,1098.100,1099.600,1097.800,1098.100,1100.200,1100.200,1102.200,1100.400,1101.100,1100.700,1100.000,1100.400,1100.800,1099.900,1221.600,1100.200,1099.900,1099.900" data-samples-unit="MB">
   <td class="rank">729</td>
+  <td>xmpp_mem</td>
+  <td>erlang</td>
+  <td>linux-x86_64</td>
+  <td>emu</td>
+  <td class="num">0.001100</td>
+  <td class="num stability-good">0.18 %</td>
+  <td class="num">2.36 %</td>
+  <td class="num">30</td>
+</tr>
+
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="2.786581" data-p25="2.795077" data-median="2.797461" data-p75="2.800054" data-p99="2.822244" data-max="2.889225" data-mean="2.798284" data-stddev="0.006312" >
+  <td class="rank">730</td>
   <td>base64/mime_decode_n64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9001,7 +9013,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="72.07946" data-p25="72.156742" data-median="72.210064" data-p75="72.283979" data-p99="72.736822" data-max="72.762301" data-mean="72.240408" data-stddev="0.128462" >
-  <td class="rank">730</td>
+  <td class="rank">731</td>
   <td>List</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9013,7 +9025,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="estone" data-min="2.750786" data-p25="2.759339" data-median="2.761538" data-p75="2.763976" data-p99="2.841138" data-max="3.149287" data-mean="2.76459" data-stddev="0.020444" >
-  <td class="rank">731</td>
+  <td class="rank">732</td>
   <td>estone/int_arith</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -9025,7 +9037,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="492.348639" data-p25="493.506787" data-median="493.929642" data-p75="494.333248" data-p99="495.272622" data-max="495.272622" data-mean="493.930334" data-stddev="0.73462" >
-  <td class="rank">732</td>
+  <td class="rank">733</td>
   <td>Json</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9037,7 +9049,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="1.663624" data-p25="1.66738" data-median="1.668583" data-p75="1.670159" data-p99="1.685969" data-max="1.774155" data-mean="1.669404" data-stddev="0.004764" >
-  <td class="rank">733</td>
+  <td class="rank">734</td>
   <td>base64/encode_n64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9049,7 +9061,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="base64" data-min="2.10772" data-p25="2.111216" data-median="2.112768" data-p75="2.114684" data-p99="2.131996" data-max="2.196202" data-mean="2.113534" data-stddev="0.004682" >
-  <td class="rank">734</td>
+  <td class="rank">735</td>
   <td>base64/decode_n64k</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9061,7 +9073,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="208.069745" data-p25="212.439489" data-median="212.669842" data-p75="212.777006" data-p99="215.315673" data-max="215.315673" data-mean="212.561584" data-stddev="0.934164" >
-  <td class="rank">735</td>
+  <td class="rank">736</td>
   <td>Queens</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9073,7 +9085,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="AWFY" data-min="472.88075" data-p25="473.55875" data-median="473.817958" data-p75="474.291625" data-p99="476.046417" data-max="476.046417" data-mean="474.099527" data-stddev="0.87797" >
-  <td class="rank">736</td>
+  <td class="rank">737</td>
   <td>CD</td>
   <td>erlang</td>
   <td>macos-arm64</td>
@@ -9085,7 +9097,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="13.516477" data-p25="13.534474" data-median="13.54585" data-p75="13.555068" data-p99="13.587501" data-max="13.660898" data-mean="13.547293" data-stddev="0.016433" >
-  <td class="rank">737</td>
+  <td class="rank">738</td>
   <td>estone/pattern</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9097,7 +9109,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="1922.788403" data-p25="1922.788403" data-median="1923.530181" data-p75="1925.615046" data-p99="1925.615046" data-max="1925.615046" data-mean="1923.977877" data-stddev="1.465538" >
-  <td class="rank">738</td>
+  <td class="rank">739</td>
   <td>NBody</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9109,7 +9121,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="37.857734" data-p25="37.928539" data-median="37.949035" data-p75="37.983626" data-p99="38.419861" data-max="38.425088" data-mean="37.965776" data-stddev="0.077623" >
-  <td class="rank">739</td>
+  <td class="rank">740</td>
   <td>estone/large_dataset_work</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9121,7 +9133,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="869.117981" data-p25="869.292209" data-median="869.439271" data-p75="870.53943" data-p99="871.079935" data-max="871.079935" data-mean="869.797667" data-stddev="0.758801" >
-  <td class="rank">740</td>
+  <td class="rank">741</td>
   <td>CD</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9133,7 +9145,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="990.539428" data-p25="992.427242" data-median="993.337589" data-p75="993.809676" data-p99="994.772278" data-max="994.772278" data-mean="993.098846" data-stddev="1.163465" >
-  <td class="rank">741</td>
+  <td class="rank">742</td>
   <td>Permute</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9145,7 +9157,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="phash2" data-min="0.001556" data-p25="0.001559" data-median="0.00156" data-p75="0.001561" data-p99="0.001687" data-max="0.002292" data-mean="0.001565" data-stddev="2.1e-5" >
-  <td class="rank">742</td>
+  <td class="rank">743</td>
   <td>phash2/binary_4k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9157,7 +9169,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="phash2" data-min="0.00156" data-p25="0.001563" data-median="0.001564" data-p75="0.001565" data-p99="0.001733" data-max="0.002627" data-mean="0.001575" data-stddev="3.6e-5" >
-  <td class="rank">743</td>
+  <td class="rank">744</td>
   <td>phash2/binary_4k</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9169,7 +9181,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="47.935052" data-p25="48.287598" data-median="48.315849" data-p75="48.346397" data-p99="48.560784" data-max="48.562705" data-mean="48.296058" data-stddev="0.099352" >
-  <td class="rank">744</td>
+  <td class="rank">745</td>
   <td>estone/ets</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9181,7 +9193,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="2080.55814" data-p25="2080.55814" data-median="2081.730193" data-p75="2083.075395" data-p99="2083.075395" data-max="2083.075395" data-mean="2081.787909" data-stddev="1.25962" >
-  <td class="rank">745</td>
+  <td class="rank">746</td>
   <td>CD</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9193,7 +9205,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="649.335368" data-p25="649.370839" data-median="649.558842" data-p75="650.151929" data-p99="650.366144" data-max="650.366144" data-mean="649.720321" data-stddev="0.414505" >
-  <td class="rank">746</td>
+  <td class="rank">747</td>
   <td>NBody</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9205,7 +9217,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="36.895713" data-p25="36.934538" data-median="36.958838" data-p75="36.978716" data-p99="37.259755" data-max="37.326382" data-mean="36.961965" data-stddev="0.045398" >
-  <td class="rank">747</td>
+  <td class="rank">748</td>
   <td>estone/large_local_dataset_work</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9217,7 +9229,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="2274.029039" data-p25="2274.029039" data-median="2275.80455" data-p75="2276.199408" data-p99="2276.199408" data-max="2276.199408" data-mean="2275.344332" data-stddev="1.15606" >
-  <td class="rank">748</td>
+  <td class="rank">749</td>
   <td>CD</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9228,8 +9240,20 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">3</td>
 </tr>
 
+<tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="xmpp" data-min="0.001058" data-p25="0.001061" data-median="0.001062" data-p75="0.001062" data-p99="0.001183" data-max="0.001183" data-mean="0.00107" data-stddev="2.8e-5" data-samples="1057.600,1058.300,1058.700,1059.100,1060.200,1146.200,1061.300,1061.300,1061.400,1061.500,1061.900,1061.600,1061.900,1124.000,1062.300,1062.000,1062.100,1062.400,1062.300,1062.400,1062.200,1062.300,1062.300,1062.300,1062.300,1062.500,1183.100,1062.400,1062.400,1062.700" data-samples-unit="MB">
+  <td class="rank">750</td>
+  <td>xmpp_mem</td>
+  <td>erlang</td>
+  <td>linux-arm64</td>
+  <td>jit</td>
+  <td class="num">0.001062</td>
+  <td class="num stability-good">0.09 %</td>
+  <td class="num">2.64 %</td>
+  <td class="num">30</td>
+</tr>
+
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="1358.386183" data-p25="1358.426398" data-median="1358.85204" data-p75="1359.701409" data-p99="1359.882866" data-max="1359.882866" data-mean="1358.993282" data-stddev="0.679675" >
-  <td class="rank">749</td>
+  <td class="rank">751</td>
   <td>NBody</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9241,7 +9265,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="estone" data-min="2.376021" data-p25="2.37787" data-median="2.378861" data-p75="2.380098" data-p99="2.433469" data-max="2.477281" data-mean="2.380076" data-stddev="0.00852" >
-  <td class="rank">750</td>
+  <td class="rank">752</td>
   <td>estone/int_arith</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9253,7 +9277,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="539.878008" data-p25="540.026414" data-median="540.145584" data-p75="540.520319" data-p99="541.717435" data-max="541.717435" data-mean="540.31865" data-stddev="0.450972" >
-  <td class="rank">751</td>
+  <td class="rank">753</td>
   <td>List</td>
   <td>elixir</td>
   <td>linux-x86_64</td>
@@ -9265,7 +9289,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="AWFY" data-min="167.604449" data-p25="167.700686" data-median="167.788114" data-p75="167.839212" data-p99="171.262415" data-max="171.262415" data-mean="167.8563" data-stddev="0.47249" >
-  <td class="rank">752</td>
+  <td class="rank">754</td>
   <td>List</td>
   <td>erlang</td>
   <td>linux-x86_64</td>
@@ -9277,7 +9301,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="33.822474" data-p25="33.847399" data-median="33.86365" data-p75="33.875314" data-p99="34.007905" data-max="34.020201" data-mean="33.864719" data-stddev="0.024588" >
-  <td class="rank">753</td>
+  <td class="rank">755</td>
   <td>estone/fcalls</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9289,7 +9313,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="estone" data-min="17.422747" data-p25="17.433588" data-median="17.440556" data-p75="17.447413" data-p99="17.470108" data-max="17.592201" data-mean="17.441469" data-stddev="0.012611" >
-  <td class="rank">754</td>
+  <td class="rank">756</td>
   <td>estone/timer</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9301,7 +9325,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="estone" data-min="49.1194" data-p25="49.509701" data-median="49.527133" data-p75="49.544956" data-p99="49.753054" data-max="49.756364" data-mean="49.518265" data-stddev="0.069601" >
-  <td class="rank">755</td>
+  <td class="rank">757</td>
   <td>estone/ets</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9313,7 +9337,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="estone" data-min="339.105298" data-p25="339.258911" data-median="339.365339" data-p75="339.496191" data-p99="340.026136" data-max="340.026136" data-mean="339.399772" data-stddev="0.212308" >
-  <td class="rank">756</td>
+  <td class="rank">758</td>
   <td>estone/msgp</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9325,7 +9349,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="estone" data-min="15.014951" data-p25="15.022148" data-median="15.025504" data-p75="15.03182" data-p99="15.086517" data-max="15.168493" data-mean="15.029693" data-stddev="0.014655" >
-  <td class="rank">757</td>
+  <td class="rank">759</td>
   <td>estone/bif_dispatch</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9337,7 +9361,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="964.711478" data-p25="964.956261" data-median="965.132887" data-p75="965.499795" data-p99="965.777399" data-max="965.777399" data-mean="965.199961" data-stddev="0.36376" >
-  <td class="rank">758</td>
+  <td class="rank">760</td>
   <td>NBody</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9349,7 +9373,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="675.154578" data-p25="675.209348" data-median="675.511765" data-p75="675.564887" data-p99="675.93582" data-max="675.93582" data-mean="675.471238" data-stddev="0.22227" >
-  <td class="rank">759</td>
+  <td class="rank">761</td>
   <td>List</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9361,7 +9385,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="15.714574" data-p25="15.723105" data-median="15.726727" data-p75="15.730961" data-p99="15.751329" data-max="15.860114" data-mean="15.727753" data-stddev="0.010234" >
-  <td class="rank">760</td>
+  <td class="rank">762</td>
   <td>estone/bif_dispatch</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9373,7 +9397,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="815.246475" data-p25="815.621319" data-median="815.75845" data-p75="815.950079" data-p99="816.534747" data-max="816.534747" data-mean="815.815341" data-stddev="0.34433" >
-  <td class="rank">761</td>
+  <td class="rank">763</td>
   <td>Mandelbrot</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9385,7 +9409,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="22.642876" data-p25="22.649728" data-median="22.653976" data-p75="22.658752" data-p99="22.681667" data-max="22.684249" data-mean="22.654793" data-stddev="0.006856" >
-  <td class="rank">762</td>
+  <td class="rank">764</td>
   <td>estone/timer</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9397,7 +9421,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="estone" data-min="51.0671" data-p25="51.099278" data-median="51.109402" data-p75="51.119634" data-p99="51.26045" data-max="51.26045" data-mean="51.110823" data-stddev="0.021325" >
-  <td class="rank">763</td>
+  <td class="rank">765</td>
   <td>estone/trav</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -9409,7 +9433,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="816.563488" data-p25="816.702719" data-median="816.776991" data-p75="816.992642" data-p99="817.418345" data-max="817.418345" data-mean="816.8507" data-stddev="0.246044" >
-  <td class="rank">764</td>
+  <td class="rank">766</td>
   <td>Mandelbrot</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9421,7 +9445,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="AWFY" data-min="1088.396491" data-p25="1088.450719" data-median="1088.638807" data-p75="1088.724554" data-p99="1088.794312" data-max="1088.794312" data-mean="1088.608765" data-stddev="0.143325" >
-  <td class="rank">765</td>
+  <td class="rank">767</td>
   <td>List</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9433,7 +9457,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="254.735442" data-p25="257.572655" data-median="257.609487" data-p75="257.634457" data-p99="258.432579" data-max="258.432579" data-mean="257.124558" data-stddev="1.138028" >
-  <td class="rank">766</td>
+  <td class="rank">768</td>
   <td>Mandelbrot</td>
   <td>elixir</td>
   <td>linux-arm64</td>
@@ -9445,7 +9469,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="AWFY" data-min="248.954996" data-p25="251.621493" data-median="251.652494" data-p75="251.676363" data-p99="252.232711" data-max="252.232711" data-mean="251.186626" data-stddev="1.071634" >
-  <td class="rank">767</td>
+  <td class="rank">769</td>
   <td>Mandelbrot</td>
   <td>erlang</td>
   <td>linux-arm64</td>
@@ -9457,7 +9481,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="AWFY" data-min="2023.3216" data-p25="2023.3216" data-median="2023.424" data-p75="2023.424" data-p99="2023.424" data-max="2023.424" data-mean="2023.389867" data-stddev="0.059121" >
-  <td class="rank">768</td>
+  <td class="rank">770</td>
   <td>Havlak</td>
   <td>elixir</td>
   <td>windows-x86_64</td>
@@ -9469,7 +9493,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.1024" data-p25="0.2048" data-median="0.2048" data-p75="0.2048" data-p99="0.9216" data-max="1.024" data-mean="0.230861" data-stddev="0.135207" >
-  <td class="rank">769</td>
+  <td class="rank">771</td>
   <td>unicode/graphemes_bmp_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9481,7 +9505,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="1.02e-4" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="0.00553" data-mean="1.3e-4" data-stddev="6.5e-5" >
-  <td class="rank">770</td>
+  <td class="rank">772</td>
   <td>phash2/binary_64</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9493,7 +9517,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="8.19e-4" data-mean="9.4e-5" data-stddev="5.6e-5" >
-  <td class="rank">771</td>
+  <td class="rank">773</td>
   <td>maps/merge_n5_n5</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9505,7 +9529,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="0.1024" data-median="0.1024" data-p75="0.1024" data-p99="0.2048" data-max="0.8192" data-mean="0.114353" data-stddev="0.053896" >
-  <td class="rank">772</td>
+  <td class="rank">774</td>
   <td>ets/bulk_match_all</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9517,7 +9541,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.0" data-p25="0.1024" data-median="0.1024" data-p75="0.1024" data-p99="0.2048" data-max="0.6144" data-mean="0.081162" data-stddev="0.051317" >
-  <td class="rank">773</td>
+  <td class="rank">775</td>
   <td>unicode/nfc_decomposed_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9529,7 +9553,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="0.0" data-p25="0.001024" data-median="0.001024" data-p75="0.001024" data-p99="0.002048" data-max="0.01024" data-mean="8.94e-4" data-stddev="5.08e-4" >
-  <td class="rank">774</td>
+  <td class="rank">776</td>
   <td>phash2/map_32</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9541,7 +9565,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="4.1e-4" data-mean="9.9e-5" data-stddev="4.9e-5" >
-  <td class="rank">775</td>
+  <td class="rank">777</td>
   <td>maps/put_n100</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9553,7 +9577,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="4.1e-4" data-mean="8.7e-5" data-stddev="4.8e-5" >
-  <td class="rank">776</td>
+  <td class="rank">778</td>
   <td>maps/new_n5</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9565,7 +9589,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="unicode" data-min="0.1024" data-p25="0.2048" data-median="0.2048" data-p75="0.2048" data-p99="0.4096" data-max="1.024" data-mean="0.214874" data-stddev="0.090384" >
-  <td class="rank">777</td>
+  <td class="rank">779</td>
   <td>unicode/nfc_pure_ascii_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9577,7 +9601,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="1.02e-4" data-max="0.001024" data-mean="8.0e-5" data-stddev="4.5e-5" >
-  <td class="rank">778</td>
+  <td class="rank">780</td>
   <td>ets/lookup_duplicate_bag</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9589,7 +9613,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="1.02e-4" data-max="7.17e-4" data-mean="8.0e-5" data-stddev="4.4e-5" >
-  <td class="rank">779</td>
+  <td class="rank">781</td>
   <td>ets/key_atom</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9601,7 +9625,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="4.1e-4" data-mean="8.8e-5" data-stddev="4.4e-5" >
-  <td class="rank">780</td>
+  <td class="rank">782</td>
   <td>ets/lookup_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9613,7 +9637,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="base64" data-min="0.01024" data-p25="0.01024" data-median="0.01024" data-p75="0.01024" data-p99="0.02048" data-max="0.0512" data-mean="0.012301" data-stddev="0.00417" >
-  <td class="rank">781</td>
+  <td class="rank">783</td>
   <td>base64/encode_n3k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9625,7 +9649,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="0.001024" data-median="0.001024" data-p75="0.001024" data-p99="0.001024" data-max="0.003072" data-mean="8.59e-4" data-stddev="3.9e-4" >
-  <td class="rank">782</td>
+  <td class="rank">784</td>
   <td>maps/merge_n5_n1000</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9637,7 +9661,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="5.12e-4" data-mean="9.2e-5" data-stddev="3.5e-5" >
-  <td class="rank">783</td>
+  <td class="rank">785</td>
   <td>ets/insert_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9649,7 +9673,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="0.0" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="4.1e-4" data-mean="9.5e-5" data-stddev="3.5e-5" >
-  <td class="rank">784</td>
+  <td class="rank">786</td>
   <td>ets/lookup_ordered_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9661,7 +9685,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="0.001024" data-median="0.001024" data-p75="0.001024" data-p99="0.002048" data-max="0.00512" data-mean="9.48e-4" data-stddev="3.36e-4" >
-  <td class="rank">785</td>
+  <td class="rank">787</td>
   <td>maps/keys_n100</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9673,7 +9697,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="1.02e-4" data-p25="1.02e-4" data-median="1.02e-4" data-p75="1.02e-4" data-p99="2.05e-4" data-max="6.14e-4" data-mean="1.14e-4" data-stddev="3.3e-5" >
-  <td class="rank">786</td>
+  <td class="rank">788</td>
   <td>ets/insert_ordered_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9685,7 +9709,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="maps" data-min="9.0e-6" data-p25="1.0e-5" data-median="1.0e-5" data-p75="1.0e-5" data-p99="1.8e-5" data-max="1.8e-5" data-mean="1.1e-5" data-stddev="3.0e-6" >
-  <td class="rank">787</td>
+  <td class="rank">789</td>
   <td>maps/get_n100</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9697,7 +9721,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.0" data-p25="0.01024" data-median="0.01024" data-p75="0.01024" data-p99="0.02048" data-max="0.03072" data-mean="0.009844" data-stddev="0.00306" >
-  <td class="rank">788</td>
+  <td class="rank">790</td>
   <td>maps/keys_n1000</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9709,7 +9733,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="binary_match" data-min="0.0" data-p25="0.01024" data-median="0.01024" data-p75="0.01024" data-p99="0.02048" data-max="0.03072" data-mean="0.01122" data-stddev="0.003039" >
-  <td class="rank">789</td>
+  <td class="rank">791</td>
   <td>binary_match/all_frequent_64k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9721,7 +9745,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.01024" data-p25="0.02048" data-median="0.02048" data-p75="0.02048" data-p99="0.03072" data-max="0.08192" data-mean="0.018816" data-stddev="0.005553" >
-  <td class="rank">790</td>
+  <td class="rank">792</td>
   <td>maps/merge_n1000_n1000</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9733,7 +9757,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="0.0" data-p25="0.01024" data-median="0.01024" data-p75="0.01024" data-p99="0.02048" data-max="0.0512" data-mean="0.010027" data-stddev="0.00265" >
-  <td class="rank">791</td>
+  <td class="rank">793</td>
   <td>phash2/tuple_1000</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9745,7 +9769,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="5.1e-5" data-p25="5.1e-5" data-median="5.1e-5" data-p75="5.1e-5" data-p99="9.2e-5" data-max="8.6e-4" data-mean="5.4e-5" data-stddev="1.3e-5" >
-  <td class="rank">792</td>
+  <td class="rank">794</td>
   <td>maps/keys_n5</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9757,7 +9781,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="base64" data-min="0.2048" data-p25="0.2048" data-median="0.2048" data-p75="0.2048" data-p99="0.4096" data-max="0.6144" data-mean="0.229019" data-stddev="0.046961" >
-  <td class="rank">793</td>
+  <td class="rank">795</td>
   <td>base64/encode_n64k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9769,7 +9793,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="2.05e-4" data-p25="3.07e-4" data-median="3.07e-4" data-p75="3.07e-4" data-p99="6.14e-4" data-max="8.19e-4" data-mean="3.02e-4" data-stddev="7.0e-5" >
-  <td class="rank">794</td>
+  <td class="rank">796</td>
   <td>maps/new_n32</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9781,7 +9805,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="1.02e-4" data-p25="2.05e-4" data-median="2.05e-4" data-p75="2.05e-4" data-p99="3.07e-4" data-max="6.14e-4" data-mean="2.05e-4" data-stddev="3.7e-5" >
-  <td class="rank">795</td>
+  <td class="rank">797</td>
   <td>ets/mixed_ordered_set</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9793,7 +9817,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.00512" data-p25="0.006144" data-median="0.006144" data-p75="0.006144" data-p99="0.011264" data-max="0.013312" data-mean="0.006364" data-stddev="9.28e-4" >
-  <td class="rank">796</td>
+  <td class="rank">798</td>
   <td>maps/new_n100</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9805,7 +9829,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="phash2" data-min="0.002048" data-p25="0.003072" data-median="0.003072" data-p75="0.003072" data-p99="0.004096" data-max="0.016384" data-mean="0.003141" data-stddev="3.98e-4" >
-  <td class="rank">797</td>
+  <td class="rank">799</td>
   <td>phash2/binary_4k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9817,7 +9841,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="0.002048" data-p25="0.003072" data-median="0.003072" data-p75="0.003072" data-p99="0.004096" data-max="0.007168" data-mean="0.003033" data-stddev="3.96e-4" >
-  <td class="rank">798</td>
+  <td class="rank">800</td>
   <td>maps/merge_n32_n32</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9829,7 +9853,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="binary_match" data-min="0.004096" data-p25="0.00512" data-median="0.00512" data-p75="0.00512" data-p99="0.007168" data-max="0.01024" data-mean="0.005319" data-stddev="5.66e-4" >
-  <td class="rank">799</td>
+  <td class="rank">801</td>
   <td>binary_match/first_no_match_64k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9841,7 +9865,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="7.2e-5" data-p25="8.2e-5" data-median="8.2e-5" data-p75="8.2e-5" data-p99="1.13e-4" data-max="1.95e-4" data-mean="8.2e-5" data-stddev="9.0e-6" >
-  <td class="rank">800</td>
+  <td class="rank">802</td>
   <td>ets/key_int</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9853,7 +9877,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="binary_match" data-min="3.07e-4" data-p25="4.1e-4" data-median="4.1e-4" data-p75="4.1e-4" data-p99="5.12e-4" data-max="9.22e-4" data-mean="4.08e-4" data-stddev="4.1e-5" >
-  <td class="rank">801</td>
+  <td class="rank">803</td>
   <td>binary_match/first_frequent_64k</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9865,7 +9889,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="4.1e-5" data-p25="4.1e-5" data-median="4.1e-5" data-p75="4.1e-5" data-p99="5.1e-5" data-max="9.2e-5" data-mean="4.2e-5" data-stddev="4.0e-6" >
-  <td class="rank">802</td>
+  <td class="rank">804</td>
   <td>maps/get_n32</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9877,7 +9901,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="maps" data-min="3.1e-5" data-p25="3.1e-5" data-median="3.1e-5" data-p75="3.1e-5" data-p99="4.1e-5" data-max="6.1e-5" data-mean="3.2e-5" data-stddev="3.0e-6" >
-  <td class="rank">803</td>
+  <td class="rank">805</td>
   <td>maps/get_n5</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9889,7 +9913,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="ets" data-min="6.1e-5" data-p25="7.2e-5" data-median="7.2e-5" data-p75="7.2e-5" data-p99="9.2e-5" data-max="1.84e-4" data-mean="7.4e-5" data-stddev="6.0e-6" >
-  <td class="rank">804</td>
+  <td class="rank">806</td>
   <td>ets/insert_bag</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9901,7 +9925,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="iolist_size" data-min="1.4e-5" data-p25="1.5e-5" data-median="1.5e-5" data-p75="1.5e-5" data-p99="1.6e-5" data-max="2.3e-5" data-mean="1.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">805</td>
+  <td class="rank">807</td>
   <td>iolist_size/huge_16mb</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9913,7 +9937,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.1e-5" data-p25="2.3e-5" data-median="2.3e-5" data-p75="2.3e-5" data-p99="2.5e-5" data-max="4.6e-5" data-mean="2.3e-5" data-stddev="1.0e-6" >
-  <td class="rank">806</td>
+  <td class="rank">808</td>
   <td>ets/key_atom</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9925,7 +9949,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.1e-5" data-p25="2.3e-5" data-median="2.3e-5" data-p75="2.3e-5" data-p99="2.5e-5" data-max="4.9e-5" data-mean="2.3e-5" data-stddev="1.0e-6" >
-  <td class="rank">807</td>
+  <td class="rank">809</td>
   <td>ets/key_int</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9937,7 +9961,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="1.3312" data-p25="1.4336" data-median="1.4336" data-p75="1.4336" data-p99="1.6384" data-max="2.3552" data-mean="1.450483" data-stddev="0.059948" >
-  <td class="rank">808</td>
+  <td class="rank">810</td>
   <td>estone/pattern</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -9949,7 +9973,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.2e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.4e-5" data-p99="2.6e-5" data-max="4.9e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">809</td>
+  <td class="rank">811</td>
   <td>ets/lookup_duplicate_bag</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9961,7 +9985,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.2e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.4e-5" data-p99="2.6e-5" data-max="3.3e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">810</td>
+  <td class="rank">812</td>
   <td>ets/update_element_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9973,7 +9997,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.2e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.4e-5" data-p99="2.5e-5" data-max="4.9e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">811</td>
+  <td class="rank">813</td>
   <td>ets/lookup_bag</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9985,7 +10009,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.2e-5" data-p25="2.4e-5" data-median="2.4e-5" data-p75="2.4e-5" data-p99="2.6e-5" data-max="4.6e-5" data-mean="2.4e-5" data-stddev="1.0e-6" >
-  <td class="rank">812</td>
+  <td class="rank">814</td>
   <td>ets/lookup_set</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -9997,7 +10021,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="emu" data-group="ets" data-min="2.3e-5" data-p25="2.5e-5" data-median="2.5e-5" data-p75="2.5e-5" data-p99="3.0e-5" data-max="3.3e-5" data-mean="2.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">813</td>
+  <td class="rank">815</td>
   <td>ets/insert_bag</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -10009,7 +10033,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="macos-arm64" data-flavor="jit" data-group="phash2" data-min="2.3e-5" data-p25="2.6e-5" data-median="2.6e-5" data-p75="2.6e-5" data-p99="2.7e-5" data-max="3.6e-5" data-mean="2.5e-5" data-stddev="1.0e-6" >
-  <td class="rank">814</td>
+  <td class="rank">816</td>
   <td>phash2/binary_64</td>
   <td>—</td>
   <td>macos-arm64</td>
@@ -10021,7 +10045,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="phash2" data-min="8.0e-5" data-p25="8.2e-5" data-median="8.2e-5" data-p75="8.2e-5" data-p99="8.8e-5" data-max="1.28e-4" data-mean="8.2e-5" data-stddev="3.0e-6" >
-  <td class="rank">815</td>
+  <td class="rank">817</td>
   <td>phash2/binary_64</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -10033,7 +10057,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="2.4576" data-p25="2.6624" data-median="2.6624" data-p75="2.6624" data-p99="2.9696" data-max="3.6864" data-mean="2.664859" data-stddev="0.093211" >
-  <td class="rank">816</td>
+  <td class="rank">818</td>
   <td>estone/links</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -10045,7 +10069,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="windows-x86_64" data-flavor="jit" data-group="estone" data-min="1.4336" data-p25="1.536" data-median="1.536" data-p75="1.536" data-p99="1.6384" data-max="1.8432" data-mean="1.550647" data-stddev="0.046101" >
-  <td class="rank">817</td>
+  <td class="rank">819</td>
   <td>estone/float_arith</td>
   <td>—</td>
   <td>windows-x86_64</td>
@@ -10056,20 +10080,8 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num">3223</td>
 </tr>
 
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="xmpp" data-min="3.78e-4" data-p25="3.84e-4" data-median="3.84e-4" data-p75="3.84e-4" data-p99="4.25e-4" data-max="4.25e-4" data-mean="3.87e-4" data-stddev="1.1e-5" data-samples="378.300,381.000,424.500,383.500,386.200,384.100,384.400,384.300,384.500,384.300,384.500,384.400,384.300,384.200,384.300,384.200,384.300,384.200,384.500,424.600,384.300,384.200,384.100,384.200,384.300" data-samples-unit="MB">
-  <td class="rank">818</td>
-  <td>xmpp_mem</td>
-  <td>erlang</td>
-  <td>linux-x86_64</td>
-  <td>jit</td>
-  <td class="num">0.000384</td>
-  <td class="num stability-good">0.00 %</td>
-  <td class="num">2.86 %</td>
-  <td class="num">25</td>
-</tr>
-
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="ets" data-min="6.8e-5" data-p25="7.1e-5" data-median="7.1e-5" data-p75="7.1e-5" data-p99="7.8e-5" data-max="1.28e-4" data-mean="7.1e-5" data-stddev="2.0e-6" >
-  <td class="rank">819</td>
+  <td class="rank">820</td>
   <td>ets/lookup_duplicate_bag</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -10081,7 +10093,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="maps" data-min="7.1e-5" data-p25="7.3e-5" data-median="7.3e-5" data-p75="7.3e-5" data-p99="7.8e-5" data-max="1.56e-4" data-mean="7.3e-5" data-stddev="2.0e-6" >
-  <td class="rank">820</td>
+  <td class="rank">821</td>
   <td>maps/get_n100</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -10093,7 +10105,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="maps" data-min="3.7e-5" data-p25="3.8e-5" data-median="3.8e-5" data-p75="3.8e-5" data-p99="4.2e-5" data-max="5.6e-5" data-mean="3.8e-5" data-stddev="1.0e-6" >
-  <td class="rank">821</td>
+  <td class="rank">822</td>
   <td>maps/get_n100</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -10105,7 +10117,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="maps" data-min="4.2e-5" data-p25="4.3e-5" data-median="4.3e-5" data-p75="4.3e-5" data-p99="4.6e-5" data-max="6.0e-5" data-mean="4.3e-5" data-stddev="1.0e-6" >
-  <td class="rank">822</td>
+  <td class="rank">823</td>
   <td>maps/keys_n5</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10117,7 +10129,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-x86_64" data-flavor="jit" data-group="ets" data-min="8.3e-5" data-p25="8.6e-5" data-median="8.6e-5" data-p75="8.6e-5" data-p99="9.3e-5" data-max="1.17e-4" data-mean="8.6e-5" data-stddev="2.0e-6" >
-  <td class="rank">823</td>
+  <td class="rank">824</td>
   <td>ets/lookup_ordered_set</td>
   <td>—</td>
   <td>linux-x86_64</td>
@@ -10129,7 +10141,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="phash2" data-min="1.04e-4" data-p25="1.05e-4" data-median="1.05e-4" data-p75="1.05e-4" data-p99="1.09e-4" data-max="3.47e-4" data-mean="1.05e-4" data-stddev="2.0e-6" >
-  <td class="rank">824</td>
+  <td class="rank">825</td>
   <td>phash2/binary_64</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10141,7 +10153,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.1e-4" data-p25="1.11e-4" data-median="1.11e-4" data-p75="1.11e-4" data-p99="1.14e-4" data-max="3.44e-4" data-mean="1.11e-4" data-stddev="2.0e-6" >
-  <td class="rank">825</td>
+  <td class="rank">826</td>
   <td>ets/update_element_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10153,7 +10165,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.13e-4" data-p25="1.14e-4" data-median="1.14e-4" data-p75="1.14e-4" data-p99="1.18e-4" data-max="3.54e-4" data-mean="1.14e-4" data-stddev="2.0e-6" >
-  <td class="rank">826</td>
+  <td class="rank">827</td>
   <td>ets/insert_bag</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10165,7 +10177,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.2e-4" data-p25="1.21e-4" data-median="1.21e-4" data-p75="1.21e-4" data-p99="1.24e-4" data-max="3.64e-4" data-mean="1.21e-4" data-stddev="2.0e-6" >
-  <td class="rank">827</td>
+  <td class="rank">828</td>
   <td>ets/update_counter_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10177,7 +10189,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="6.6e-5" data-p25="6.7e-5" data-median="6.7e-5" data-p75="6.7e-5" data-p99="7.0e-5" data-max="8.1e-5" data-mean="6.7e-5" data-stddev="1.0e-6" >
-  <td class="rank">828</td>
+  <td class="rank">829</td>
   <td>ets/lookup_bag</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10189,7 +10201,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="6.6e-5" data-p25="6.7e-5" data-median="6.7e-5" data-p75="6.7e-5" data-p99="7.0e-5" data-max="8.5e-5" data-mean="6.7e-5" data-stddev="1.0e-6" >
-  <td class="rank">829</td>
+  <td class="rank">830</td>
   <td>ets/lookup_duplicate_bag</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10201,7 +10213,7 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="emu" data-group="ets" data-min="1.38e-4" data-p25="1.39e-4" data-median="1.39e-4" data-p75="1.39e-4" data-p99="1.43e-4" data-max="3.78e-4" data-mean="1.39e-4" data-stddev="2.0e-6" >
-  <td class="rank">830</td>
+  <td class="rank">831</td>
   <td>ets/insert_ordered_set</td>
   <td>—</td>
   <td>linux-arm64</td>
@@ -10210,18 +10222,6 @@ table.stability tr.stability-detail td { background: var(--er-tint); padding: 0.
   <td class="num stability-good">0.00 %</td>
   <td class="num">1.44 %</td>
   <td class="num">35759000</td>
-</tr>
-
-<tr class="stability-row" data-platform="linux-x86_64" data-flavor="emu" data-group="xmpp" data-min="3.83e-4" data-p25="3.84e-4" data-median="3.84e-4" data-p75="3.84e-4" data-p99="4.09e-4" data-max="4.09e-4" data-mean="3.85e-4" data-stddev="5.0e-6" data-samples="382.600,382.600,383.000,383.600,383.700,383.800,383.900,383.900,383.900,383.600,383.700,384.100,384.100,409.300,384.100,383.900,383.800,384.100,383.900,383.800,384.000,383.900,383.700,383.600,384.300" data-samples-unit="MB">
-  <td class="rank">831</td>
-  <td>xmpp_mem</td>
-  <td>erlang</td>
-  <td>linux-x86_64</td>
-  <td>emu</td>
-  <td class="num">0.000384</td>
-  <td class="num stability-good">0.00 %</td>
-  <td class="num">1.30 %</td>
-  <td class="num">25</td>
 </tr>
 
 <tr class="stability-row" data-platform="linux-arm64" data-flavor="jit" data-group="ets" data-min="7.9e-5" data-p25="8.0e-5" data-median="8.0e-5" data-p75="8.0e-5" data-p99="8.3e-5" data-max="9.9e-5" data-mean="8.0e-5" data-stddev="1.0e-6" >
