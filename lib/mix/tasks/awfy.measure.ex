@@ -83,8 +83,8 @@ defmodule Mix.Tasks.Awfy.Measure do
       enforce_preflight()
     end
 
-    {git_sha, git_dirty?} = git_state()
-    label = opts[:label] || Helpers.auto_label(git_sha, git_dirty?, DateTime.utc_now())
+    run_ctx = Awfy.RunContext.new(scenario: :synthetic, label: opts[:label])
+    label = run_ctx.label
 
     out_root = opts[:out] || "results"
 
@@ -93,8 +93,8 @@ defmodule Mix.Tasks.Awfy.Measure do
         out_root,
         label,
         DateTime.utc_now(),
-        System.otp_release(),
-        System.version()
+        run_ctx.otp_release,
+        run_ctx.elixir_version
       )
 
     if File.exists?(dir) do
@@ -205,9 +205,7 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
 
     write_meta(dir, %{
-      label: label,
-      git_sha: git_sha,
-      git_dirty: git_dirty?,
+      run_ctx: run_ctx,
       time: user_time,
       warmup: user_warmup || 1,
       lang: lang,
@@ -270,19 +268,6 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
   end
 
-  defp git_state do
-    sha = git(["rev-parse", "--short", "HEAD"]) || "unknown"
-    dirty? = (git(["status", "--porcelain"]) || "") != ""
-    {sha, dirty?}
-  end
-
-  defp git(args) do
-    case System.cmd("git", args, stderr_to_stdout: true) do
-      {out, 0} -> String.trim(out)
-      _ -> nil
-    end
-  end
-
   defp verify_pass(candidates) do
     total = length(candidates)
 
@@ -311,21 +296,22 @@ defmodule Mix.Tasks.Awfy.Measure do
     |> then(fn {ok, broken} -> {Enum.reverse(ok), Enum.reverse(broken)} end)
   end
 
-  defp write_meta(dir, ctx) do
+  defp write_meta(dir, %{run_ctx: rc} = ctx) do
     meta = %{
       "format_version" => @format_version,
-      "label" => ctx.label,
-      "otp" => Helpers.otp_version_label(),
-      "elixir" => target_elixir_version(),
-      "timestamp" => Helpers.trend_timestamp() |> DateTime.to_iso8601(),
+      "label" => rc.label,
+      "otp" => rc.otp_label,
+      "elixir" => rc.elixir_version,
+      "timestamp" => DateTime.to_iso8601(rc.trend_timestamp),
       "git" => %{
-        "sha" => ctx.git_sha,
-        "dirty" => ctx.git_dirty
+        "sha" => rc.git_sha,
+        "dirty" => rc.git_dirty
       },
       "machine" => Awfy.Measure.Machine.describe(),
       "runtime" => %{
-        "emu_flavor" => to_string(:erlang.system_info(:emu_flavor)),
-        "schedulers_online" => :erlang.system_info(:schedulers_online),
+        "emu_flavor" => to_string(rc.emu_flavor),
+        "flavor_source" => to_string(rc.flavor_source),
+        "schedulers_online" => rc.schedulers,
         "logical_processors" => Helpers.safe_integer(:erlang.system_info(:logical_processors)),
         "wordsize" => :erlang.system_info(:wordsize),
         "smp_support" => :erlang.system_info(:smp_support),
@@ -427,16 +413,6 @@ defmodule Mix.Tasks.Awfy.Measure do
   # orchestrator — see bin/build-target-bundle.sh + priv/elixir-for-otp.sh.
   # The host's `System.version/0` reports the orchestrator (always
   # recent), which is the wrong number to record for a legacy run.
-  # Read the target bundle's stamped Elixir version when present.
-  # bin/measure-all-macos.sh exports AWFY_TARGET_ELIXIR_VERSION so
-  # we can pick it up without parsing the bundle directly.
-  defp target_elixir_version do
-    case System.get_env("AWFY_TARGET_ELIXIR_VERSION") do
-      v when is_binary(v) and v != "" -> v
-      _ -> System.version()
-    end
-  end
-
   # Mirror of `benchmark_records/1` for the OtpBenchmarks suite.
   # Per-family entry shape:
   #   * name        — family display name ("phash2"). Matches the

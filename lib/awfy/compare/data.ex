@@ -170,14 +170,17 @@ defmodule Awfy.Compare.Data do
               cpu: get(run.machine, "cpu"),
               arch: get(run.machine, "arch"),
               cores: get(run.machine, "cores"),
-              # Trust the label's flavor suffix over runtime.emu_flavor in
-              # meta.json. The bundle-mode legacy path runs `mix awfy.measure`
-              # on the *host* orchestrator (OTP-28 + JIT) but executes
-              # benchmarks via the target erl (legacy, emu-only); meta.json
-              # reports the host's emu_flavor, mis-tagging every pre-24
-              # bundle run as "jit". The label is generated from the
-              # caller-supplied --label suffix and matches what actually
-              # ran on the target.
+              # Trust the label's flavor suffix over runtime.emu_flavor
+              # for legacy runs on gh-pages: pre-Awfy.RunContext writers
+              # recorded the *host* BEAM's emu_flavor, mis-tagging every
+              # pre-24 bundle run or container-orchestrated XMPP run.
+              # New writers resolve the flavor at write time (label
+              # suffix wins, with a `runtime.flavor_source` tag noting
+              # the choice) so on a fresh run `runtime.emu_flavor` IS
+              # the truth; the fallback below stays only until every
+              # gh-pages-archived run pre-dating the writer fix has
+              # rolled off the dashboard. See PLAN/INFRA_REFACTOR.md § 3
+              # for the resolution-history.
               emu_flavor: flavor_from_label(run.label) || get(run.runtime, "emu_flavor"),
               schedulers_online: get(run.runtime, "schedulers_online"),
               lang: lang,

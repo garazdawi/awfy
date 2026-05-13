@@ -54,18 +54,17 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     scenario = opts[:scenario] || @default_scenario
     topology = parse_topology(opts[:topology] || @default_topology)
 
-    {git_sha, git_dirty?} = git_state()
-    label = opts[:label] || Helpers.auto_label(git_sha, git_dirty?, DateTime.utc_now())
+    ctx = Awfy.RunContext.new(scenario: :xmpp, label: opts[:label])
 
     out_root = opts[:out] || "results"
 
     dir =
       Helpers.run_dir(
         out_root,
-        label,
+        ctx.label,
         DateTime.utc_now(),
-        System.otp_release(),
-        System.version()
+        ctx.otp_release,
+        ctx.elixir_version
       )
 
     prepare_dir(dir, opts[:no_clobber])
@@ -78,11 +77,9 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
         write_suite(save_path, suite)
 
         write_meta(dir, %{
+          ctx: ctx,
           scenario: scenario,
           topology: topology,
-          label: label,
-          git_sha: git_sha,
-          git_dirty: git_dirty?,
           config: config,
           throughput: thr,
           cpu_pct: cpu,
@@ -166,28 +163,33 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     end)
   end
 
-  defp write_meta(dir, ctx) do
+  defp write_meta(dir, %{ctx: ctx} = block) do
     meta = %{
       "format_version" => @format_version,
       "label" => ctx.label,
-      "otp" => Helpers.otp_version_label(),
-      "elixir" => System.version(),
-      "timestamp" => Helpers.trend_timestamp() |> DateTime.to_iso8601(),
+      "otp" => ctx.otp_label,
+      "elixir" => ctx.elixir_version,
+      "timestamp" => DateTime.to_iso8601(ctx.trend_timestamp),
       "git" => %{
         "sha" => ctx.git_sha,
         "dirty" => ctx.git_dirty
       },
       "machine" => Awfy.Measure.Machine.describe(),
+      "runtime" => %{
+        "emu_flavor" => to_string(ctx.emu_flavor),
+        "flavor_source" => to_string(ctx.flavor_source),
+        "schedulers_online" => ctx.schedulers
+      },
       "xmpp" => %{
-        "scenario" => ctx.scenario,
-        "topology" => to_string(ctx.topology),
-        "users" => ctx.config.users,
-        "domains" => ctx.config.domains,
-        "interarrival_ms" => ctx.config.interarrival_ms,
-        "measurement_duration_s" => ctx.config.measurement_duration_s,
-        "throughput" => ctx.throughput,
-        "cpu_pct" => ctx.cpu_pct,
-        "mem_mb" => ctx.mem_mb
+        "scenario" => block.scenario,
+        "topology" => to_string(block.topology),
+        "users" => block.config.users,
+        "domains" => block.config.domains,
+        "interarrival_ms" => block.config.interarrival_ms,
+        "measurement_duration_s" => block.config.measurement_duration_s,
+        "throughput" => block.throughput,
+        "cpu_pct" => block.cpu_pct,
+        "mem_mb" => block.mem_mb
       },
       # Declares this run's application-benchmark families to the
       # dashboard's geomean aggregator. Cells whose benchmark name
@@ -198,7 +200,7 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
       # ...) extend this list.
       #
       # Family name `xmpp` is suite-neutral — the underlying Amoc
-      # scenario stays in ctx.scenario / meta.xmpp.scenario so a
+      # scenario stays in block.scenario / meta.xmpp.scenario so a
       # second scenario can join later without renaming the family.
       # Metric short names (cpu / mem / speed) match the cell names
       # in lib/awfy/xmpp/runner.ex.
@@ -212,18 +214,4 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
     File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
   end
-
-  defp git_state do
-    sha = git(["rev-parse", "--short", "HEAD"]) || "unknown"
-    dirty? = (git(["status", "--porcelain"]) || "") != ""
-    {sha, dirty?}
-  end
-
-  defp git(args) do
-    case System.cmd("git", args, stderr_to_stdout: true) do
-      {out, 0} -> String.trim(out)
-      _ -> nil
-    end
-  end
-
 end
