@@ -112,8 +112,8 @@ defmodule Awfy.Xmpp.Runner do
         log.("broker ready")
         :ok
 
-      {:error, :timeout} = err ->
-        log.("broker did not become ready within 120s")
+      {:error, reason} = err ->
+        log.("broker did not become ready within 120s: #{inspect(reason)}")
         err
     end
   end

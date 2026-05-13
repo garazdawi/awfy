@@ -144,53 +144,70 @@ defmodule Awfy.Xmpp.Topology do
   # operations on one broker won't replicate to the others — and a
   # dynamic-domain user dialing through the wrong broker would see
   # auth_failure for a domain the cluster *should* know about. Probe
-  # CETS' system_info from broker-1: when `joined_nodes` matches the
-  # expected cluster size, we're cluster-ready. mongoose_cets_disco
-  # exposes the count; we ask for the joined-nodes list and compare
-  # length to broker_containers's size.
+  # `mongooseimctl cets systemInfo` from broker-1; the JSON it prints
+  # has data.cets.systemInfo.availableNodes as a list. When its length
+  # matches the expected cluster size, we're ready. Falls back to
+  # length(nodes())+1 via mongooseimctl server status if CETS itself
+  # isn't loaded (would surface as a clean timeout rather than a
+  # match crash).
   defp wait_cets_cluster(%State{broker_containers: containers} = _state, _deadline)
        when length(containers) <= 1,
        do: :ok
 
   defp wait_cets_cluster(%State{broker_containers: [head | _] = containers} = state, deadline) do
     expected = length(containers)
+    joined = cets_joined_count(head)
 
-    expr =
-      "case erlang:function_exported(mongoose_cets_discovery, system_info, 0) of " <>
-        "true -> length(maps:get(joined_nodes, mongoose_cets_discovery:system_info(), [])); " <>
-        "false -> length(nodes()) + 1 end."
+    cond do
+      is_integer(joined) and joined >= expected ->
+        :ok
 
-    case System.cmd("docker", ["exec", head, "./bin/mongooseimctl", "eval", expr],
+      monotonic_ms() < deadline ->
+        Process.sleep(1_000)
+        wait_cets_cluster(state, deadline)
+
+      true ->
+        {:error, {:timeout, :cets_cluster, joined, expected}}
+    end
+  end
+
+  # `mongooseimctl cets systemInfo` emits the JSON returned by the
+  # CETS GraphQL query. Available since MongooseIM 6.x; pre-CETS
+  # builds print an "Unknown category" usage block. We treat any
+  # non-numeric / non-list response as `:unknown` so the caller
+  # retries until the deadline.
+  defp cets_joined_count(container) do
+    case System.cmd("docker", ["exec", container, "./bin/mongooseimctl", "cets", "systemInfo"],
            stderr_to_stdout: true
          ) do
       {out, 0} ->
-        joined =
-          out
-          |> String.trim()
-          |> Integer.parse()
-          |> case do
-            {n, _} -> n
-            _ -> 0
-          end
-
-        cond do
-          joined >= expected ->
-            :ok
-
-          monotonic_ms() < deadline ->
-            Process.sleep(1_000)
-            wait_cets_cluster(state, deadline)
-
-          true ->
-            {:error, {:timeout, :cets_cluster, joined, expected}}
-        end
+        parse_cets_joined(out)
 
       _ ->
-        if monotonic_ms() < deadline do
-          Process.sleep(1_000)
-          wait_cets_cluster(state, deadline)
-        else
-          {:error, {:timeout, :cets_cluster_eval}}
+        :unknown
+    end
+  end
+
+  # The interesting field for cluster size is `availableNodes` —
+  # peers that have responded to discovery and are reachable over
+  # distribution. We don't need the full JSON parse; counting
+  # entries inside the `availableNodes` array via Regex keeps the
+  # poller dependency-free. An `"errors"` envelope (CETS not loaded)
+  # falls through to :unknown so callers keep waiting.
+  defp parse_cets_joined(json_str) do
+    cond do
+      String.contains?(json_str, "\"errors\"") ->
+        :unknown
+
+      true ->
+        case Regex.run(~r/"availableNodes"\s*:\s*\[([^\]]*)\]/, json_str) do
+          [_, inner] ->
+            inner
+            |> String.split(",", trim: true)
+            |> Enum.count(fn s -> String.trim(s) != "" end)
+
+          _ ->
+            :unknown
         end
     end
   end

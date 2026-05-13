@@ -58,34 +58,51 @@ defmodule Awfy.Xmpp.DockerStats do
     if System.monotonic_time(:millisecond) >= deadline do
       {Enum.reverse(cpus2), Enum.reverse(mems2)}
     else
-      Process.sleep(1_000)
+      # No Process.sleep between iterations: a single
+      # `docker stats --no-stream` blocks ~1 s while the daemon
+      # collects a sampling window, so the call itself provides the
+      # 1 Hz cadence we want. Adding a sleep on top stretches the
+      # period to ~2 s and the dashboard ends up with ~30 samples
+      # in a 60 s window instead of ~60. The parallel fan-out in
+      # read_once/1 keeps the wall-clock pinned at ~1 s regardless
+      # of cluster size.
       loop(containers, deadline, cpus2, mems2)
     end
   end
 
   defp read_once(containers) when is_list(containers) do
-    # One `docker stats --no-stream` call for all containers; the
-    # CLI emits one line per container. Sum across lines so an
-    # unbalanced shard (broker-1 takes 60%, broker-2 / -3 each ~15%)
-    # shows as the cluster total — same convention as `kubectl top`
-    # reports pod-summed.
-    args = [
-      "stats",
-      "--no-stream",
-      "--format",
-      "{{.CPUPerc}}|{{.MemUsage}}"
-      | containers
-    ]
+    # Sum the per-container CPU% + mem MB across the cluster — the
+    # unbalanced-shard case (broker-1 takes 60%, broker-2 / -3 each
+    # ~15%) shows as the cluster total, same convention as
+    # `kubectl top` reports pod-summed.
+    #
+    # We deliberately do NOT use a single
+    # `docker stats --no-stream <c1> <c2> <c3>` call here: empirically
+    # Docker reads containers serially inside that call, so the
+    # per-call wall-clock grows ~linearly with the cluster size and
+    # at the 1 sample/s cadence we throttled to ~21 samples in a 60 s
+    # window with 3 brokers. Spawning one `docker stats` per container
+    # in parallel keeps the per-sample wall-clock pinned at the slowest
+    # single-container read (~150–300 ms) regardless of cluster size.
+    #
+    # Phase 4 swaps this whole path for a MongooseIM prometheus
+    # endpoint scrape (`:9091/metrics`); see PLAN/MONGOOSEIM_BENCH_PLAN.md
+    # § Phase 4. The async-fan-out shape is kept compatible for an
+    # easy migration.
+    containers
+    |> Enum.map(fn container ->
+      Task.async(fn -> read_one(container) end)
+    end)
+    |> Enum.map(fn task -> Task.await(task, 10_000) end)
+    |> Enum.reduce({0.0, 0.0}, fn {c, m}, {cs, ms} -> {cs + c, ms + m} end)
+  end
+
+  defp read_one(container) do
+    args = ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", container]
 
     case System.cmd("docker", args, stderr_to_stdout: true) do
-      {out, 0} ->
-        out
-        |> String.split("\n", trim: true)
-        |> Enum.map(&parse/1)
-        |> Enum.reduce({0.0, 0.0}, fn {c, m}, {cs, ms} -> {cs + c, ms + m} end)
-
-      _ ->
-        {0.0, 0.0}
+      {out, 0} -> parse(out)
+      _ -> {0.0, 0.0}
     end
   end
 
