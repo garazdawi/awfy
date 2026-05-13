@@ -710,16 +710,16 @@ defmodule Mix.Tasks.Awfy.Compare do
       end)
       |> Enum.join(",")
 
-    unit = sparkline_unit(bench)
+    unit = samples_unit_for(bench)
     ~s|data-samples="#{csv}" data-samples-unit="#{unit}"|
   end
 
   defp sparkline_attrs(_), do: ""
 
-  defp sparkline_unit("xmpp_cpu"), do: "%"
-  defp sparkline_unit("xmpp_mem"), do: "MB"
-  defp sparkline_unit("xmpp_speed"), do: "msg/s"
-  defp sparkline_unit(_), do: ""
+  defp samples_unit_for("xmpp_cpu"), do: "%"
+  defp samples_unit_for("xmpp_mem"), do: "MB"
+  defp samples_unit_for("xmpp_speed"), do: "msg/s"
+  defp samples_unit_for(_), do: ""
 
   defp scenario_group(r) do
     case {Map.get(r, :category), r.lang, Map.get(r, :input)} do
@@ -924,7 +924,14 @@ defmodule Mix.Tasks.Awfy.Compare do
           "samples_n" => r.samples_n,
           "inner_iter" => r.inner_iter,
           "source_sha256" => r.source_sha256,
-          "verified" => r.verified
+          "verified" => r.verified,
+          # Per-second sample series for application benchmarks (XMPP
+          # cpu / mem / throughput). Carried into the chart so an
+          # onClick on the per-bench page can pop up a sparkline of
+          # the clicked run alongside others — letting a user
+          # eyeball master vs 28.5's CPU shape on the same page.
+          "samples" => Map.get(r, :samples),
+          "samples_unit" => samples_unit_for(r.benchmark)
         }
       end)
 
@@ -991,6 +998,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       #{Map.get(ctx, :snapshot_html, "")}
 
       #{if ctx.page_kind != "suite", do: ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
+
+      #{if ctx.page_kind == "bench", do: ~s(<div id="spark-panel" class="spark-panel"></div>), else: ""}
 
       #{Map.get(ctx, :benchmarks_list_html, "")}
 

@@ -115,6 +115,20 @@ h3.snapshot-heading { margin-top: 1rem; }
 }
 .snapshot-majors b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .snapshot-majors label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
+.spark-panel { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+.spark-panel-head { flex-basis: 100%; }
+.spark-panel-head h3 { margin: 0; }
+.spark-panel-head p { margin: 0.2rem 0 0.5rem 0; }
+.spark-panel-head .reset-btn { margin: 0; }
+.spark-card { border: 1px solid var(--er-border); border-radius: 4px; padding: 0.5rem 0.7rem; background: var(--er-tint); font-size: 0.85rem; flex: 0 0 auto; }
+.spark-card-head { display: flex; align-items: center; gap: 0.5rem; }
+.spark-card-title { font-weight: 600; }
+.spark-card-x { background: none; border: none; cursor: pointer; color: var(--er-muted); font-size: 1.1rem; line-height: 1; padding: 0 0.3rem; }
+.spark-card-x:hover { color: var(--er-red); }
+.spark-card-sub { color: var(--er-muted); font-size: 0.78rem; font-family: var(--mono); margin-bottom: 0.3rem; }
+.spark-card-stats { display: grid; grid-template-columns: max-content max-content; gap: 0.05rem 0.6rem; margin: 0.3rem 0 0 0; font-size: 0.78rem; }
+.spark-card-stats dt { color: var(--er-muted); }
+.spark-card-stats dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .bench-links { columns: 3; padding-left: 1.25rem; }
 .bench-links li { margin-bottom: 0.3rem; break-inside: avoid; }
 details { margin-top: 1.5rem; }

@@ -471,7 +471,15 @@ function buildSeries(rows, xAxis, showWhiskers) {
           stddev: r.stddev_ms,
           run_label: r.label,
           inner_iter: r.inner_iter,
-          base_ms: baseMs
+          base_ms: baseMs,
+          // Per-second sample series for application benchmarks
+          // (XMPP cpu/mem/speed). Drives the onClick comparison
+          // panel below the chart. Null for synthetic benchmarks.
+          samples: r.samples || null,
+          samples_unit: r.samples_unit || "",
+          otp_for_panel: r.otp,
+          machine_class_for_panel: r.machine_class,
+          flavor_for_panel: r.emu_flavor
         };
       })
     };
@@ -1004,9 +1012,130 @@ function renderChart() {
             }
           }
         }
+      },
+      // Per-bench application-bench rows carry per-second sample
+      // series; clicking a datapoint pins a sparkline card to the
+      // panel below so a user can eyeball master vs 28.5 (etc.)
+      // side-by-side. Silently no-ops on synthetic rows (no samples).
+      onClick: (evt, elements, chart) => {
+        if (!elements.length) return;
+        const el = elements[0];
+        const raw = chart.data.datasets[el.datasetIndex].data[el.index];
+        if (!raw || !raw.samples) return;
+        pinSparklineCard({
+          run_label: raw.run_label,
+          series_label: chart.data.datasets[el.datasetIndex].label,
+          otp: raw.otp_for_panel,
+          machine_class: raw.machine_class_for_panel,
+          flavor: raw.flavor_for_panel,
+          samples: raw.samples,
+          samples_unit: raw.samples_unit,
+          median_ms: raw.median_ms
+        });
       }
     }
   });
+}
+
+/* ---- Per-bench sparkline comparison panel -------------------------
+   Click any datapoint on a per-bench page to pin its per-second
+   sample shape (CPU%, mem MB, msg/s for XMPP) to the panel below.
+   Multiple clicks accumulate so master and 28.5 can be compared on
+   the same screen. Same SVG layout as the stability page's
+   drill-down, kept duplicated rather than refactored — the panel
+   only renders on per-bench pages and stability has its own scope.
+*/
+function fmtSparkUnit(n, unit) {
+  if (n === null || n === undefined || isNaN(n)) return "—";
+  if (unit === "msg/s") return n.toFixed(0) + " " + unit;
+  if (unit === "%") return n.toFixed(1) + " " + unit;
+  if (unit === "MB") return n.toFixed(0) + " " + unit;
+  return n.toFixed(2);
+}
+function sparklineSVG(samples, unit) {
+  if (!samples || samples.length < 2) return "";
+  const w = 360, h = 70, padL = 36, padR = 8, padT = 8, padB = 18;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const lo = Math.min(...samples);
+  const hi = Math.max(...samples);
+  const range = Math.max(hi - lo, 1e-12);
+  const x = (i) => padL + (i / (samples.length - 1)) * innerW;
+  const y = (v) => padT + (1 - (v - lo) / range) * innerH;
+  let d = "M" + x(0) + "," + y(samples[0]);
+  for (let i = 1; i < samples.length; i++) d += " L" + x(i) + "," + y(samples[i]);
+  const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+  const my = y(mean);
+  const parts = [];
+  parts.push('<text x="' + (padL - 4) + '" y="' + (padT + 4) + '" font-size="9" fill="#666" text-anchor="end">' + fmtSparkUnit(hi, unit) + '</text>');
+  parts.push('<text x="' + (padL - 4) + '" y="' + (padT + innerH) + '" font-size="9" fill="#666" text-anchor="end">' + fmtSparkUnit(lo, unit) + '</text>');
+  parts.push('<text x="' + padL + '" y="' + (h - 4) + '" font-size="9" fill="#666" text-anchor="start">0 s</text>');
+  parts.push('<text x="' + (w - padR) + '" y="' + (h - 4) + '" font-size="9" fill="#666" text-anchor="end">' + (samples.length - 1) + ' s</text>');
+  parts.push('<line x1="' + padL + '" y1="' + my + '" x2="' + (w - padR) + '" y2="' + my + '" stroke="#a2003e" stroke-dasharray="2,3" stroke-width="1" opacity="0.6"/>');
+  parts.push('<text x="' + (w - padR) + '" y="' + (my - 2) + '" font-size="9" fill="#a2003e" text-anchor="end">mean ' + fmtSparkUnit(mean, unit) + '</text>');
+  parts.push('<path d="' + d + '" fill="none" stroke="#a2003e" stroke-width="1.5"/>');
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="per-second samples">' + parts.join("") + '</svg>';
+}
+// Avoid pinning the same (run_label × series) twice — clicking the
+// same point should not stack duplicate cards. Identity uses the
+// chart series label (machine_class / lang / flavor distinction)
+// alongside run_label so the same OTP measured on two platforms can
+// each have a pinned card.
+const pinnedKeys = new Set();
+function pinSparklineCard(info) {
+  const panel = document.getElementById("spark-panel");
+  if (!panel) return;
+  const key = info.run_label + "::" + info.series_label;
+  if (pinnedKeys.has(key)) return;
+  pinnedKeys.add(key);
+
+  // Ensure the panel header/clear button exists once the first card pins.
+  if (!document.getElementById("spark-panel-head")) {
+    const head = document.createElement("div");
+    head.id = "spark-panel-head";
+    head.className = "spark-panel-head";
+    head.innerHTML =
+      '<h3>Per-run sample comparison</h3>' +
+      '<p class="sub">Per-second values across the measurement window for each clicked run. ' +
+      'Click another datapoint to pin it for side-by-side comparison.</p>' +
+      '<button id="spark-panel-clear" type="button" class="reset-btn">Clear all</button>';
+    panel.appendChild(head);
+    document.getElementById("spark-panel-clear").addEventListener("click", () => {
+      pinnedKeys.clear();
+      panel.innerHTML = "";
+    });
+  }
+
+  const samples = info.samples;
+  const sum = samples.reduce((a, b) => a + b, 0);
+  const mean = sum / samples.length;
+  const sorted = samples.slice().sort((a, b) => a - b);
+  const sMin = sorted[0], sMax = sorted[sorted.length - 1];
+  const sMed = sorted[Math.floor(sorted.length / 2)];
+
+  const card = document.createElement("div");
+  card.className = "spark-card";
+  card.innerHTML =
+    '<div class="spark-card-head">' +
+      '<span class="spark-card-title">OTP ' + (info.otp || "?") + ' · ' + info.series_label +
+        (info.flavor ? ' · ' + info.flavor : '') + '</span>' +
+      '<button class="spark-card-x" type="button" title="Remove">×</button>' +
+    '</div>' +
+    '<div class="spark-card-sub">' + (info.run_label || "") + '</div>' +
+    sparklineSVG(samples, info.samples_unit) +
+    '<dl class="spark-card-stats">' +
+      '<dt>samples</dt><dd>' + samples.length + '</dd>' +
+      '<dt>min</dt><dd>' + fmtSparkUnit(sMin, info.samples_unit) + '</dd>' +
+      '<dt>median</dt><dd>' + fmtSparkUnit(sMed, info.samples_unit) + '</dd>' +
+      '<dt>mean</dt><dd>' + fmtSparkUnit(mean, info.samples_unit) + '</dd>' +
+      '<dt>max</dt><dd>' + fmtSparkUnit(sMax, info.samples_unit) + '</dd>' +
+    '</dl>';
+  card.querySelector(".spark-card-x").addEventListener("click", () => {
+    pinnedKeys.delete(key);
+    card.remove();
+    // If all cards removed, also remove the header for a clean state.
+    if (!panel.querySelector(".spark-card")) panel.innerHTML = "";
+  });
+  panel.appendChild(card);
 }
 
 /* ---- Headline metric ----------------------------------------------
@@ -1412,6 +1541,42 @@ function renderAll() {
   renderChart();
   renderMachineSpecs();
   if (PAGE_KIND === "suite") renderSnapshot();
+  if (PAGE_KIND === "bench") pinDefaultSparklineCard();
+}
+
+// Pin one default sparkline card on first load so users discover
+// they can click datapoints to pin more. Prefers linux-x86_64 master
+// (the dashboard's primary reference row), then any master row, then
+// the latest available row with samples. No-op for synthetic
+// benchmarks (no samples) and for runs with no master data yet.
+function pinDefaultSparklineCard() {
+  const candidates = DATASET.rows.filter(r =>
+    r.samples && r.samples.length && r.benchmark === BENCH_NAME
+  );
+  if (!candidates.length) return;
+
+  const prefer = (pred) =>
+    candidates
+      .filter(pred)
+      .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))[0];
+
+  const pick =
+    prefer(r => r.otp === "master" && r.machine_class === "linux-x86_64") ||
+    prefer(r => r.otp === "master") ||
+    prefer(() => true);
+
+  if (!pick) return;
+
+  pinSparklineCard({
+    run_label: pick.label,
+    series_label: pick.machine_class,
+    otp: pick.otp,
+    machine_class: pick.machine_class,
+    flavor: pick.emu_flavor,
+    samples: pick.samples,
+    samples_unit: pick.samples_unit,
+    median_ms: pick.median_ms
+  });
 }
 
 function renderRunsMeta() {
