@@ -46,6 +46,18 @@ defmodule AwfyTest.VersionedBench do
     meta_json = File.read!(Path.join(run_dir, "meta.json"))
     meta = Jason.decode!(meta_json)
 
+    # Single-place schema check (see Awfy.Measure.MetaSchema) before
+    # the field-by-field asserts below. Catches new field omissions or
+    # type drift at write time rather than weeks later as a silent
+    # dashboard hole — PLAN/INFRA_REFACTOR.md § 7.
+    assert :ok = Awfy.Measure.MetaSchema.validate!(meta)
+
+    # Run-dir invariant: exactly one meta.json + ≥1 .benchee file,
+    # nothing else floating in the dir. Catches a task accidentally
+    # writing intermediate artifacts that confuse Awfy.Compare.Data's
+    # `Path.wildcard("*.benchee")` discovery.
+    assert_run_dir_invariant(run_dir)
+
     assert meta["format_version"] == 1
     assert meta["label"] == "test1"
 
@@ -107,6 +119,8 @@ defmodule AwfyTest.VersionedBench do
     refute File.exists?(Path.join(run_dir, "Bounce.benchee"))
 
     meta = Path.join(run_dir, "meta.json") |> File.read!() |> Jason.decode!()
+    assert :ok = Awfy.Measure.MetaSchema.validate!(meta)
+    assert_run_dir_invariant(run_dir)
     assert meta["benchmarks"] == []
 
     [phash2_entry] = meta["otp_benchmarks"]
@@ -152,7 +166,14 @@ defmodule AwfyTest.VersionedBench do
 
     Mix.Task.rerun("awfy.compare", ["--out", @tmp_root])
 
+    # Render-snapshot checks (PLAN/INFRA_REFACTOR.md § 7): each is
+    # a "did the pipeline propagate data end-to-end" assertion that
+    # would have caught the past silent-degradation bugs around
+    # missing fields, name drift, and absent sparkline data.
     assert File.exists?(Path.join(@tmp_root, "index.html"))
+    assert File.exists?(Path.join(@tmp_root, "stability.html"))
+    assert File.exists?(Path.join([@tmp_root, "per-bench", "Bounce.html"]))
+
     bench_html = File.read!(Path.join([@tmp_root, "per-bench", "Bounce.html"]))
 
     # Both labels appear in the embedded dataset
@@ -161,6 +182,21 @@ defmodule AwfyTest.VersionedBench do
     # Chart.js + dashboard JS bound
     assert bench_html =~ "Chart("
     assert bench_html =~ "DATASET"
+
+    # Per-bench page exposes the click-to-pin sparkline panel,
+    # even on synthetic benchmarks (the panel container is always
+    # present; only XMPP rows have samples). A regression that
+    # silently dropped the panel emitter would surface here.
+    assert bench_html =~ ~s|id="spark-panel"|
+
+    # Stability page contains the filter scaffolding even when no
+    # row qualifies (this smoke runs against the host's OTP, not
+    # master, so the page's `otp == "master"` filter elides every
+    # row). We assert the structural skeleton — a regression that
+    # silently failed to emit the table would surface here.
+    stability_html = File.read!(Path.join(@tmp_root, "stability.html"))
+    assert stability_html =~ ~s|table class="stability"|
+    assert stability_html =~ ~s|class="stability-filters"|
   end
 
   test "diff prints both labels' medians and a geomean row" do
@@ -193,5 +229,23 @@ defmodule AwfyTest.VersionedBench do
       "--out",
       @tmp_root
     ])
+  end
+
+  # Run-dir invariant: a measure task's output dir contains exactly
+  # one meta.json + ≥1 .benchee file, and nothing else. The
+  # dashboard's `Path.wildcard("*.benchee")` discovery treats any
+  # stray file as a missing benchmark with no diagnostic, so an
+  # accidental writer that drops an intermediate artifact would
+  # silently degrade rather than fail loudly. See
+  # PLAN/INFRA_REFACTOR.md § 7.
+  defp assert_run_dir_invariant(run_dir) do
+    entries = File.ls!(run_dir)
+    assert "meta.json" in entries, "run-dir #{run_dir} missing meta.json"
+
+    benchee = Enum.filter(entries, &String.ends_with?(&1, ".benchee"))
+    assert benchee != [], "run-dir #{run_dir} has zero .benchee files"
+
+    unexpected = entries -- (["meta.json"] ++ benchee)
+    assert unexpected == [], "run-dir #{run_dir} has unexpected files: #{inspect(unexpected)}"
   end
 end

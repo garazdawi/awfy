@@ -267,17 +267,24 @@ defmodule Awfy.Compare.Data do
     end
   end
 
-  # Identify a scenario's {benchmark, lang}. The modern path emits
-  # names like `"Bounce/erlang"` — parse_name/1 handles those. The
-  # legacy bundle path (OTP < 24, target-Elixir bundle compiled via
-  # mix) emits bare module names — `"awfy_bounce"` for Erlang and
-  # `"Awfy.Benchmarks.Bounce"` for Elixir (Benchee strips the
-  # internal `Elixir.` prefix when rendering). For those, look up
-  # which language's `module` in the per-bench meta matches the
-  # scenario name and pair it with the .benchee filename's base
-  # (bench_name) so legacy runs slot into the same per-lang series
-  # as modern runs.
-  defp identify_scenario(scenario_name, bench_name, languages) do
+  @doc """
+  Identify a scenario's `{benchmark, lang}`. The modern path emits
+  names like `"Bounce/erlang"` — `parse_name/1` handles those. The
+  legacy bundle path (OTP < 24, target-Elixir bundle compiled via
+  mix) emits bare module names — `"awfy_bounce"` for Erlang and
+  `"Awfy.Benchmarks.Bounce"` for Elixir (Benchee strips the
+  internal `Elixir.` prefix when rendering). For those, look up
+  which language's `module` in the per-bench meta matches the
+  scenario name and pair it with the .benchee filename's base
+  (bench_name) so legacy runs slot into the same per-lang series
+  as modern runs.
+
+  Exposed publicly because the scenario-naming convention is part
+  of the write/read contract every measurement path has to honour —
+  test/measure/scenario_names_test.exs pins it.
+  """
+  @spec identify_scenario(String.t(), String.t(), map()) :: {String.t() | nil, String.t() | nil}
+  def identify_scenario(scenario_name, bench_name, languages) do
     case parse_name(scenario_name) do
       {bench, lang} when not is_nil(bench) and not is_nil(lang) ->
         {bench, lang}
