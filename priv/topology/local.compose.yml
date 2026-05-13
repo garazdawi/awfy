@@ -4,14 +4,24 @@
 # docker-compose for the :local XMPP-bench topology. See
 # PLAN/MONGOOSEIM_BENCH_PLAN.md.
 #
-# Three services on one bridge network:
-#   mongooseim    — pinned MongooseIM, in-memory Mnesia, port 5222.
+# Five services on one bridge network:
+#   mongooseim-1/2/3 — three pinned MongooseIM brokers forming a
+#                   CETS cluster via shared Postgres discovery
+#                   (see internal_databases.cets in the prod-vars
+#                   config). Matches the :aws_clt 3-broker shape so
+#                   we can validate clustering, session-replication,
+#                   and load-distribution locally before spending on
+#                   AWS bare-metal. mongooseim-1 publishes 5222 to
+#                   the host for outside-Docker reach; -2 and -3 are
+#                   reached only via the bridge (amoc-worker shards).
 #   amoc-master   — pinned amoc-arsenal-xmpp, REST API on port 4000.
 #                   Coordinates the cluster but doesn't run scenarios.
 #   amoc-worker   — pinned amoc-arsenal-xmpp, joins the master via
 #                   AMOC_NODES and is the node that actually spawns
-#                   users + drives traffic against MongooseIM. The
-#                   :aws_clt topology scales this out horizontally;
+#                   users + drives traffic. AMOC_XMPP_SERVERS lists
+#                   all 3 brokers so amoc_xmpp:pick_server/1 shards
+#                   users across them by phash2. The :aws_clt
+#                   topology scales workers + brokers horizontally;
 #                   on :local one worker is plenty for the ~1k user
 #                   smoke shape (see priv/scenario-config/*.local.json).
 #
@@ -59,8 +69,12 @@ services:
       retries: 20
       start_period: 3s
 
-  mongooseim:
-    container_name: awfy-mongooseim
+  # Shared build for all 3 broker services. compose builds it once
+  # (from mongooseim-1) and the other two pull the resulting image
+  # tag — same pattern as amoc-master/amoc-worker below.
+  mongooseim-1:
+    container_name: awfy-mongooseim-1
+    hostname: mongooseim-1
     build:
       context: ../..
       dockerfile: Dockerfile.mongoose
@@ -85,18 +99,58 @@ services:
     ports:
       - "5222:5222"
     environment:
-      # Forwarded from the host orchestrator (bench.yml's measure-
-      # xmpp-linux job) so the jit/emu matrix axis can switch the
-      # broker between BeamAsm and the interpreter. mongooseimctl
-      # honours $ERL_FLAGS — `-emu_flavor emu` picks beam.emu over
-      # beam.smp at boot. Empty on the jit leg → the install's
-      # default (JIT) wins, matching the prior single-flavor
-      # behaviour.
-      ERL_FLAGS: "${MIM_ERL_FLAGS:-}"
+      # ERL_FLAGS provides the three things vm.args used to carry
+      # statically: the node's distribution name (-sname …), the
+      # shared cluster cookie (-setcookie …), and the optional
+      # jit/emu flavor switch forwarded from the orchestrator. The
+      # Dockerfile sed-strips -sname/-setcookie out of vm.args so
+      # this is the sole source of identity — last-wins parsing
+      # isn't worth relying on across OTP versions. Cookie matches
+      # mongooseim-2 / -3 so all three nodes can speak distribution.
+      ERL_FLAGS: "-sname mongooseim@mongooseim-1 -setcookie awfy_xmpp_cluster ${MIM_ERL_FLAGS:-}"
     healthcheck:
       # `mongooseimctl status` exits 0 only when the BEAM is up and
       # the boot-time apps have finished starting. ~30s of retries
       # covers a cold start on first-build.
+      test: ["CMD", "./bin/mongooseimctl", "status"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  mongooseim-2:
+    container_name: awfy-mongooseim-2
+    hostname: mongooseim-2
+    # Reuse the image mongooseim-1 just built (compose tags it as
+    # `<project>-<service>:latest` = `awfy_xmpp-mongooseim-1`). All
+    # three brokers run identical code; the only per-container
+    # difference is the -sname in ERL_FLAGS below, which CETS uses
+    # to register this node in the shared discovery table.
+    image: awfy_xmpp-mongooseim-1
+    pull_policy: never
+    depends_on:
+      mongooseim-1:
+        condition: service_healthy
+    environment:
+      ERL_FLAGS: "-sname mongooseim@mongooseim-2 -setcookie awfy_xmpp_cluster ${MIM_ERL_FLAGS:-}"
+    healthcheck:
+      test: ["CMD", "./bin/mongooseimctl", "status"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  mongooseim-3:
+    container_name: awfy-mongooseim-3
+    hostname: mongooseim-3
+    image: awfy_xmpp-mongooseim-1
+    pull_policy: never
+    depends_on:
+      mongooseim-1:
+        condition: service_healthy
+    environment:
+      ERL_FLAGS: "-sname mongooseim@mongooseim-3 -setcookie awfy_xmpp_cluster ${MIM_ERL_FLAGS:-}"
+    healthcheck:
       test: ["CMD", "./bin/mongooseimctl", "status"]
       interval: 3s
       timeout: 5s
@@ -117,7 +171,11 @@ services:
         # uplift MongooseIM + Amoc together.
         OTP_VERSION: "${AMOC_OTP_VERSION:-27.3}"
     depends_on:
-      mongooseim:
+      # amoc-master only needs ONE broker reachable to declare
+      # itself ready — CETS will replicate session state across the
+      # other two as they boot. Use mongooseim-1 (the build leader)
+      # since it's guaranteed up first.
+      mongooseim-1:
         condition: service_healthy
     environment:
       # Bind the prometheus exporter to all interfaces so the worker
@@ -143,7 +201,17 @@ services:
     image: awfy_xmpp-amoc-master
     pull_policy: never
     depends_on:
+      # Wait for all 3 brokers so AMOC doesn't try to open XMPP
+      # connections to a node that's still in mid-boot. AMOC's
+      # connect-or-exit on a phash2-selected unhealthy broker would
+      # otherwise crash 1/3 of users on cold boot.
       amoc-master:
+        condition: service_healthy
+      mongooseim-1:
+        condition: service_healthy
+      mongooseim-2:
+        condition: service_healthy
+      mongooseim-3:
         condition: service_healthy
     environment:
       # Join the cluster headed by amoc-master. Until this is present
@@ -160,19 +228,28 @@ services:
       # is what actually opens XMPP connections, so the broker host
       # belongs on this side rather than on amoc-master.
       # AMOC_XMPP_SERVERS is the list amoc_xmpp:pick_server/1 shards
-      # users over via phash2/2. The default is an empty list, which
-      # phash2(_, 0) rejects with badarg — every spawned user crashes
-      # before opening a socket, so the messages_sent counter never
-      # leaves zero. List-of-lists shape mirrors upstream's compose:
-      # one inner list per broker, each carrying escalus connection
-      # options.
-      AMOC_XMPP_SERVERS: '[[{host, <<"mongooseim">>}]]'
-      AMOC_MONGOOSE_HOST: "mongooseim"
+      # users over via phash2/2. List-of-lists: one inner list per
+      # broker, each carrying escalus connection options. With 3
+      # entries here, AMOC distributes users roughly 1/3 each across
+      # mongooseim-1 / -2 / -3 — and CETS routes inter-domain PM
+      # between brokers via shared session state so the dropped-
+      # messages problem of independent brokers doesn't bite. We
+      # also wait for mongooseim-2 and -3 healthchecks below so AMOC
+      # doesn't try to dial a broker that's still booting.
+      AMOC_XMPP_SERVERS: '[[{host, <<"mongooseim-1">>}], [{host, <<"mongooseim-2">>}], [{host, <<"mongooseim-3">>}]]'
+      # MongooseIM host pinned to broker-1 for the legacy single-
+      # broker code paths that still reach for one address. CETS
+      # makes the actual session state cluster-wide so this is just
+      # a "which broker has the user-management REST API" pointer.
+      AMOC_MONGOOSE_HOST: "mongooseim-1"
       # GraphQL admin creds for `dynamic_domains:create_domain/2`.
       # Match the admin handler's username/password literals from
       # rel/files/mongooseim.toml; Dockerfile.mongoose also patches
       # the listener to bind to 0.0.0.0 and accept any Host header.
-      AMOC_GRAPHQL_HOST: '<<"mongooseim">>'
+      # All three brokers share the Postgres-backed service_domain_db
+      # via CETS, so an `addDomain` mutation on broker-1 propagates
+      # to brokers 2 and 3 by the time the user dials in.
+      AMOC_GRAPHQL_HOST: '<<"mongooseim-1">>'
       AMOC_GRAPHQL_USER: '<<"admin">>'
       AMOC_GRAPHQL_PASSWORD: '<<"secret">>'
       # Default is 60s, which on a measurement_duration_s=60 :local

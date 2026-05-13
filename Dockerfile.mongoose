@@ -94,6 +94,17 @@ RUN sed -i 's#ip_address = \\"127.0.0.1\\"#ip_address = \\"0.0.0.0\\"#g' rel/var
     && sed -i 's#^    host = "localhost"#    host = "_"#' rel/files/mongooseim.toml \
     && sed -i 's#^{auth_method, .*}\.$#{auth_method, "dummy"}.#' rel/vars-toml.config
 
+# Strip -sname / -setcookie from the release's vm.args. The same image
+# serves as 3 distinct broker containers in a CETS cluster; each
+# container injects its own `-sname mongooseim@<container>` plus the
+# shared cluster cookie via ERL_FLAGS in priv/topology/local.compose.yml.
+# Leaving the build-time defaults in place would emit both a static
+# `-sname mongooseim` and the per-container override, and `last wins`
+# parsing isn't worth relying on — easier to make ERL_FLAGS the sole
+# source of identity. Single-broker fallback (legacy single-mongooseim
+# compose) sets the same ERL_FLAGS pair, so nothing regresses.
+RUN sed -i '/^-sname /d; /^-setcookie /d' rel/files/vm.args
+
 # Drop in our customised prod.vars-toml.config to:
 #   * Empty `hosts` and declare `host_types = ["localhost"]` so
 #     `dynamic_domains_pm`'s default `host_type = <<"localhost">>` has
