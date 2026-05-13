@@ -29,6 +29,7 @@ defmodule Awfy.Xmpp.Topology do
       :topology,
       :broker_host,
       :broker_port,
+      :broker_containers,
       :amoc_master_container,
       :amoc_worker_container,
       :metadata
@@ -39,6 +40,13 @@ defmodule Awfy.Xmpp.Topology do
             topology: :local | :aws_clt,
             broker_host: String.t(),
             broker_port: pos_integer(),
+            # All broker container names in the topology. Multi-broker
+            # topologies (3-node CETS cluster on :local, 3+ on
+            # :aws_clt) sample resource use across the full list and
+            # aggregate so the dashboard's CPU%/mem trends reflect the
+            # cluster, not one node's slice. Single-broker topologies
+            # still pass a one-element list.
+            broker_containers: [String.t()],
             amoc_master_container: String.t(),
             amoc_worker_container: String.t(),
             metadata: map(),
@@ -57,8 +65,12 @@ defmodule Awfy.Xmpp.Topology do
       {:ok,
        %State{
          topology: :local,
+         # Host-side reach goes through broker-1 (the only one
+         # publishing 5222 on the host). amoc-worker dials the
+         # broker hostnames directly over the bridge.
          broker_host: "localhost",
          broker_port: 5222,
+         broker_containers: ["awfy-mongooseim-1", "awfy-mongooseim-2", "awfy-mongooseim-3"],
          amoc_master_container: "awfy-amoc-master",
          amoc_worker_container: "awfy-amoc-worker",
          compose_file: @local_compose_file,
@@ -85,14 +97,32 @@ defmodule Awfy.Xmpp.Topology do
   def wait_ready(%State{topology: :local} = state, timeout_ms \\ 120_000) do
     deadline = monotonic_ms() + timeout_ms
 
-    with :ok <- wait_broker(deadline),
+    with :ok <- wait_brokers(state, deadline),
+         :ok <- wait_cets_cluster(state, deadline),
          :ok <- wait_amoc_cluster(state, deadline) do
       :ok
     end
   end
 
-  defp wait_broker(deadline) do
-    case System.cmd("docker", ["exec", "awfy-mongooseim", "./bin/mongooseimctl", "status"],
+  # Each broker independently has to reach the "BEAM up + boot apps
+  # finished" state. compose's healthcheck already enforces this on
+  # `up -d`, but a partial failure (one of three brokers wedged)
+  # would otherwise let the runner sample resource usage from two
+  # healthy and one half-booted broker — noise we'd rather hit as
+  # an explicit timeout. Walk the list rather than just polling the
+  # first so the runner errors with a useful "broker N not ready"
+  # signal.
+  defp wait_brokers(%State{broker_containers: containers}, deadline) do
+    Enum.reduce_while(containers, :ok, fn container, :ok ->
+      case wait_broker(container, deadline) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp wait_broker(container, deadline) do
+    case System.cmd("docker", ["exec", container, "./bin/mongooseimctl", "status"],
            stderr_to_stdout: true
          ) do
       {_, 0} ->
@@ -101,9 +131,66 @@ defmodule Awfy.Xmpp.Topology do
       _ ->
         if monotonic_ms() < deadline do
           Process.sleep(1_000)
-          wait_broker(deadline)
+          wait_broker(container, deadline)
         else
-          {:error, :timeout}
+          {:error, {:timeout, container}}
+        end
+    end
+  end
+
+  # CETS readiness: each broker registers itself in the shared
+  # `discovery_nodes` Postgres table on boot, then connects to peers
+  # via BEAM distribution. Until the cluster has settled, session
+  # operations on one broker won't replicate to the others — and a
+  # dynamic-domain user dialing through the wrong broker would see
+  # auth_failure for a domain the cluster *should* know about. Probe
+  # CETS' system_info from broker-1: when `joined_nodes` matches the
+  # expected cluster size, we're cluster-ready. mongoose_cets_disco
+  # exposes the count; we ask for the joined-nodes list and compare
+  # length to broker_containers's size.
+  defp wait_cets_cluster(%State{broker_containers: containers} = _state, _deadline)
+       when length(containers) <= 1,
+       do: :ok
+
+  defp wait_cets_cluster(%State{broker_containers: [head | _] = containers} = state, deadline) do
+    expected = length(containers)
+
+    expr =
+      "case erlang:function_exported(mongoose_cets_discovery, system_info, 0) of " <>
+        "true -> length(maps:get(joined_nodes, mongoose_cets_discovery:system_info(), [])); " <>
+        "false -> length(nodes()) + 1 end."
+
+    case System.cmd("docker", ["exec", head, "./bin/mongooseimctl", "eval", expr],
+           stderr_to_stdout: true
+         ) do
+      {out, 0} ->
+        joined =
+          out
+          |> String.trim()
+          |> Integer.parse()
+          |> case do
+            {n, _} -> n
+            _ -> 0
+          end
+
+        cond do
+          joined >= expected ->
+            :ok
+
+          monotonic_ms() < deadline ->
+            Process.sleep(1_000)
+            wait_cets_cluster(state, deadline)
+
+          true ->
+            {:error, {:timeout, :cets_cluster, joined, expected}}
+        end
+
+      _ ->
+        if monotonic_ms() < deadline do
+          Process.sleep(1_000)
+          wait_cets_cluster(state, deadline)
+        else
+          {:error, {:timeout, :cets_cluster_eval}}
         end
     end
   end

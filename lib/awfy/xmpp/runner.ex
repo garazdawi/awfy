@@ -147,7 +147,7 @@ defmodule Awfy.Xmpp.Runner do
 
     stats_task =
       Task.async(fn ->
-        DockerStats.sample_until(broker_container(state), deadline)
+        DockerStats.sample_until(broker_containers(state), deadline)
       end)
 
     thr = Task.await(throughput_task, secs * 1_000 + 30_000)
@@ -157,8 +157,18 @@ defmodule Awfy.Xmpp.Runner do
     {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem}}
   end
 
-  defp broker_container(%Topology.State{topology: :local}), do: "awfy-mongooseim"
-  defp broker_container(%Topology.State{topology: :aws_clt}), do: "awfy-mongooseim"
+  # Topology State carries the full broker list (3 nodes on :local
+  # for the CETS cluster, 3+ on :aws_clt). DockerStats sums per-second
+  # CPU%/mem across the list so the dashboard's trend signal is the
+  # cluster aggregate, not one node's slice. Falls through to a
+  # single-broker default when the state pre-dates the broker_containers
+  # field (kept for defensive decoding of any stored State maps in
+  # tests).
+  defp broker_containers(%Topology.State{broker_containers: list}) when is_list(list) and list != [],
+    do: list
+
+  defp broker_containers(%Topology.State{topology: :local}), do: ["awfy-mongooseim-1"]
+  defp broker_containers(%Topology.State{topology: :aws_clt}), do: ["awfy-mongooseim-1"]
 
   defp log_fn(opts) do
     case Keyword.get(opts, :log, :default) do

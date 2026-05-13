@@ -23,19 +23,35 @@ defmodule Awfy.Xmpp.DockerStats do
   """
 
   @doc """
-  Sample CPU% and memory MB for `container` once per second until the
-  monotonic-ms `deadline` passes. Returns parallel sample lists.
+  Sample CPU% and memory MB for `container_or_list` once per second
+  until the monotonic-ms `deadline` passes. Returns parallel sample
+  lists.
+
+  Accepts either a single container name (legacy single-broker
+  callsites) or a list (multi-broker CETS cluster). For a list, each
+  per-second sample is the SUM of the per-container CPU% and mem MB
+  — that's the cluster-aggregate the dashboard plots. (Means of
+  shares would just smear hot brokers; users care "how much CPU
+  does the cluster need to handle this load".) A single `docker stats`
+  call costs ~150-300 ms regardless of container count via the
+  `containers...` positional list, so widening from 1 → 3 brokers
+  doesn't 3× the wall time per sample.
+
   Failures on a single call become a 0.0 sample (so a transient
   `docker stats` flake doesn't crash the whole run); the run-level
   stability check will flag a topology that's silently dropping reads.
   """
-  @spec sample_until(String.t(), integer()) :: {[float()], [float()]}
+  @spec sample_until(String.t() | [String.t()], integer()) :: {[float()], [float()]}
   def sample_until(container, deadline) when is_binary(container) do
-    loop(container, deadline, [], [])
+    sample_until([container], deadline)
   end
 
-  defp loop(container, deadline, cpus, mems) do
-    {cpu, mem} = read_once(container)
+  def sample_until(containers, deadline) when is_list(containers) do
+    loop(containers, deadline, [], [])
+  end
+
+  defp loop(containers, deadline, cpus, mems) do
+    {cpu, mem} = read_once(containers)
     cpus2 = [cpu | cpus]
     mems2 = [mem | mems]
 
@@ -43,22 +59,33 @@ defmodule Awfy.Xmpp.DockerStats do
       {Enum.reverse(cpus2), Enum.reverse(mems2)}
     else
       Process.sleep(1_000)
-      loop(container, deadline, cpus2, mems2)
+      loop(containers, deadline, cpus2, mems2)
     end
   end
 
-  defp read_once(container) do
+  defp read_once(containers) when is_list(containers) do
+    # One `docker stats --no-stream` call for all containers; the
+    # CLI emits one line per container. Sum across lines so an
+    # unbalanced shard (broker-1 takes 60%, broker-2 / -3 each ~15%)
+    # shows as the cluster total — same convention as `kubectl top`
+    # reports pod-summed.
     args = [
       "stats",
       "--no-stream",
       "--format",
-      "{{.CPUPerc}}|{{.MemUsage}}",
-      container
+      "{{.CPUPerc}}|{{.MemUsage}}"
+      | containers
     ]
 
     case System.cmd("docker", args, stderr_to_stdout: true) do
-      {out, 0} -> parse(out)
-      _ -> {0.0, 0.0}
+      {out, 0} ->
+        out
+        |> String.split("\n", trim: true)
+        |> Enum.map(&parse/1)
+        |> Enum.reduce({0.0, 0.0}, fn {c, m}, {cs, ms} -> {cs + c, ms + m} end)
+
+      _ ->
+        {0.0, 0.0}
     end
   end
 
