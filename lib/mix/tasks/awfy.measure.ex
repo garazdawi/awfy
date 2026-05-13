@@ -81,30 +81,8 @@ defmodule Mix.Tasks.Awfy.Measure do
       enforce_preflight()
     end
 
-    run_ctx = Awfy.RunContext.new(scenario: :synthetic, label: opts[:label])
+    {:ok, run_ctx, dir} = Awfy.Measure.Setup.prepare(opts, :synthetic)
     label = run_ctx.label
-
-    out_root = opts[:out] || "results"
-
-    dir =
-      Helpers.run_dir(
-        out_root,
-        label,
-        DateTime.utc_now(),
-        run_ctx.otp_release,
-        run_ctx.elixir_version
-      )
-
-    if File.exists?(dir) do
-      if opts[:no_clobber] do
-        Mix.raise("results dir #{dir} exists and --no-clobber set")
-      else
-        Mix.shell().info("[warn] overwriting existing run dir: #{dir}")
-        File.rm_rf!(dir)
-      end
-    end
-
-    File.mkdir_p!(dir)
 
     lang = Helpers.parse_lang(opts[:lang])
     bench_filter = Helpers.parse_benchmarks(opts[:benchmarks])

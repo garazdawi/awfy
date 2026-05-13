@@ -29,7 +29,6 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
   use Mix.Task
 
-  alias Awfy.Measure.Helpers
   alias Awfy.SuiteSlim
   alias Awfy.Xmpp.Runner
 
@@ -53,20 +52,7 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     scenario = opts[:scenario] || @default_scenario
     topology = parse_topology(opts[:topology] || @default_topology)
 
-    ctx = Awfy.RunContext.new(scenario: :xmpp, label: opts[:label])
-
-    out_root = opts[:out] || "results"
-
-    dir =
-      Helpers.run_dir(
-        out_root,
-        ctx.label,
-        DateTime.utc_now(),
-        ctx.otp_release,
-        ctx.elixir_version
-      )
-
-    prepare_dir(dir, opts[:no_clobber])
+    {:ok, ctx, dir} = Awfy.Measure.Setup.prepare(opts, :xmpp)
 
     Mix.shell().info("=== xmpp bench: #{scenario} on #{topology} ===")
 
@@ -100,19 +86,6 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
   defp parse_topology("local"), do: :local
   defp parse_topology("aws_clt"), do: :aws_clt
   defp parse_topology(other), do: Mix.raise("unknown --topology: #{inspect(other)}")
-
-  defp prepare_dir(dir, no_clobber) do
-    if File.exists?(dir) do
-      if no_clobber do
-        Mix.raise("results dir #{dir} exists and --no-clobber set")
-      else
-        Mix.shell().info("[warn] overwriting existing run dir: #{dir}")
-        File.rm_rf!(dir)
-      end
-    end
-
-    File.mkdir_p!(dir)
-  end
 
   defp write_suite(path, suite) do
     slim = slim_suite(suite)
