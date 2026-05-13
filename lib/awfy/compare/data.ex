@@ -94,7 +94,11 @@ defmodule Awfy.Compare.Data do
         git: get(meta, "git") || %{},
         benchmarks_meta: get(meta, "benchmarks") || [],
         otp_benchmarks_meta: get(meta, "otp_benchmarks") || [],
-        applications_meta: get(meta, "applications") || []
+        applications_meta: get(meta, "applications") || [],
+        # Raw per-second sample series for application benchmarks,
+        # keyed by full benchmark name (e.g. "xmpp_cpu" → cpu_pct
+        # array). Drives the stability drill-down sparkline.
+        samples_by_bench: samples_by_bench(meta)
       }
     else
       _ -> nil
@@ -199,7 +203,11 @@ defmodule Awfy.Compare.Data do
               # their cells collapse into one cell per family before
               # the geomean folds them in.
               category: categorize(bname || bench_name, run.applications_meta),
-              family: family_for(bname || bench_name, run.applications_meta)
+              family: family_for(bname || bench_name, run.applications_meta),
+              # Per-second sample series for application benchmarks
+              # (XMPP cpu / mem / throughput today). Nil for synthetic
+              # rows. Drives the stability page's drill-down sparkline.
+              samples: Map.get(run.samples_by_bench, bname || bench_name)
             }
           end)
       end
@@ -219,6 +227,23 @@ defmodule Awfy.Compare.Data do
         nil
     end
   end
+
+  # Pull per-benchmark per-second sample arrays out of meta.json's
+  # per-family blocks. XMPP today stores its raw CPU%, mem MB, and
+  # throughput streams under `meta.xmpp.{cpu_pct,mem_mb,throughput}`
+  # — keyed by the dashboard's full benchmark names so the row
+  # builder doesn't need to know the per-family layout.
+  defp samples_by_bench(meta) do
+    xmpp = get(meta, "xmpp") || %{}
+
+    %{}
+    |> put_if_list("xmpp_cpu", get(xmpp, "cpu_pct"))
+    |> put_if_list("xmpp_mem", get(xmpp, "mem_mb"))
+    |> put_if_list("xmpp_speed", get(xmpp, "throughput"))
+  end
+
+  defp put_if_list(map, key, list) when is_list(list) and list != [], do: Map.put(map, key, list)
+  defp put_if_list(map, _key, _), do: map
 
   defp bench_meta(list, name) when is_list(list) do
     Enum.find(list, %{}, fn entry -> get(entry, "name") == name end)

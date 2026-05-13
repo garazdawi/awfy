@@ -335,8 +335,10 @@ defmodule Mix.Tasks.Awfy.Compare do
           |> Enum.map(fn {k, v} -> ~s|data-#{k}="#{v || ""}"| end)
           |> Enum.join(" ")
 
+        spark = sparkline_attrs(r)
+
         ~s"""
-        <tr class="stability-row" data-platform="#{mc}" data-flavor="#{r.emu_flavor}" data-group="#{r.group}" #{dist}>
+        <tr class="stability-row" data-platform="#{mc}" data-flavor="#{r.emu_flavor}" data-group="#{r.group}" #{dist} #{spark}>
           <td class="rank">#{rank}</td>
           <td>#{scenario}</td>
           <td>#{r.lang || "—"}</td>
@@ -393,6 +395,7 @@ defmodule Mix.Tasks.Awfy.Compare do
     .boxplot-wrap dl { margin: 0; display: grid; grid-template-columns: max-content max-content; gap: 0.1rem 0.85rem; font-size: 0.8rem; }
     .boxplot-wrap dt { color: var(--er-muted); }
     .boxplot-wrap dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .spark-caption { font-size: 0.78rem; color: var(--er-muted); margin: 0.15rem 0 0.3rem 0; }
     </style>
     </head>
     <body>
@@ -501,6 +504,61 @@ defmodule Mix.Tasks.Awfy.Compare do
         const n = parseFloat(v);
         return isNaN(n) ? null : n;
       };
+      const readSamples = (el) => {
+        const raw = el.dataset.samples;
+        if (!raw) return null;
+        const out = [];
+        for (const tok of raw.split(",")) {
+          if (tok === "") continue;
+          const n = parseFloat(tok);
+          if (!isNaN(n)) out.push(n);
+        }
+        return out.length ? out : null;
+      };
+      // Per-second time series sparkline for application benchmarks
+      // (XMPP cpu / mem / throughput). Box-plot is misleading for
+      // these because the samples aren't independent draws — they
+      // trace a ramp-up / steady-state shape and one outlier at
+      // second 0 isn't comparable to one at second 30. The sparkline
+      // shows the shape directly so a click can answer "did this
+      // regress on average, or did it crash mid-run?".
+      const fmtUnit = (n, unit) => {
+        if (n === null || isNaN(n)) return "—";
+        if (unit === "msg/s") return n.toFixed(0) + " " + unit;
+        if (unit === "%") return n.toFixed(1) + " " + unit;
+        if (unit === "MB") return n.toFixed(0) + " " + unit;
+        return n.toFixed(2);
+      };
+      const sparklineSVG = (samples, unit) => {
+        if (!samples || samples.length < 2) {
+          return '<em style="color: var(--er-muted)">Not enough samples for a sparkline.</em>';
+        }
+        const w = 480, h = 70, padL = 36, padR = 8, padT = 8, padB = 18;
+        const innerW = w - padL - padR, innerH = h - padT - padB;
+        const lo = Math.min(...samples);
+        const hi = Math.max(...samples);
+        const range = Math.max(hi - lo, 1e-12);
+        const x = (i) => padL + (i / (samples.length - 1)) * innerW;
+        const y = (v) => padT + (1 - (v - lo) / range) * innerH;
+        let d = "M" + x(0) + "," + y(samples[0]);
+        for (let i = 1; i < samples.length; i++) d += " L" + x(i) + "," + y(samples[i]);
+        const sum = samples.reduce((a, b) => a + b, 0);
+        const mean = sum / samples.length;
+        const my = y(mean);
+        const parts = [];
+        // y-axis tick labels (min / max)
+        parts.push('<text x="' + (padL - 4) + '" y="' + (padT + 4) + '" font-size="9" fill="#666" text-anchor="end">' + fmtUnit(hi, unit) + '</text>');
+        parts.push('<text x="' + (padL - 4) + '" y="' + (padT + innerH) + '" font-size="9" fill="#666" text-anchor="end">' + fmtUnit(lo, unit) + '</text>');
+        // x-axis: seconds 0 and N-1
+        parts.push('<text x="' + padL + '" y="' + (h - 4) + '" font-size="9" fill="#666" text-anchor="start">0 s</text>');
+        parts.push('<text x="' + (w - padR) + '" y="' + (h - 4) + '" font-size="9" fill="#666" text-anchor="end">' + (samples.length - 1) + ' s</text>');
+        // mean line
+        parts.push('<line x1="' + padL + '" y1="' + my + '" x2="' + (w - padR) + '" y2="' + my + '" stroke="#a2003e" stroke-dasharray="2,3" stroke-width="1" opacity="0.6"/>');
+        parts.push('<text x="' + (w - padR) + '" y="' + (my - 2) + '" font-size="9" fill="#a2003e" text-anchor="end">mean ' + fmtUnit(mean, unit) + '</text>');
+        // series line
+        parts.push('<path d="' + d + '" fill="none" stroke="#a2003e" stroke-width="1.5"/>');
+        return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="per-second samples">' + parts.join("") + '</svg>';
+      };
       const boxplotSVG = (min, p25, med, p75, p99, max) => {
         // Layout in a 480 × 60 viewbox. Use min/max as the scale so
         // the whole spread is visible; pin at the lower bound 0 if
@@ -549,6 +607,39 @@ defmodule Mix.Tasks.Awfy.Compare do
       };
 
       const buildDetail = (row) => {
+        const tr = document.createElement("tr");
+        tr.className = "stability-detail";
+        const td = document.createElement("td");
+        td.colSpan = 9;
+
+        const samples = readSamples(row);
+        if (samples) {
+          // Per-second time series — show the shape rather than a
+          // box plot. Box-plot quantiles aren't meaningful for these
+          // because the samples trace a ramp/steady-state curve.
+          const unit = row.dataset.samplesUnit || "";
+          const sum = samples.reduce((a, b) => a + b, 0);
+          const mean = sum / samples.length;
+          const sortedS = samples.slice().sort((a, b) => a - b);
+          const sMin = sortedS[0], sMax = sortedS[sortedS.length - 1];
+          const sMed = sortedS[Math.floor(sortedS.length / 2)];
+          td.innerHTML =
+            '<p class="spark-caption">Per-second samples across the measurement window. ' +
+              'Look for trends (drift across the run) or step-changes (mid-run failure).</p>' +
+            '<div class="boxplot-wrap">' +
+              sparklineSVG(samples, unit) +
+              '<dl>' +
+                '<dt>samples</dt><dd>' + samples.length + '</dd>' +
+                '<dt>min</dt><dd>' + fmtUnit(sMin, unit) + '</dd>' +
+                '<dt>median</dt><dd>' + fmtUnit(sMed, unit) + '</dd>' +
+                '<dt>mean</dt><dd>' + fmtUnit(mean, unit) + '</dd>' +
+                '<dt>max</dt><dd>' + fmtUnit(sMax, unit) + '</dd>' +
+              '</dl>' +
+            '</div>';
+          tr.appendChild(td);
+          return tr;
+        }
+
         const min = readNum(row, "min");
         const p25 = readNum(row, "p25");
         const med = readNum(row, "median");
@@ -557,10 +648,6 @@ defmodule Mix.Tasks.Awfy.Compare do
         const max = readNum(row, "max");
         const mean = readNum(row, "mean");
         const stddev = readNum(row, "stddev");
-        const tr = document.createElement("tr");
-        tr.className = "stability-detail";
-        const td = document.createElement("td");
-        td.colSpan = 9;
         if (med === null || p25 === null || p75 === null) {
           td.innerHTML = '<em style="color: var(--er-muted)">No distribution data — older Benchee save format. Re-run on the latest measure to populate percentiles.</em>';
         } else {
@@ -607,6 +694,33 @@ defmodule Mix.Tasks.Awfy.Compare do
   # phash2, …) is its own group keyed by the benchmark name. AWFY rows
   # are recognised by having a populated `:lang` (erlang / elixir) and
   # no `:input`; OtpBenchmarks rows have `:input` set and `:lang` nil.
+  # Encode the per-second sample series on the row so the drill-down
+  # click handler can draw a sparkline without a second fetch. The
+  # unit label is split out from the values so the y-axis tick can
+  # be formatted client-side (CPU %, mem MB, msg/s) without the JS
+  # having to special-case benchmark names. Empty for synthetic rows
+  # — sparkline only renders when samples are present.
+  defp sparkline_attrs(%{samples: samples, benchmark: bench}) when is_list(samples) and samples != [] do
+    csv =
+      samples
+      |> Enum.map(fn
+        v when is_integer(v) -> Integer.to_string(v)
+        v when is_float(v) -> :erlang.float_to_binary(v, decimals: 3)
+        _ -> ""
+      end)
+      |> Enum.join(",")
+
+    unit = sparkline_unit(bench)
+    ~s|data-samples="#{csv}" data-samples-unit="#{unit}"|
+  end
+
+  defp sparkline_attrs(_), do: ""
+
+  defp sparkline_unit("xmpp_cpu"), do: "%"
+  defp sparkline_unit("xmpp_mem"), do: "MB"
+  defp sparkline_unit("xmpp_speed"), do: "msg/s"
+  defp sparkline_unit(_), do: ""
+
   defp scenario_group(r) do
     case {Map.get(r, :category), r.lang, Map.get(r, :input)} do
       # Application benchmarks (XMPP today, network later) come in
