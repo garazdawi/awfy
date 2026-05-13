@@ -265,7 +265,7 @@ defmodule Awfy.TargetRunner do
         print: [benchmarking: false, configuration: false, fast_warning: false],
         formatters: []
       )
-      |> adjust_for_batching(batched_inputs)
+      |> Awfy.Measure.BatchAdjust.adjust(batched_inputs)
       |> write_slim_suite(out)
     end
   end
@@ -294,93 +294,17 @@ defmodule Awfy.TargetRunner do
     Enum.each(1..batch, fn _ -> family.run(state) end)
   end
 
-  defp adjust_for_batching(suite, batched_inputs) do
-    scenarios =
-      Enum.map(suite.scenarios, fn s ->
-        batch =
-          case s.input_name && Map.get(batched_inputs, s.input_name) do
-            {_raw, b} -> b
-            _ -> 1
-          end
-
-        if batch <= 1 do
-          s
-        else
-          rtd = s.run_time_data
-          stats = rtd.statistics
-
-          divide = fn
-            nil -> nil
-            v when is_number(v) -> v / batch
-          end
-
-          new_stats =
-            stats
-            |> Map.update(:median, nil, divide)
-            |> Map.update(:average, nil, divide)
-            |> Map.update(:std_dev, nil, divide)
-            |> Map.update(:minimum, nil, divide)
-            |> Map.update(:maximum, nil, divide)
-            |> Map.update(:mode, nil, fn
-              nil -> nil
-              v when is_number(v) -> v / batch
-              vs when is_list(vs) -> Enum.map(vs, &(&1 / batch))
-            end)
-            |> Map.update(:percentiles, %{}, fn p ->
-              Map.new(p || %{}, fn {k, v} ->
-                {k, v && v / batch}
-              end)
-            end)
-            |> Map.update(:sample_size, 0, fn n ->
-              (n || 0) * batch
-            end)
-
-          %{s | run_time_data: %{rtd | statistics: new_stats}}
-        end
-      end)
-
-    %{suite | scenarios: scenarios}
-  end
-
   # Drop raw `samples` lists from each scenario before writing the
   # `.benchee` file the host reads back via `binary_to_term/1`.
-  # Mirrors `Awfy.SuiteSlim` in the runner project — kept inline
-  # here because awfy_target_runner is intentionally not a path-dep
-  # of the runner (per PLAN/TARGET_ELIXIR_RUNNER_PLAN.md decision
-  # #10), so we can't share the helper. The two implementations are
-  # tiny and stay trivially in sync.
-  defp write_slim_suite(%Benchee.Suite{scenarios: scenarios} = suite, out) do
-    slim =
-      %{
-        suite
-        | scenarios: Enum.map(scenarios, &slim_scenario/1),
-          configuration: clear_configuration_inputs(suite.configuration)
-      }
-
+  # Routes through `Awfy.SuiteSlim`, which gets sync-copied into
+  # this sub-app at bundle-build time by `bin/build-target-bundle.sh`
+  # (PLAN/INFRA_REFACTOR.md § 2). The two implementations used to
+  # be byte-identical copies of each other; codegen at bundle-build
+  # time keeps them that way without re-introducing a path-dep.
+  defp write_slim_suite(%Benchee.Suite{} = suite, out) do
+    slim = Awfy.SuiteSlim.slim(suite)
     File.mkdir_p!(Path.dirname(out))
     File.write!(out, :erlang.term_to_binary(slim))
     slim
   end
-
-  defp slim_scenario(%Benchee.Scenario{} = s) do
-    %{
-      s
-      | input: nil,
-        run_time_data: clear_samples(s.run_time_data),
-        memory_usage_data: clear_samples(s.memory_usage_data),
-        reductions_data: clear_samples(s.reductions_data)
-    }
-  end
-
-  defp clear_samples(%Benchee.CollectionData{statistics: stats} = cd) do
-    %{cd | samples: [], statistics: clear_outliers(stats)}
-  end
-
-  defp clear_samples(other), do: other
-
-  defp clear_outliers(%Benchee.Statistics{} = stats), do: %{stats | outliers: []}
-  defp clear_outliers(other), do: other
-
-  defp clear_configuration_inputs(%Benchee.Configuration{} = cfg), do: %{cfg | inputs: nil}
-  defp clear_configuration_inputs(other), do: other
 end

@@ -186,7 +186,7 @@ defmodule Awfy.OtpBenchmarks.Runner do
 
     %{mod.name() => fn {state, batch} -> run_batched(mod, state, batch) end}
     |> Benchee.run(benchee_opts)
-    |> adjust_for_batching(batched_inputs)
+    |> Awfy.Measure.BatchAdjust.adjust(batched_inputs)
     |> Awfy.SuiteSlim.slim()
   end
 
@@ -216,66 +216,6 @@ defmodule Awfy.OtpBenchmarks.Runner do
 
   defp run_batched(mod, state, batch) do
     Enum.each(1..batch, fn _ -> mod.run(state) end)
-  end
-
-  # Benchee sees one "sample" = one batch of N consecutive calls,
-  # reported as `time_total = N × per_call`. To keep the saved median
-  # / mean / percentiles directly comparable to non-batched
-  # measurements (and across platforms that might pick different
-  # batch factors), divide all time-domain stats by N. Sample-size is
-  # scaled UP by N so it reflects the actual number of inner calls
-  # measured (e.g. 4 000 batched samples × 250 = 1 000 000 calls).
-  #
-  # Note on stddev semantics: Benchee's σ is the stddev of the
-  # *batched sums*. σ_total ≈ σ_per_call √N, so dividing by N gives
-  # σ_per_call / √N — that's the standard error of the per-call mean,
-  # exactly what a stability metric wants ("how much will the median
-  # move on re-run?"). Tighter than the raw per-sample σ.
-  defp adjust_for_batching(suite, batched_inputs) do
-    scenarios =
-      Enum.map(suite.scenarios, fn s ->
-        batch =
-          case s.input_name && Map.get(batched_inputs, s.input_name) do
-            {_raw, b} -> b
-            _ -> 1
-          end
-
-        if batch <= 1 do
-          s
-        else
-          rtd = s.run_time_data
-          stats = rtd.statistics
-
-          divide = fn nil -> nil
-                       v when is_number(v) -> v / batch
-                  end
-
-          new_stats =
-            stats
-            |> Map.update(:median, nil, divide)
-            |> Map.update(:average, nil, divide)
-            |> Map.update(:std_dev, nil, divide)
-            |> Map.update(:minimum, nil, divide)
-            |> Map.update(:maximum, nil, divide)
-            |> Map.update(:mode, nil, fn
-              nil -> nil
-              v when is_number(v) -> v / batch
-              vs when is_list(vs) -> Enum.map(vs, &(&1 / batch))
-            end)
-            |> Map.update(:percentiles, %{}, fn p ->
-              Map.new(p || %{}, fn {k, v} ->
-                {k, v && v / batch}
-              end)
-            end)
-            |> Map.update(:sample_size, 0, fn n ->
-              (n || 0) * batch
-            end)
-
-          %{s | run_time_data: %{rtd | statistics: new_stats}}
-        end
-      end)
-
-    %{suite | scenarios: scenarios}
   end
 
   defp target_runner_enabled? do

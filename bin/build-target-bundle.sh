@@ -98,6 +98,35 @@ export PATH="$OTP_PREFIX/bin:$ELIXIR_DIR/bin:$PATH"
 
 # `mix local.hex` would also need an isolated MIX_HOME; skip
 # entirely — vendored deps don't need Hex.
+# Refresh the sub-app's `_synced/` copies of the canonical
+# shared-helper modules. The cross-OTP bundle is intentionally not
+# a path-dep of the runner project (per PLAN/TARGET_ELIXIR_RUNNER_PLAN.md
+# decision #10), so each helper has to physically live in the
+# sub-app's tree for the bundle's target Elixir to compile it.
+# `_synced/` is checked in (so `mix test` on the sub-app works
+# without a build step) and refreshed here on every bundle build;
+# `test/sync_drift_test.exs` catches the case where the canonical
+# moved but the synced copy didn't get re-committed.
+# PLAN/INFRA_REFACTOR.md § 2.
+SYNC_DIR="$SUBAPP/lib/awfy/_synced"
+mkdir -p "$SYNC_DIR"
+
+# {source_under_AWFY_ROOT, dest_filename}
+SYNC_PAIRS=(
+  "lib/awfy/suite_slim.ex:suite_slim.ex"
+  "lib/awfy/measure/batch_adjust.ex:batch_adjust.ex"
+)
+for pair in "${SYNC_PAIRS[@]}"; do
+  src_rel="${pair%%:*}"
+  dst_name="${pair##*:}"
+  src="$AWFY_ROOT/$src_rel"
+  [ -f "$src" ] || {
+    echo "[build-target-bundle] sync source missing: $src_rel" >&2
+    exit 1
+  }
+  cp "$src" "$SYNC_DIR/$dst_name"
+done
+
 echo "[build-target-bundle] compiling sub-app + vendored deps under MIX_ENV=prod" >&2
 (
   cd "$SUBAPP"
