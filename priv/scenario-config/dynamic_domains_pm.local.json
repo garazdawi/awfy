@@ -4,11 +4,11 @@
   "users": 1000,
   "domains": 10,
   "interarrival_ms": 5,
-  "message_count": 90,
+  "message_count": 130,
   "message_interval_s": 1,
   "delay_before_s": 2,
   "delay_after_s": 5,
-  "measurement_duration_s": 30,
+  "measurement_duration_s": 60,
   "pre_sampling_wait_s": 40,
-  "_comment": "100x scale-down of the :aws_clt shape so the M5 / a laptop can host the whole stack in a Colima VM. message_count=90 + interval=1 gives each user a 90s sending session; pre_sampling_wait_s=40 skips the SASL-handshake ramp (1000 simultaneous SCRAM-SHA-X negotiations push the broker out for ~60s on the M5); measurement_duration_s=30 stays inside the steady-state plateau before the earliest users finish their session at ~t=98s. Numbers from :local are dev/smoke only — they don't ship to the public dashboard."
+  "_comment": "100x scale-down of the :aws_clt shape so the M5 / a laptop can host the whole stack in a Colima VM. message_count=130 + interval=1 gives each user a 130s sending session; pre_sampling_wait_s=40 skips the SASL-handshake ramp (1000 simultaneous SCRAM-SHA-X negotiations push the broker out for ~60s on the M5); measurement_duration_s=60 fits inside the steady-state plateau (~t=42..132s of the sending window) — wider window than the previous 30s so the trend/sparkline is more robust to a transient mid-run hiccup. Numbers from :local are dev/smoke only — they don't ship to the public dashboard."
 }
