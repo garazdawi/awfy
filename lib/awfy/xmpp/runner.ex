@@ -85,16 +85,20 @@ defmodule Awfy.Xmpp.Runner do
     # Names follow the AWFY dashboard convention `<benchmark>/<lang>`
     # so `Awfy.Compare.Data.parse_name/1` carves them into a
     # benchmark + lang pair. Each metric becomes its own benchmark
-    # family on the dashboard (`<scenario>_cpu_pct`, `<scenario>_mem_mb`,
-    # `<scenario>_throughput`) — they'd otherwise collide on the same
-    # (benchmark, lang) key and only the last would render. The
-    # whole stack is Erlang under the hood, so lang=erlang here is
-    # accurate, not a placeholder.
+    # cell on the dashboard (`xmpp_cpu`, `xmpp_mem`, `xmpp_speed`)
+    # under the shared `xmpp` family — they'd otherwise collide on
+    # the same (benchmark, lang) key and only the last would
+    # render. Short, suite-neutral names (not the Amoc scenario's
+    # `dynamic_domains_pm` prefix) so the per-bench page titles
+    # fit the dashboard's other entries. The Amoc scenario name
+    # is kept separately in the `xmpp.scenario` metadata field
+    # so a future second scenario can co-exist on the dashboard
+    # without renaming this family.
     Result.build_multi(
       [
-        {"#{scenario_name}_cpu_pct/erlang", cpu, [unit: :lower_better_raw]},
-        {"#{scenario_name}_mem_mb/erlang", mem, [unit: :lower_better_raw]},
-        {"#{scenario_name}_throughput/erlang", thr, [unit: :throughput_per_s]}
+        {"xmpp_cpu/erlang", cpu, [unit: :lower_better_raw]},
+        {"xmpp_mem/erlang", mem, [unit: :lower_better_raw]},
+        {"xmpp_speed/erlang", thr, [unit: :throughput_per_s]}
       ],
       metadata: metadata
     )

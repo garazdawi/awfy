@@ -204,10 +204,16 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
       # "synthetic" categories 50/50 regardless of how many cells
       # each category produced. Future per-app benchmarks (network,
       # ...) extend this list.
+      #
+      # Family name `xmpp` is suite-neutral — the underlying Amoc
+      # scenario stays in ctx.scenario / meta.xmpp.scenario so a
+      # second scenario can join later without renaming the family.
+      # Metric short names (cpu / mem / speed) match the cell names
+      # in lib/awfy/xmpp/runner.ex.
       "applications" => [
         %{
-          "name" => ctx.scenario,
-          "metrics" => ["cpu_pct", "mem_mb", "throughput"]
+          "name" => "xmpp",
+          "metrics" => ["cpu", "mem", "speed"]
         }
       ]
     }

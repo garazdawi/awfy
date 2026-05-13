@@ -608,8 +608,15 @@ defmodule Mix.Tasks.Awfy.Compare do
   # are recognised by having a populated `:lang` (erlang / elixir) and
   # no `:input`; OtpBenchmarks rows have `:input` set and `:lang` nil.
   defp scenario_group(r) do
-    case {r.lang, Map.get(r, :input)} do
-      {lang, nil} when lang in ["erlang", "elixir"] -> "AWFY"
+    case {Map.get(r, :category), r.lang, Map.get(r, :input)} do
+      # Application benchmarks (XMPP today, network later) come in
+      # one row per metric under a shared family — keep them in a
+      # group of their own (the family name) so the stability page's
+      # filter can show / hide them as a unit, instead of mixing
+      # them into the synthetic "AWFY" bucket which threw the user
+      # off when the cells appeared mid-ranking.
+      {:application, _, _} -> Map.get(r, :family) || r.benchmark
+      {_, lang, nil} when lang in ["erlang", "elixir"] -> "AWFY"
       _ -> r.benchmark
     end
   end
