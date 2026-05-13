@@ -99,15 +99,17 @@ services:
     ports:
       - "5222:5222"
     environment:
-      # ERL_FLAGS provides the three things vm.args used to carry
-      # statically: the node's distribution name (-sname …), the
-      # shared cluster cookie (-setcookie …), and the optional
-      # jit/emu flavor switch forwarded from the orchestrator. The
-      # Dockerfile sed-strips -sname/-setcookie out of vm.args so
-      # this is the sole source of identity — last-wins parsing
-      # isn't worth relying on across OTP versions. Cookie matches
-      # mongooseim-2 / -3 so all three nodes can speak distribution.
-      ERL_FLAGS: "-sname mongooseim@mongooseim-1 -setcookie awfy_xmpp_cluster ${MIM_ERL_FLAGS:-}"
+      # Forwarded from the host orchestrator (bench.yml's measure-
+      # xmpp-linux job) so the jit/emu matrix axis can switch the
+      # broker between BeamAsm and the interpreter. mongooseimctl
+      # honours $ERL_FLAGS — `-emu_flavor emu` picks beam.emu over
+      # beam.smp at boot. Empty on the jit leg → the install's
+      # default (JIT) wins, matching the prior single-flavor
+      # behaviour. Node identity comes from vm.args (`-sname
+      # mongooseim`) + this service's `hostname:` value above, so
+      # each broker auto-resolves to `mongooseim@mongooseim-N`
+      # without per-container ERL_FLAGS gymnastics.
+      ERL_FLAGS: "${MIM_ERL_FLAGS:-}"
     healthcheck:
       # `mongooseimctl status` exits 0 only when the BEAM is up and
       # the boot-time apps have finished starting. ~30s of retries
@@ -124,15 +126,17 @@ services:
     # Reuse the image mongooseim-1 just built (compose tags it as
     # `<project>-<service>:latest` = `awfy_xmpp-mongooseim-1`). All
     # three brokers run identical code; the only per-container
-    # difference is the -sname in ERL_FLAGS below, which CETS uses
-    # to register this node in the shared discovery table.
+    # difference is `hostname:`, which the BEAM picks up as the
+    # @host suffix on `-sname mongooseim` baked into vm.args, so
+    # each broker registers in CETS's discovery table under a
+    # distinct node name.
     image: awfy_xmpp-mongooseim-1
     pull_policy: never
     depends_on:
       mongooseim-1:
         condition: service_healthy
     environment:
-      ERL_FLAGS: "-sname mongooseim@mongooseim-2 -setcookie awfy_xmpp_cluster ${MIM_ERL_FLAGS:-}"
+      ERL_FLAGS: "${MIM_ERL_FLAGS:-}"
     healthcheck:
       test: ["CMD", "./bin/mongooseimctl", "status"]
       interval: 3s
@@ -149,7 +153,7 @@ services:
       mongooseim-1:
         condition: service_healthy
     environment:
-      ERL_FLAGS: "-sname mongooseim@mongooseim-3 -setcookie awfy_xmpp_cluster ${MIM_ERL_FLAGS:-}"
+      ERL_FLAGS: "${MIM_ERL_FLAGS:-}"
     healthcheck:
       test: ["CMD", "./bin/mongooseimctl", "status"]
       interval: 3s

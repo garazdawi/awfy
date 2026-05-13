@@ -94,16 +94,36 @@ RUN sed -i 's#ip_address = \\"127.0.0.1\\"#ip_address = \\"0.0.0.0\\"#g' rel/var
     && sed -i 's#^    host = "localhost"#    host = "_"#' rel/files/mongooseim.toml \
     && sed -i 's#^{auth_method, .*}\.$#{auth_method, "dummy"}.#' rel/vars-toml.config
 
-# Strip -sname / -setcookie from the release's vm.args. The same image
-# serves as 3 distinct broker containers in a CETS cluster; each
-# container injects its own `-sname mongooseim@<container>` plus the
-# shared cluster cookie via ERL_FLAGS in priv/topology/local.compose.yml.
-# Leaving the build-time defaults in place would emit both a static
-# `-sname mongooseim` and the per-container override, and `last wins`
-# parsing isn't worth relying on — easier to make ERL_FLAGS the sole
-# source of identity. Single-broker fallback (legacy single-mongooseim
-# compose) sets the same ERL_FLAGS pair, so nothing regresses.
-RUN sed -i '/^-sname /d; /^-setcookie /d' rel/files/vm.args
+# Enable [internal_databases.cets] alongside Mnesia. The included
+# rel/vars-toml.config defines `{internal_databases, "[internal_databases.mnesia]"}`
+# and vars-toml processing is last-write-wins, so the override has
+# to land in the included file itself rather than in the prod
+# vars-toml profile. Heredoc avoids the sed-escaping nightmare a
+# literal Erlang-string-of-escaped-TOML would otherwise require.
+# `cluster_name` keys the discovery_nodes row each broker writes on
+# boot — any node writing the same name into the table joins the
+# same logical CETS cluster.
+RUN sed -i '/^{internal_databases,/d' rel/vars-toml.config \
+    && cat >> rel/vars-toml.config <<'EOF'
+{internal_databases, "[internal_databases.mnesia]\n\n[internal_databases.cets]\n  backend = \"rdbms\"\n  cluster_name = \"awfy_xmpp\""}.
+EOF
+
+# Drop the @host suffix off -sname and pin -setcookie to a shared
+# cluster value. The same image runs as 3 distinct broker containers
+# in the CETS topology; with `-sname mongooseim` (no @host suffix),
+# each BEAM resolves its own node name as `mongooseim@$HOSTNAME`, and
+# docker-compose's per-service `hostname:` value gives each broker a
+# distinct identity (mongooseim-1 / -2 / -3) — no per-container
+# vm.args mutation needed. Cookie is shared across the three so BEAM
+# distribution authentication clears.
+#
+# Removing -setcookie entirely was the first attempt; mongooseimctl's
+# boot-time guard greps vm.args for it and exits 1 with "vm.args
+# needs to have a -setcookie parameter" without one. Keeping the
+# value in the file also avoids relying on duplicate-flag last-wins
+# semantics across OTP versions.
+RUN sed -i 's/^-sname .*/-sname mongooseim/' rel/files/vm.args \
+    && sed -i 's/^-setcookie .*/-setcookie awfy_xmpp_cluster/' rel/files/vm.args
 
 # Drop in our customised prod.vars-toml.config to:
 #   * Empty `hosts` and declare `host_types = ["localhost"]` so
