@@ -312,8 +312,6 @@ defmodule Mix.Tasks.Awfy.Measure do
   end
 
   defp write_meta(dir, ctx) do
-    {:ok, hostname_charlist} = :inet.gethostname()
-
     meta = %{
       "format_version" => @format_version,
       "label" => ctx.label,
@@ -324,13 +322,7 @@ defmodule Mix.Tasks.Awfy.Measure do
         "sha" => ctx.git_sha,
         "dirty" => ctx.git_dirty
       },
-      "machine" => %{
-        "hostname" => List.to_string(hostname_charlist),
-        "os" => os_string(),
-        "cpu" => cpu_string(),
-        "arch" => to_string(:erlang.system_info(:system_architecture)),
-        "cores" => System.schedulers_online()
-      },
+      "machine" => Awfy.Measure.Machine.describe(),
       "runtime" => %{
         "emu_flavor" => to_string(:erlang.system_info(:emu_flavor)),
         "schedulers_online" => :erlang.system_info(:schedulers_online),
@@ -525,36 +517,4 @@ defmodule Mix.Tasks.Awfy.Measure do
     end
   end
 
-  defp os_string do
-    case :os.type() do
-      {:unix, :darwin} -> trim_cmd("uname", ["-sr"]) || "Darwin"
-      {:unix, :linux} -> trim_cmd("uname", ["-sr"]) || "Linux"
-      {family, name} -> "#{family}/#{name}"
-    end
-  end
-
-  defp cpu_string do
-    case :os.type() do
-      {:unix, :darwin} ->
-        trim_cmd("sysctl", ["-n", "machdep.cpu.brand_string"]) || "unknown"
-
-      {:unix, :linux} ->
-        with {:ok, bin} <- File.read("/proc/cpuinfo"),
-             field when is_binary(field) <- Awfy.Preflight.Parse.cpuinfo_field(bin, "model name") do
-          field
-        else
-          _ -> "unknown"
-        end
-
-      _ ->
-        "unknown"
-    end
-  end
-
-  defp trim_cmd(cmd, args) do
-    case System.cmd(cmd, args, stderr_to_stdout: true) do
-      {out, 0} -> String.trim(out)
-      _ -> nil
-    end
-  end
 end
