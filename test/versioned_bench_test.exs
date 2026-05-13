@@ -58,7 +58,10 @@ defmodule AwfyTest.VersionedBench do
     # `Path.wildcard("*.benchee")` discovery.
     assert_run_dir_invariant(run_dir)
 
-    assert meta["format_version"] == 1
+    # format_version bumped to 2 in PLAN/INFRA_REFACTOR.md § 1 when
+    # the XMPP writer started carrying `runtime` + `config` blocks too.
+    # `Awfy.Measure.Meta.format_version/0` owns the single value now.
+    assert meta["format_version"] == Awfy.Measure.Meta.format_version()
     assert meta["label"] == "test1"
 
     # `meta["otp"]` prefers the OTP_VERSION file (full "X.Y.Z[.P]"

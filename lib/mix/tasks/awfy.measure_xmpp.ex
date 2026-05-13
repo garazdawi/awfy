@@ -41,7 +41,6 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     no_clobber: :boolean
   ]
 
-  @format_version 1
   @default_scenario "dynamic_domains_pm"
   @default_topology "local"
 
@@ -164,22 +163,7 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
   end
 
   defp write_meta(dir, %{ctx: ctx} = block) do
-    meta = %{
-      "format_version" => @format_version,
-      "label" => ctx.label,
-      "otp" => ctx.otp_label,
-      "elixir" => ctx.elixir_version,
-      "timestamp" => DateTime.to_iso8601(ctx.trend_timestamp),
-      "git" => %{
-        "sha" => ctx.git_sha,
-        "dirty" => ctx.git_dirty
-      },
-      "machine" => Awfy.Measure.Machine.describe(),
-      "runtime" => %{
-        "emu_flavor" => to_string(ctx.emu_flavor),
-        "flavor_source" => to_string(ctx.flavor_source),
-        "schedulers_online" => ctx.schedulers
-      },
+    Awfy.Measure.Meta.write(dir, ctx, %{
       "xmpp" => %{
         "scenario" => block.scenario,
         "topology" => to_string(block.topology),
@@ -210,8 +194,6 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
           "metrics" => ["cpu", "mem", "speed"]
         }
       ]
-    }
-
-    File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
+    })
   end
 end

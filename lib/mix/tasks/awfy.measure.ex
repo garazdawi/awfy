@@ -71,8 +71,6 @@ defmodule Mix.Tasks.Awfy.Measure do
     out: :string
   ]
 
-  @format_version 1
-
   @impl true
   def run(args) do
     Mix.Task.run("compile", [])
@@ -297,40 +295,33 @@ defmodule Mix.Tasks.Awfy.Measure do
   end
 
   defp write_meta(dir, %{run_ctx: rc} = ctx) do
-    meta = %{
-      "format_version" => @format_version,
-      "label" => rc.label,
-      "otp" => rc.otp_label,
-      "elixir" => rc.elixir_version,
-      "timestamp" => DateTime.to_iso8601(rc.trend_timestamp),
-      "git" => %{
-        "sha" => rc.git_sha,
-        "dirty" => rc.git_dirty
-      },
-      "machine" => Awfy.Measure.Machine.describe(),
-      "runtime" => %{
-        "emu_flavor" => to_string(rc.emu_flavor),
-        "flavor_source" => to_string(rc.flavor_source),
-        "schedulers_online" => rc.schedulers,
-        "logical_processors" => Helpers.safe_integer(:erlang.system_info(:logical_processors)),
-        "wordsize" => :erlang.system_info(:wordsize),
-        "smp_support" => :erlang.system_info(:smp_support),
-        "nif_version" => to_string(:erlang.system_info(:nif_version)),
-        "driver_version" => to_string(:erlang.system_info(:driver_version)),
-        "c_compiler_used" => c_compiler_used_string(),
-        "mix_env" => to_string(Mix.env())
-      },
-      "config" => %{
-        "time" => ctx.time,
-        "warmup" => ctx.warmup,
-        "lang" => to_string(ctx.lang),
-        "build_flags" => build_flags_from_prefix()
-      },
-      "benchmarks" => benchmark_records(ctx),
-      "otp_benchmarks" => otp_benchmark_records(ctx)
+    runtime_extras = %{
+      "logical_processors" => Helpers.safe_integer(:erlang.system_info(:logical_processors)),
+      "wordsize" => :erlang.system_info(:wordsize),
+      "smp_support" => :erlang.system_info(:smp_support),
+      "nif_version" => to_string(:erlang.system_info(:nif_version)),
+      "driver_version" => to_string(:erlang.system_info(:driver_version)),
+      "c_compiler_used" => c_compiler_used_string(),
+      "mix_env" => to_string(Mix.env())
     }
 
-    File.write!(Path.join(dir, "meta.json"), Jason.encode_to_iodata!(meta))
+    config = %{
+      "time" => ctx.time,
+      "warmup" => ctx.warmup,
+      "lang" => to_string(ctx.lang),
+      "build_flags" => build_flags_from_prefix()
+    }
+
+    Awfy.Measure.Meta.write(
+      dir,
+      rc,
+      %{
+        "benchmarks" => benchmark_records(ctx),
+        "otp_benchmarks" => otp_benchmark_records(ctx)
+      },
+      runtime_extras: runtime_extras,
+      config: config
+    )
   end
 
   # Compiler identity: prefer `$PREFIX/awfy_compiler.txt` (written at
