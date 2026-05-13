@@ -151,7 +151,7 @@ defmodule Awfy.Xmpp.Runner do
       end)
 
     thr = Task.await(throughput_task, secs * 1_000 + 30_000)
-    {cpu, mem} = Task.await(stats_task, secs * 1_000 + 30_000)
+    %{cpu_pct: cpu, mem_mb: mem} = Task.await(stats_task, secs * 1_000 + 30_000)
 
     log.("collected #{length(thr)} throughput / #{length(cpu)} cpu+mem samples")
     {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem}}

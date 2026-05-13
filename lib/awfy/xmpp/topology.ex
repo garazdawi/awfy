@@ -17,6 +17,17 @@ defmodule Awfy.Xmpp.Topology do
 
   Both return the same `%State{}` shape so the runner module can
   drive either without branching on topology type.
+
+  ## Relationship to `Awfy.Topology`
+
+  `Awfy.Topology` defines the behaviour every application-bench
+  topology will implement once the per-flavour split lands
+  (`Awfy.Topology.XmppLocal`, `Awfy.Topology.XmppAwsClt`,
+  `Awfy.Topology.NetworkLocal`). This module pre-dates that split
+  and carries the `:local` / `:aws_clt` dispatch inline via two
+  `deploy/2` heads. PLAN/INFRA_REFACTOR.md § 5 — the behaviour
+  exists so the next implementer (network-bench Phase 2) adopts a
+  pre-shaped contract rather than copying this module's shape.
   """
 
   alias Awfy.Xmpp.ScenarioConfig

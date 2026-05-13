@@ -10,9 +10,15 @@ defmodule Awfy.Xmpp.DockerStats do
   user count) the interesting question is "how much CPU does the
   broker need", not "how many msgs/s did we sustain".
 
+  Implements `Awfy.MetricSource` — first impl of the behaviour;
+  PLAN/MONGOOSEIM_BENCH_PLAN.md § Phase 4 will add a Prometheus
+  scraper alongside.
+
   Sampler shape: blocking, one-second cadence, until a deadline.
-  Returns two parallel lists — `{cpu_pcts, mem_mbs}` — so the runner
-  can drop them into separate `%Benchee.Suite{}` scenarios.
+  Returns the `%{cpu_pct: [...], mem_mb: [...], throughput: nil}`
+  map every `MetricSource` produces — the runner pairs it with the
+  load-gen's throughput stream before handing both to
+  `Awfy.AppBench.Result.build_multi/2`.
 
   `docker stats --no-stream` is used over the streaming variant
   because the streamed output is ANSI-escaped (designed for human
@@ -22,32 +28,37 @@ defmodule Awfy.Xmpp.DockerStats do
   per-sample timing.
   """
 
+  @behaviour Awfy.MetricSource
+
+  @impl Awfy.MetricSource
+  def supported_metrics(_source), do: [:cpu_pct, :mem_mb]
+
   @doc """
   Sample CPU% and memory MB for `container_or_list` once per second
-  until the monotonic-ms `deadline` passes. Returns parallel sample
-  lists.
+  until the monotonic-ms `deadline` passes. Returns the
+  `Awfy.MetricSource.samples` shape with `throughput: nil` since
+  this source doesn't observe the load-gen.
 
   Accepts either a single container name (legacy single-broker
   callsites) or a list (multi-broker CETS cluster). For a list, each
   per-second sample is the SUM of the per-container CPU% and mem MB
   — that's the cluster-aggregate the dashboard plots. (Means of
   shares would just smear hot brokers; users care "how much CPU
-  does the cluster need to handle this load".) A single `docker stats`
-  call costs ~150-300 ms regardless of container count via the
-  `containers...` positional list, so widening from 1 → 3 brokers
-  doesn't 3× the wall time per sample.
+  does the cluster need to handle this load".)
 
   Failures on a single call become a 0.0 sample (so a transient
   `docker stats` flake doesn't crash the whole run); the run-level
   stability check will flag a topology that's silently dropping reads.
   """
-  @spec sample_until(String.t() | [String.t()], integer()) :: {[float()], [float()]}
+  @impl Awfy.MetricSource
+  @spec sample_until(String.t() | [String.t()], integer()) :: Awfy.MetricSource.samples()
   def sample_until(container, deadline) when is_binary(container) do
     sample_until([container], deadline)
   end
 
   def sample_until(containers, deadline) when is_list(containers) do
-    loop(containers, deadline, [], [])
+    {cpu, mem} = loop(containers, deadline, [], [])
+    %{cpu_pct: cpu, mem_mb: mem, throughput: nil}
   end
 
   defp loop(containers, deadline, cpus, mems) do
