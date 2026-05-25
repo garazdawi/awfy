@@ -52,12 +52,14 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     topology = parse_topology(opts[:topology] || @default_topology)
 
     # Dry-run mode: print the .benchee filename this task WOULD
-    # produce, then exit. Mirrors the same hook on `mix awfy.measure`
-    # so the resolver (`Awfy.Fill.Resolve`) can ask each measure
-    # task what it'd write without spinning up Docker / Colima /
-    # amoc — and without mix-compile banners leaking onto stdout
-    # (the caller is responsible for `mix compile` separately).
+    # produce, then exit. Mirrors the same hook on `mix awfy.measure`.
+    # Switch to Mix.Shell.Quiet first so any path-dep auto-compile
+    # mix triggers while loading our task's module references
+    # doesn't leak `==> <dep>` / `Generated <dep> app` lines into
+    # the benchmark-name-per-line stdout the caller (the canonical
+    # step in bench.yml) parses.
     if opts[:dry_run] do
+      Mix.shell(Mix.Shell.Quiet)
       IO.puts(scenario)
       System.halt(0)
     end
