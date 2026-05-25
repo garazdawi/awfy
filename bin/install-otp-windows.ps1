@@ -151,7 +151,19 @@ function Fetch-FromCiArtifact {
     }
 
     if (-not $run) {
-        throw "No 'Build and check Erlang/OTP' run with otp_win32_installer artifact found for ref '$Ref' in the last 500 runs"
+        # erlang/otp's installer build is skipped on master commits
+        # that touch no C code (otp-ideas #34) — the Erlang-only
+        # change wouldn't change the .exe, so upstream doesn't recut
+        # one. Same `skipped=true` mechanism as Fetch-FromTag's
+        # "no installer published" path: leave a clean hole in the
+        # dashboard instead of failing the leg. The next master
+        # merge that touches C code will produce an installer and
+        # the run gets measured opportunistically.
+        Write-Host "::warning::No 'Build and check Erlang/OTP' run with otp_win32_installer artifact found for ref '$Ref' — skipping measure-windows leg"
+        if ($env:GITHUB_OUTPUT) {
+            "skipped=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        }
+        exit 0
     }
     Write-Host "Found run id=$($run.id) sha=$($run.head_sha) status=$($run.status) conclusion=$($run.conclusion)"
 

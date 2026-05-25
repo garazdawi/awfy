@@ -50,10 +50,12 @@
 #              row with `otp_label=master`; the dashboard's existing
 #              master column shows the latest, and meta.json.git.sha
 #              preserves the per-merge identity for the future
-#              master-history timeline view. Windows is included —
-#              install-otp-windows.ps1 walks erlang/otp's
-#              `actions/runs?head_sha=<sha>` to find the per-commit
-#              `otp_win32_installer` artifact.
+#              master-history timeline view. Windows is opportunistic
+#              — erlang/otp skips the installer build on master
+#              commits that touch no C code (otp-ideas #34), so the
+#              install step soft-skips with `skipped=true` on those
+#              and downstream measure steps gate on it. Merges that
+#              DO touch C code get the installer and get measured.
 #
 # Optional `benchmarks` input (workflow_dispatch only): comma list
 # like `Bounce,CD`. When set, every measure-* job passes

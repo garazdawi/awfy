@@ -401,11 +401,13 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
     windows_otp_label="$xy"
   elif [[ "$ref" == master:* ]]; then
     # `master:<sha>` (master-history form): install-otp-windows.ps1
-    # walks `repos/erlang/otp/actions/runs?head_sha=<sha>` to find the
-    # "Build and check Erlang/OTP" workflow run that produced the
-    # otp_win32_installer artifact for that commit. Pass the bare
-    # SHA so the head_sha filter matches; the `master:` prefix is
-    # an AWFY-internal signal that the GHA API doesn't understand.
+    # walks `repos/erlang/otp/actions/runs?head_sha=<sha>` for the
+    # otp_win32_installer artifact. Pass the bare SHA so the
+    # head_sha filter matches. When the artifact is missing
+    # (upstream skips the installer build on no-C-change merges)
+    # the install step exits with skipped=true and downstream
+    # measure steps gate off it — Windows is opportunistic for
+    # master commits.
     windows_ref="$sha"
     windows_otp_label="master"
   else

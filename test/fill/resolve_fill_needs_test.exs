@@ -85,6 +85,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert linux["mode"] == "modern"
       # Windows must use the bare SHA so install-otp-windows.ps1's
       # `head_sha=<sha>` query against erlang/otp's GHA runs matches.
+      # The install step soft-skips per-SHA when no installer artifact
+      # is found (commits that touch no C code don't recut one) —
+      # the matrix row is always queued, runtime decides.
       [windows] = out["targets_modern_windows"]
       assert windows["windows_ref"] == @history_sha
       assert windows["windows_otp_label"] == "master"
@@ -101,7 +104,7 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert length(shorts) == 2
     end
 
-    test "all platforms see the same merge (no platform-skipping)", %{tmp: tmp} do
+    test "all platforms see the same merge (no platform-skipping at resolve time)", %{tmp: tmp} do
       out = run(tmp, "master:#{@history_sha}")
       assert length(out["targets_modern_linux"]) == 1
       assert length(out["targets_modern_macos"]) == 1
