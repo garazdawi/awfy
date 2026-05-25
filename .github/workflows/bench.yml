@@ -106,12 +106,19 @@ on:
 permissions:
   contents: read
 
-# Same trigger + same scope shouldn't race; later run queues. A
-# long-running schedule run can't cancel an in-flight push smoke
-# test, and two pushes against the same ref-set queue rather than
-# clobbering each other's artifacts.
+# Concurrency groups by *purpose*, not by event_name. Push smoke
+# tests live in their own group so a CSS-only push doesn't queue
+# behind a multi-hour fill. Schedule and workflow_dispatch with
+# the same otp_refs scope share a group so a cron firing during
+# an in-flight manual fill queues cleanly rather than racing —
+# both would otherwise probe gh-pages independently and queue
+# duplicate measurements for the same SHAs, then collide pushing
+# to gh-pages at publish time.
 concurrency:
-  group: bench-${{ github.event_name }}-${{ inputs.otp_refs || 'default' }}
+  group: >-
+    ${{ github.event_name == 'push'
+        && 'bench-push'
+        || format('bench-{0}', inputs.otp_refs || 'fill') }}
   cancel-in-progress: false
 
 jobs:
