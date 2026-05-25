@@ -46,8 +46,6 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
   @impl true
   def run(args) do
-    Mix.Task.run("compile", [])
-
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
 
     scenario = opts[:scenario] || @default_scenario
@@ -55,12 +53,16 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
     # Dry-run mode: print the .benchee filename this task WOULD
     # produce, then exit. Mirrors the same hook on `mix awfy.measure`
-    # so bin/resolve-fill-needs.sh can ask each measure task what
-    # it'd write without spinning up Docker / Colima / amoc.
+    # so the resolver (`Awfy.Fill.Resolve`) can ask each measure
+    # task what it'd write without spinning up Docker / Colima /
+    # amoc — and without mix-compile banners leaking onto stdout
+    # (the caller is responsible for `mix compile` separately).
     if opts[:dry_run] do
       IO.puts(scenario)
       System.halt(0)
     end
+
+    Mix.Task.run("compile", [])
 
     {:ok, ctx, dir} = Awfy.Measure.Setup.prepare(opts, :xmpp)
 

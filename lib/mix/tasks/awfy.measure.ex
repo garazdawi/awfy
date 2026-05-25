@@ -74,9 +74,18 @@ defmodule Mix.Tasks.Awfy.Measure do
 
   @impl true
   def run(args) do
-    Mix.Task.run("compile", [])
-
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
+
+    # In dry-run mode, skip Mix.Task.run("compile", []) — its
+    # `==> <dep>` / `Generated <dep> app` banners on stdout would
+    # mix into the benchmark-name-per-line output the caller (the
+    # canonical step in bench.yml) parses, causing the resolver to
+    # treat those banner lines as missing benchmarks. The caller
+    # is responsible for running `mix compile` as a separate step
+    # before invoking us with --dry-run.
+    unless opts[:dry_run] do
+      Mix.Task.run("compile", [])
+    end
 
     lang = Helpers.parse_lang(opts[:lang])
     bench_filter = Helpers.parse_benchmarks(opts[:benchmarks])
@@ -89,11 +98,12 @@ defmodule Mix.Tasks.Awfy.Measure do
     otp_families = otp_families_to_run(bench_filter, opts)
 
     # Dry-run mode: print the .benchee filenames this task WOULD
-    # produce (one per line on stdout), then exit. Used by
-    # bin/resolve-fill-needs.sh to compute the canonical benchmark
-    # set on each gh-pages probe — single source of truth (the actual
-    # measure-task's filter logic) instead of a separately-maintained
-    # hardcoded list that drifts when benchmarks are added.
+    # produce (one per line on stdout), then exit. Used by the
+    # resolver (`Awfy.Fill.Resolve`) to compute the canonical
+    # benchmark set on each gh-pages probe — single source of
+    # truth (the actual measure-task's filter logic) instead of a
+    # separately-maintained hardcoded list that drifts when
+    # benchmarks are added.
     if opts[:dry_run] do
       names =
         Enum.map(candidates, fn entry -> Awfy.name(entry) end) ++
