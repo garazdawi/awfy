@@ -1945,6 +1945,16 @@ function pinSparklineCard(info) {
 function renderHeadline() {
   const el = document.getElementById("headline");
   if (!el) return;
+  // Master timeline carries its own pre-computed speedups in
+  // `master_y` (vs the full-history baseline matching the main
+  // page's suite chart). The headline there is "master tip is N×
+  // faster than OTP-29.0" — buildSuiteGeomeanSeries is OTP-version-
+  // axis specific and would crash on the master dataset's all-master
+  // rows, so route through a dedicated builder.
+  if (PAGE_KIND === "master") {
+    renderMasterHeadline(el);
+    return;
+  }
   const series = buildSuiteGeomeanSeries();
   const allSeries = series.find(s => s.label === "all platforms");
   if (!allSeries || allSeries.data.length < 2) {
@@ -1992,6 +2002,38 @@ function renderHeadline() {
   const joined = parts.length === 1 ? parts[0] : parts.join(' and ');
   el.innerHTML = '<div>Erlang/OTP ' + newest.x + ' is ' + joined +
                  ' &nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean across all platforms</span></div>';
+}
+
+function renderMasterHeadline(el) {
+  // Use the "all platforms" aggregate rows so the headline is one
+  // number across the whole matrix instead of per-platform-N.
+  const allRows = DATASET.rows.filter(r => r.machine_class === "all");
+  const anchorRow = allRows.find(r => r.otp === "29.0");
+  const masterRows = allRows
+    .filter(r => r.otp === "master" && typeof r.master_y === "number")
+    .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
+  const latest = masterRows[masterRows.length - 1];
+
+  if (!anchorRow || typeof anchorRow.master_y !== "number" || !latest) {
+    el.innerHTML = '<span class="empty">No OTP-29.0 anchor or master measurements available yet.</span>';
+    return;
+  }
+
+  // Both master_y values are speedups vs the FULL-HISTORY baseline
+  // (typically OTP-20.3) — the baseline cancels in the ratio so
+  // `latest / anchor` is the true master-vs-29.0 multiplier.
+  const speedup = latest.master_y / anchorRow.master_y;
+  const pct = (speedup - 1) * 100;
+  const word = pct >= 0 ? "faster" : "slower";
+  const cls = pct >= 0 ? "speedup" : "slowdown";
+  const sha10 = latest.run_sha ? latest.run_sha.slice(0, 10) : "tip";
+  const tsStr = latest.timestamp ? new Date(latest.timestamp).toLocaleDateString() : "";
+
+  el.innerHTML =
+    '<div>Erlang/OTP master (' + escapeHtml(sha10) + (tsStr ? ', ' + escapeHtml(tsStr) : '') + ') is ' +
+    '<span class="num ' + cls + '">' + speedup.toFixed(3) + '×</span> ' +
+    '<span class="' + cls + '">' + word + '</span> than OTP-29.0 ' +
+    '&nbsp; <span style="color: var(--er-muted); font-size: 0.9em;">geomean across all platforms</span></div>';
 }
 
 /* ---- Per-benchmark snapshot bar chart -----------------------------
