@@ -119,6 +119,107 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     end
   end
 
+  describe "MAX_MASTER_MERGES cap" do
+    # Generate N distinct 40-char SHAs whose first-10 prefixes are
+    # also distinct (the gh-pages skip check matches on the 10-char
+    # short SHA). Bake the index into the prefix so test SHAs sort
+    # lexicographically the same way enumerate-master-merges.sh emits
+    # them (oldest first).
+    defp gen_shas(n) do
+      Enum.map(1..n, fn i ->
+        prefix = i |> Integer.to_string(16) |> String.pad_leading(10, "a")
+        prefix <> String.duplicate("b", 30)
+      end)
+    end
+
+    defp master_refs(shas), do: Enum.map_join(shas, ",", &"master:#{&1}")
+
+    test "drops master:<sha> entries beyond the cap (oldest-first kept)", %{tmp: tmp} do
+      shas = gen_shas(7)
+      out = run(tmp, master_refs(shas), max_master_merges: 3)
+
+      kept = Enum.map(out["targets_modern_linux"], & &1["sha"])
+      assert length(kept) == 3
+      # Oldest-first ordering: first three input refs are the ones
+      # that land. Subsequent runs pick up the deferred tail.
+      assert kept == Enum.take(shas, 3)
+    end
+
+    test "cap counts unique SHAs, not per-platform entries", %{tmp: tmp} do
+      # Three master SHAs, cap=3, no fill skip → each lands on all
+      # three platforms = 9 platform entries total, but only 3 SHAs
+      # consumed the cap.
+      shas = gen_shas(3)
+      out = run(tmp, master_refs(shas), max_master_merges: 3)
+
+      assert length(out["targets_modern_linux"]) == 3
+      assert length(out["targets_modern_macos"]) == 3
+      assert length(out["targets_modern_windows"]) == 3
+    end
+
+    test "maint-tip refs aren't subject to the cap", %{tmp: tmp} do
+      # Five master:<sha> + two OTP tags, cap=2. The two OTP tags
+      # should land regardless of how full the master cap is.
+      master_shas = gen_shas(5)
+      refs = master_refs(master_shas) <> ",OTP-21.3.8.24,OTP-28.5"
+
+      out = run(tmp, refs, max_master_merges: 2)
+
+      assert length(out["targets_modern_linux"]) == 2 + 1
+      # Both OTP-* refs land in their respective mode arrays.
+      assert [%{"ref" => "OTP-21.3.8.24"}] = out["targets_legacy_linux"]
+      modern_refs = Enum.map(out["targets_modern_linux"], & &1["ref"])
+      assert "OTP-28.5" in modern_refs
+      # And exactly two master:<sha> refs are kept (the first two).
+      kept_master =
+        out["targets_modern_linux"]
+        |> Enum.filter(fn t -> String.starts_with?(t["ref"], "master:") end)
+        |> Enum.map(& &1["sha"])
+
+      assert kept_master == Enum.take(master_shas, 2)
+    end
+
+    test "already-done master:<sha> don't consume cap slots", %{tmp: tmp} do
+      # Five master SHAs; the first two are already complete on
+      # gh-pages. Cap=3. We expect the three later ones (which still
+      # need work) to land — the cap restricts new work, not total
+      # candidates seen.
+      [done_a, done_b | rest] = gen_shas(5)
+      done_shorts = [String.slice(done_a, 0..9), String.slice(done_b, 0..9)]
+
+      existing_rundirs =
+        for short <- done_shorts,
+            plat <- ["linux", "macos", "windows"] do
+          "20260101_otp30_elixir1.19.5_#{short}-test-#{plat}-x86_64-jit"
+        end
+
+      existing_benchees =
+        for short <- done_shorts,
+            plat <- ["linux", "macos", "windows"] do
+          "20260101_otp30_elixir1.19.5_#{short}-test-#{plat}-x86_64-jit/Bounce.benchee"
+        end
+
+      out =
+        run(tmp, master_refs([done_a, done_b | rest]),
+          fill_mode: "1",
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "",
+          max_master_merges: 3,
+          existing_rundirs: existing_rundirs,
+          existing_benchees: existing_benchees
+        )
+
+      kept = Enum.map(out["targets_modern_linux"], & &1["sha"])
+      assert kept == rest
+    end
+
+    test "MAX_MASTER_MERGES=0 disables the cap", %{tmp: tmp} do
+      shas = gen_shas(8)
+      out = run(tmp, master_refs(shas), max_master_merges: 0)
+      assert length(out["targets_modern_linux"]) == 8
+    end
+  end
+
   describe "canonical benchmark set + per-target missing list" do
     @sha String.duplicate("c", 40)
 
@@ -361,7 +462,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       {"FILL_MODE", fill_mode},
       {"INPUT_BENCHMARKS", Keyword.get(opts, :input_benchmarks, "")},
       {"CANONICAL_SYNTHETIC", canonical_synthetic},
-      {"CANONICAL_XMPP", canonical_xmpp}
+      {"CANONICAL_XMPP", canonical_xmpp},
+      {"MAX_MASTER_MERGES",
+       opts |> Keyword.get(:max_master_merges, 50) |> to_string()}
     ]
 
     {log, status} =

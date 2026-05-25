@@ -102,6 +102,12 @@ INPUT_BENCHMARKS="${INPUT_BENCHMARKS:-}"
 # without setup-beam).
 CANONICAL_SYNTHETIC="${CANONICAL_SYNTHETIC:-}"
 CANONICAL_XMPP="${CANONICAL_XMPP:-}"
+# Cap on master:<sha> entries kept per run, applied after the
+# per-(sha, platform) gap check. Anything beyond this is dropped
+# from the matrix; the next fill run picks it up (oldest-first, so
+# we always make forward progress). 50 keeps the worst-case fill
+# wall-clock to a few hours instead of a day. Set to 0 to disable.
+MAX_MASTER_MERGES="${MAX_MASTER_MERGES:-50}"
 OUTPUT="${GITHUB_OUTPUT:-/dev/stdout}"
 
 if [ -z "${GITHUB_REPOSITORY:-}" ]; then
@@ -263,6 +269,13 @@ sep_windows=""
 n_modern_linux=0;  n_modern_macos=0;  n_modern_windows=0
 n_legacy_linux=0;  n_legacy_macos=0;  n_legacy_windows=0
 
+# Tracks how many distinct `master:<sha>` refs we've already
+# accepted this run. Applies AFTER the gh-pages skip check so
+# already-complete merges don't burn cap slots — the cap restricts
+# *new* work, not total candidates. Maint-tip refs are unaffected.
+n_master_kept=0
+n_master_dropped=0
+
 for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   raw="$(echo "$raw" | xargs)"
   [ -z "$raw" ] && continue
@@ -420,6 +433,21 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
     [ "$needs_xmpp"   = "1" ] && missing="${missing} xmpp"
     echo "[fill] $ref ($short) needs:${missing}" >&2
   fi
+
+  # Per-run cap on master:<sha> merges. Applied after the gh-pages
+  # skip check so an oversized history input is harmless once the
+  # initial backlog is filled — only refs that actually need work
+  # consume a slot. Maint-tips and master/maint pass through.
+  case "$ref" in
+    master:*)
+      if [ "$MAX_MASTER_MERGES" -gt 0 ] \
+         && [ "$n_master_kept" -ge "$MAX_MASTER_MERGES" ]; then
+        n_master_dropped=$((n_master_dropped+1))
+        continue
+      fi
+      n_master_kept=$((n_master_kept+1))
+      ;;
+  esac
 
   elixir="$(elixir_version_for_major "$major")"
   elixir_bundle="$(elixir_bundle_major_for_major "$major")"
@@ -610,3 +638,6 @@ echo "legacy linux:   $legacy_linux"   >&2
 echo "legacy macos:   $legacy_macos"   >&2
 echo "legacy windows: $legacy_windows" >&2
 echo "legacy build:   $legacy_build"   >&2
+if [ "$n_master_dropped" -gt 0 ]; then
+  echo "::notice::deferred $n_master_dropped master:<sha> merges (cap MAX_MASTER_MERGES=$MAX_MASTER_MERGES); next fill picks them up" >&2
+fi
