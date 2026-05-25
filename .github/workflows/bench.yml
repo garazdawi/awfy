@@ -227,9 +227,19 @@ jobs:
           mix compile
       - id: canonical
         name: Canonical benchmark list (from measure --dry-run)
+        # `mix <task>` emits `==> <dep>` / `Generated <dep> app`
+        # banners on stdout when mix's pre-task module resolution
+        # auto-recompiles a stale path-dep — and that happens
+        # BEFORE the task body runs, so an in-task `Mix.shell`
+        # switch can't intercept. Filter stdout to lines that
+        # look like benchmark identifiers (alphanumeric +
+        # underscore, no spaces) and the banner lines drop out
+        # cleanly. Update the regex if benchmark naming ever
+        # gains non-identifier characters.
         run: |
-          synthetic="$(mix awfy.measure --dry-run | tr '\n' ',' | sed 's/,$//')"
-          xmpp="$(mix awfy.measure_xmpp --dry-run | tr '\n' ',' | sed 's/,$//')"
+          filter='^[A-Za-z][A-Za-z0-9_]*$'
+          synthetic="$(mix awfy.measure --dry-run | grep -E "$filter" | tr '\n' ',' | sed 's/,$//')"
+          xmpp="$(mix awfy.measure_xmpp --dry-run | grep -E "$filter" | tr '\n' ',' | sed 's/,$//')"
           echo "synthetic=$synthetic" >> "$GITHUB_OUTPUT"
           echo "xmpp=$xmpp" >> "$GITHUB_OUTPUT"
           echo "[canonical] synthetic: $synthetic"

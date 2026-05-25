@@ -53,13 +53,10 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
     # Dry-run mode: print the .benchee filename this task WOULD
     # produce, then exit. Mirrors the same hook on `mix awfy.measure`.
-    # Switch to Mix.Shell.Quiet first so any path-dep auto-compile
-    # mix triggers while loading our task's module references
-    # doesn't leak `==> <dep>` / `Generated <dep> app` lines into
-    # the benchmark-name-per-line stdout the caller (the canonical
-    # step in bench.yml) parses.
+    # See that task for why we don't try to suppress mix's
+    # pre-task auto-compile banners here; the canonical step in
+    # bench.yml filters them out at the bash level instead.
     if opts[:dry_run] do
-      Mix.shell(Mix.Shell.Quiet)
       IO.puts(scenario)
       System.halt(0)
     end

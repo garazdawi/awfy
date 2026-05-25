@@ -76,18 +76,14 @@ defmodule Mix.Tasks.Awfy.Measure do
   def run(args) do
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
 
-    # Even without an explicit `Mix.Task.run("compile", [])`, mix's
-    # loadpaths step auto-recompiles stale path-deps (apps/awfy,
-    # apps/otp_benchmarks) the moment we reference their modules.
-    # That writes `==> <dep>` / `Generated <dep> app` to the
-    # current Mix shell — and in --dry-run mode those lines
-    # contaminate the benchmark-name-per-line stdout the caller
-    # (the canonical step in bench.yml) parses. Switching to
-    # Mix.Shell.Quiet for the entire task body silences those
-    # auto-compile banners without preventing the actual compile.
-    if opts[:dry_run] do
-      Mix.shell(Mix.Shell.Quiet)
-    else
+    # mix's pre-task module resolution auto-recompiles stale
+    # path-deps and writes `==> <dep>` / `Generated <dep> app`
+    # banners to stdout BEFORE our run/1 is invoked — so there's
+    # no in-task hook that can intercept them. The canonical step
+    # in bench.yml filters stdout through `grep -E '^[A-Za-z]…'`
+    # to keep only benchmark-name lines; this side just has to
+    # produce the bare names.
+    unless opts[:dry_run] do
       Mix.Task.run("compile", [])
     end
 
