@@ -3,27 +3,31 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Enumerate merge commits that have landed on erlang/otp `master`
-# since a baseline ref (default: OTP-29.0). Emits one full SHA per
-# line in chronological order (oldest first), so the dashboard's
-# trend axis populates left-to-right when each SHA becomes a row in
-# the measure matrix.
+# in a given window. Emits one full SHA per line in chronological
+# order (oldest first), so the dashboard's trend axis populates
+# left-to-right when each SHA becomes a row in the measure matrix.
 #
 # Usage:
 #   ./bin/enumerate-master-merges.sh [<since-ref>]
 #
 # Arguments:
-#   since-ref   — git ref to use as the lower bound. Defaults to
-#                 OTP-29.0, the release where master-merge tracking
-#                 started for the AWFY dashboard.
+#   since-ref   — optional git ref to use as the lower bound. When
+#                 empty (the default), the window is bounded purely
+#                 by AWFY_MERGES_SINCE_DATE — a rolling date window.
+#                 When set (e.g. "OTP-29.0"), restricts to commits
+#                 reachable on master after that ref AND newer than
+#                 AWFY_MERGES_SINCE_DATE (if both, the more recent
+#                 of the two wins).
 #
 # Environment:
 #   AWFY_MERGES_SINCE_DATE — optional, e.g. "3 months ago". When
 #                            set, narrows the output to merges whose
-#                            commit date is also newer than this
-#                            git-parseable date. The effective lower
-#                            bound is `max(<since-ref>, <date>)`, so
-#                            an old since-ref + recent date gives a
-#                            rolling window.
+#                            commit date is newer than this
+#                            git-parseable date. Either this or
+#                            <since-ref> must be set, otherwise the
+#                            full master history of OTP is enumerated
+#                            (~tens of thousands of merges) and the
+#                            script bails out.
 #
 # Output:
 #   stdout      — one 40-char SHA per line.
@@ -49,7 +53,12 @@
 
 set -euo pipefail
 
-SINCE_REF="${1:-OTP-29.0}"
+SINCE_REF="${1:-}"
+
+if [ -z "$SINCE_REF" ] && [ -z "${AWFY_MERGES_SINCE_DATE:-}" ]; then
+  echo "[enumerate-master-merges] refusing to enumerate full master history; set <since-ref> or AWFY_MERGES_SINCE_DATE" >&2
+  exit 1
+fi
 
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/awfy"
 MIRROR="$CACHE_ROOT/otp-mirror"
@@ -69,9 +78,10 @@ else
   git -C "$MIRROR" fetch --tags --filter=blob:none origin master >&2
 fi
 
-# Confirm the baseline ref is reachable. A typo or stale mirror
-# would otherwise produce an empty list silently.
-if ! git -C "$MIRROR" rev-parse --verify --quiet "$SINCE_REF" >/dev/null; then
+# Confirm the baseline ref is reachable (when set). A typo or
+# stale mirror would otherwise produce an empty list silently.
+if [ -n "$SINCE_REF" ] \
+   && ! git -C "$MIRROR" rev-parse --verify --quiet "$SINCE_REF" >/dev/null; then
   # Tags sometimes only appear on fetch with --tags; try once more.
   git -C "$MIRROR" fetch --tags origin "$SINCE_REF" >&2 || true
   if ! git -C "$MIRROR" rev-parse --verify --quiet "$SINCE_REF" >/dev/null; then
@@ -89,19 +99,27 @@ if [ -n "${AWFY_MERGES_SINCE_DATE:-}" ]; then
   SINCE_DATE_OPT=("--since=$AWFY_MERGES_SINCE_DATE")
 fi
 
+if [ -n "$SINCE_REF" ]; then
+  RANGE="${SINCE_REF}..origin/master"
+else
+  RANGE="origin/master"
+fi
+
 shas="$(git -C "$MIRROR" log \
   --merges \
   --first-parent \
   --reverse \
   --format='%H' \
   "${SINCE_DATE_OPT[@]}" \
-  "${SINCE_REF}..origin/master")"
+  "$RANGE")"
+
+window_desc="${SINCE_REF:-origin/master}${AWFY_MERGES_SINCE_DATE:+ (since $AWFY_MERGES_SINCE_DATE)}"
 
 if [ -z "$shas" ]; then
-  echo "[enumerate-master-merges] no merges between $SINCE_REF and origin/master${AWFY_MERGES_SINCE_DATE:+ (since $AWFY_MERGES_SINCE_DATE)}" >&2
+  echo "[enumerate-master-merges] no merges in window: $window_desc" >&2
   exit 0
 fi
 
 count="$(echo "$shas" | wc -l | xargs)"
-echo "[enumerate-master-merges] $count merges since $SINCE_REF${AWFY_MERGES_SINCE_DATE:+ (capped at \"$AWFY_MERGES_SINCE_DATE\")}" >&2
+echo "[enumerate-master-merges] $count merges in window: $window_desc" >&2
 echo "$shas"

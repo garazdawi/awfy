@@ -47,21 +47,23 @@
 #   `maint` (next function release of current major) and `master`
 #   (next major) at the end so they land at the right edge of every
 #   chart, followed by `master:<sha>` rows — one per merge commit on
-#   master since OTP-29.0 — so the dashboard records a data point
-#   per landed feature. The merge SHAs flow through the same fill
-#   skip check, so subsequent fills are cheap: only new merges land.
+#   master in the rolling 3-month window — so the dashboard records
+#   a data point per landed feature. The merge SHAs flow through the
+#   same fill skip check, so subsequent fills are cheap: only new
+#   merges land.
 #
 # `master_history` expansion: emit ONLY the master merge commits
 # (no maint-tips). Use this from `workflow_dispatch` when the
 # operator wants to track master without re-running stable
 # releases.
 #
-# The history window is bounded by both OTP-29.0 (release floor,
-# the start of master-merge tracking) and a rolling 3-month date
-# window — once OTP-29.0 itself slips past 3 months ago, the date
-# is what matters. `Awfy.Fill.Resolve` further caps the
-# *needed* subset at 50 SHAs per run so a freshly-empty gh-pages
-# doesn't queue hundreds of measure jobs in one matrix.
+# The window is a rolling 3-month date range — no release-tag
+# floor, so the master timeline tracks the same 3 months
+# regardless of when the most recent release was tagged.
+# `Awfy.Fill.Resolve` further caps the *needed* subset at 50 SHAs
+# per run so a freshly-empty gh-pages doesn't queue hundreds of
+# measure jobs in one matrix; subsequent fills catch up
+# oldest-first.
 
 set -euo pipefail
 
@@ -122,25 +124,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # `AWFY_ENUMERATE_MERGES_SH` env var overrides the enumerate-script
 # path so tests can stub it without going to network.
 #
-# `AWFY_MERGES_SINCE_DATE` (defaulting to "3 months ago") narrows
-# the enumerate window via `git log --since=`. Keeps the master
-# timeline focused on recent activity — older measurements stay
-# in gh-pages and the dashboard, but new fill runs no longer
-# include the entire OTP-29.0..master backlog as candidates.
+# `AWFY_MERGES_SINCE_DATE` (defaulting to "3 months ago") drives
+# the enumerate window via `git log --since=`. We pass an empty
+# since-ref so the date alone bounds the window — keeps the master
+# timeline a true 3-month rolling view regardless of when the
+# latest release was tagged.
 master_history_refs() {
-  local since="${1:-OTP-29.0}"
   local script="${AWFY_ENUMERATE_MERGES_SH:-$SCRIPT_DIR/enumerate-master-merges.sh}"
   AWFY_MERGES_SINCE_DATE="${AWFY_MERGES_SINCE_DATE:-3 months ago}" \
-    "$script" "$since" \
+    "$script" "" \
     | awk 'NF { print "master:" $0 }' \
     | tr "\n" "," \
     | sed 's/,$//'
 }
 
 if [ "$INPUT_REFS" = "master_history" ]; then
-  refs="$(master_history_refs OTP-29.0)"
+  refs="$(master_history_refs)"
   if [ -z "$refs" ]; then
-    echo "::warning::master_history produced no refs (no merges since OTP-29.0?)" >&2
+    echo "::warning::master_history produced no refs (window: ${AWFY_MERGES_SINCE_DATE:-3 months ago})" >&2
     exit 0
   fi
   echo "$refs"
@@ -203,16 +204,15 @@ if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
   # major) gives two forward-looking trend points alongside the
   # released maint tips.
   #
-  # Then append every merge commit on master since OTP-29.0 as a
-  # `master:<sha>` row. Each is resolved by `Awfy.Fill.Resolve` to
-  # a label-distinct run-dir but kept under otp_label="master" so the
-  # existing trend chart's master column still renders the latest;
-  # the per-merge data lives in meta.json.git.sha for a future
-  # master-history view to consume (PLAN/INFRA_REFACTOR.md follow-up).
+  # Then append every merge commit on master in the rolling
+  # 3-month window as a `master:<sha>` row. Each is resolved by
+  # `Awfy.Fill.Resolve` to a label-distinct run-dir but kept under
+  # otp_label="master" so the existing trend chart's master column
+  # still renders the latest; the per-merge data lives in
+  # meta.json.git.sha for the master timeline view.
   # Fill mode's gh-pages skip check means only NEW merges land each
-  # run; first invocation re-measures everything since the cutoff,
-  # subsequent invocations only catch up on what landed since.
-  HISTORY="$(master_history_refs OTP-29.0)"
+  # run; subsequent invocations only catch up on what landed since.
+  HISTORY="$(master_history_refs)"
   if [ -n "$HISTORY" ]; then
     echo "${CANDIDATES}maint,master,${HISTORY}"
   else
