@@ -91,6 +91,17 @@ set -euo pipefail
 EXPANDED_REFS="${1:?usage: $0 <comma-separated-expanded-refs>}"
 FILL_MODE="${FILL_MODE:-0}"
 INPUT_BENCHMARKS="${INPUT_BENCHMARKS:-}"
+# Canonical benchmark sets from the measure tasks' --dry-run output
+# (bench.yml's resolve job sets these via setup-beam + mix). When
+# present, the fill skip check expects every canonical .benchee file
+# on gh-pages for a (sha, platform) to consider it complete; missing
+# names get emitted as `target.benchmarks` so the measure-* matrix
+# rows queue with `--benchmarks <missing-only>` and don't re-measure
+# what's already there. Empty / unset falls back to the legacy
+# "any rundir = done" behaviour for backward compat (local invocations
+# without setup-beam).
+CANONICAL_SYNTHETIC="${CANONICAL_SYNTHETIC:-}"
+CANONICAL_XMPP="${CANONICAL_XMPP:-}"
 OUTPUT="${GITHUB_OUTPUT:-/dev/stdout}"
 
 if [ -z "${GITHUB_REPOSITORY:-}" ]; then
@@ -212,7 +223,12 @@ if [ "$FILL_MODE" = "1" ]; then
   count="$(grep -c . <<<"$EXISTING_RUNDIRS" || true)"
   echo "[fill] gh-pages has $count existing run-dirs" >&2
 
-  if [ -n "$INPUT_BENCHMARKS" ]; then
+  # Probe the full gh-pages tree for .benchee blobs whenever a
+  # canonical or user list is in play — the per-target skip check
+  # needs the full per-benchmark inventory to compute the missing
+  # subset. (Old behaviour was INPUT_BENCHMARKS-only; now also
+  # CANONICAL_SYNTHETIC / CANONICAL_XMPP feed off this.)
+  if [ -n "$INPUT_BENCHMARKS" ] || [ -n "$CANONICAL_SYNTHETIC" ] || [ -n "$CANONICAL_XMPP" ]; then
     tree_json="$(gh api \
       "repos/${GITHUB_REPOSITORY}/git/trees/gh-pages?recursive=1" \
       2>/dev/null || echo '{}')"
@@ -286,45 +302,122 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   label="${short}-test"
   major="$(otp_major_for_ref "$ref" "$sha")"
 
-  # Per-(ref, platform) need flags. In FILL_MODE, reflect what's
-  # missing on gh-pages; outside fill, default to 1 so every leg runs.
+  # Pick the canonical benchmark set for this ref. User-supplied
+  # INPUT_BENCHMARKS overrides — useful for "force re-measure just
+  # these names". Otherwise the dry-run output (single source of
+  # truth from the measure tasks) is the canonical set.
+  if [ -n "$INPUT_BENCHMARKS" ]; then
+    canonical_synthetic="$INPUT_BENCHMARKS"
+  else
+    canonical_synthetic="$CANONICAL_SYNTHETIC"
+  fi
+  canonical_xmpp="$CANONICAL_XMPP"
+
+  # Per-(ref, platform) need flags + per-target missing-benchmark
+  # list. In FILL_MODE, the missing list per platform is what gets
+  # threaded into the matrix as `target.benchmarks_*` so the measure
+  # job runs `--benchmarks <missing>` instead of remeasuring
+  # everything. Outside fill, defaults to "everything" — fall through
+  # to the empty-string sentinel which the workflow treats as "no
+  # filter, run the whole canonical suite".
   need_linux=1
   need_macos=1
   need_windows=1
+  needs_xmpp=0
+  benchmarks_linux=""
+  benchmarks_macos=""
+  benchmarks_windows=""
+
+  # XMPP is linux-only and OTP-27+; the measure-xmpp-linux job has a
+  # Skip-OTP-<27 step internally, mirroring that gate here keeps the
+  # missing detection consistent with what the workflow would
+  # actually run.
+  xmpp_applies_to_linux=0
+  if [ -n "$canonical_xmpp" ] && [ "$major" != "" ] \
+     && [ "$major" != "99" ] && [ "$major" -ge 27 ] 2>/dev/null; then
+    xmpp_applies_to_linux=1
+  elif [ -n "$canonical_xmpp" ] && [ "$major" = "99" ]; then
+    # master / maint / master:<sha>: always OTP-27+ in current era.
+    xmpp_applies_to_linux=1
+  fi
+
   if [ "$FILL_MODE" = "1" ]; then
     for plat in linux macos windows; do
-      plat_missing=1
-      if [ -n "$INPUT_BENCHMARKS" ] && [ -n "$EXISTING_BENCHEES" ]; then
-        # All requested benchmarks present for this platform?
-        plat_missing=0
-        IFS=',' read -ra benches <<<"$INPUT_BENCHMARKS"
+      missing_list=""
+      if [ -n "$canonical_synthetic" ]; then
+        # Per-benchmark check against the canonical set. When no
+        # gh-pages tree was probed (EXISTING_BENCHEES empty), treat
+        # EVERY canonical name as missing — fresh-fill case.
+        IFS=',' read -ra benches <<<"$canonical_synthetic"
         for b in "${benches[@]}"; do
-          if ! grep -qE "_${short}-test-${plat}-[^/]+/${b}\.benchee$" \
-                <<<"$EXISTING_BENCHEES"; then
-            plat_missing=1
-            break
+          [ -z "$b" ] && continue
+          if [ -z "$EXISTING_BENCHEES" ] \
+             || ! grep -qE "_${short}-test-${plat}-[^/]+/${b}\.benchee$" \
+                  <<<"$EXISTING_BENCHEES"; then
+            missing_list="${missing_list}${missing_list:+,}${b}"
           fi
         done
       else
-        # Any run-dir present for this platform?
-        if grep -q "_${short}-test-${plat}-" <<<"$EXISTING_RUNDIRS"; then
-          plat_missing=0
+        # Legacy fallback when no canonical list available
+        # (local invocations, old workflow paths): "any rundir
+        # present = this platform is done". Match the pre-canonical
+        # behaviour; the missing_list sentinel ALL-MISSING marks
+        # "we don't know which specific benchmarks, just that
+        # something needs to run".
+        if [ -z "$EXISTING_RUNDIRS" ] \
+           || ! grep -q "_${short}-test-${plat}-" <<<"$EXISTING_RUNDIRS"; then
+          missing_list="ALL"
         fi
       fi
+
+      case "$plat" in
+        linux)   benchmarks_linux="$missing_list" ;;
+        macos)   benchmarks_macos="$missing_list" ;;
+        windows) benchmarks_windows="$missing_list" ;;
+      esac
+
+      plat_missing=1
+      [ -z "$missing_list" ] && plat_missing=0
+
       case "$plat" in
         linux)   need_linux=$plat_missing ;;
         macos)   need_macos=$plat_missing ;;
         windows) need_windows=$plat_missing ;;
       esac
     done
-    if [ "$need_linux" = "0" ] && [ "$need_macos" = "0" ] && [ "$need_windows" = "0" ]; then
+
+    # Replace the `ALL` sentinel with "" so the measure step sees
+    # an empty --benchmarks filter (= run the full suite) — same
+    # legacy semantics as before this refactor.
+    [ "$benchmarks_linux" = "ALL" ] && benchmarks_linux=""
+    [ "$benchmarks_macos" = "ALL" ] && benchmarks_macos=""
+    [ "$benchmarks_windows" = "ALL" ] && benchmarks_windows=""
+
+    # Separate per-target XMPP gate: needs_xmpp=1 iff XMPP applies
+    # to this ref's major AND no dynamic_domains_pm.benchee exists
+    # on gh-pages for any (sha, linux-*) rundir.
+    if [ "$xmpp_applies_to_linux" = "1" ] && [ -n "$EXISTING_BENCHEES" ]; then
+      IFS=',' read -ra xmpp_benches <<<"$canonical_xmpp"
+      for xb in "${xmpp_benches[@]}"; do
+        [ -z "$xb" ] && continue
+        if ! grep -qE "_${short}-test-linux-[^/]+/${xb}\.benchee$" \
+              <<<"$EXISTING_BENCHEES"; then
+          needs_xmpp=1
+          break
+        fi
+      done
+    fi
+
+    if [ "$need_linux" = "0" ] && [ "$need_macos" = "0" ] \
+       && [ "$need_windows" = "0" ] && [ "$needs_xmpp" = "0" ]; then
       echo "[fill] $ref ($short) already complete on gh-pages — skipping" >&2
       continue
     fi
     missing=""
-    [ "$need_linux"   = "1" ] && missing="${missing} linux"
-    [ "$need_macos"   = "1" ] && missing="${missing} macos"
-    [ "$need_windows" = "1" ] && missing="${missing} windows"
+    [ "$need_linux"   = "1" ] && missing="${missing} linux(${benchmarks_linux})"
+    [ "$need_macos"   = "1" ] && missing="${missing} macos(${benchmarks_macos})"
+    [ "$need_windows" = "1" ] && missing="${missing} windows(${benchmarks_windows})"
+    [ "$needs_xmpp"   = "1" ] && missing="${missing} xmpp"
     echo "[fill] $ref ($short) needs:${missing}" >&2
   fi
 
@@ -415,20 +508,39 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
     windows_otp_label="$otp_label"
   fi
 
-  entry="{\"ref\":\"$ref\",\"windows_ref\":\"$windows_ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"windows_otp_label\":\"$windows_otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\",\"mode\":\"$mode\"}"
+  entry_base="\"ref\":\"$ref\",\"windows_ref\":\"$windows_ref\",\"sha\":\"$sha\",\"short\":\"$short\",\"label\":\"$label\",\"major\":\"$major\",\"otp_label\":\"$otp_label\",\"windows_otp_label\":\"$windows_otp_label\",\"elixir\":\"$elixir\",\"elixir_bundle\":\"$elixir_bundle\",\"commit_timestamp\":\"$commit_timestamp\",\"extra_configure\":\"$extra_configure\",\"mode\":\"$mode\""
 
-  if [ "$need_linux" = "1" ]; then
-    linux_entries="${linux_entries}${sep_linux}${entry}"
+  # Per-platform target entries carry their platform's missing-bench
+  # list as `benchmarks` so the measure job runs `--benchmarks <list>`
+  # and skips already-published ones. Empty string = "no canonical
+  # filter, run the full suite" (the workflow's measure step has its
+  # own empty-list-skip-the-step gate when fill detection produces
+  # no missing names).
+  # linux entry also carries `needs_xmpp` so measure-xmpp-linux can
+  # gate its own measurement.
+  needs_xmpp_str=$([ "$needs_xmpp" = "1" ] && echo "true" || echo "false")
+  # `skip_synthetic` flips on when this linux target was queued ONLY
+  # because XMPP is missing (need_linux=0, needs_xmpp=1). Without
+  # this, measure-linux would re-run the full synthetic suite on a
+  # SHA that's already complete on the synthetic side. The flag
+  # gates the synthetic measure step at the workflow level.
+  skip_synthetic_str=$([ "$need_linux" = "0" ] && [ "$needs_xmpp" = "1" ] && echo "true" || echo "false")
+  linux_entry="{${entry_base},\"benchmarks\":\"$benchmarks_linux\",\"needs_xmpp\":$needs_xmpp_str,\"skip_synthetic\":$skip_synthetic_str}"
+  macos_entry="{${entry_base},\"benchmarks\":\"$benchmarks_macos\"}"
+  windows_entry="{${entry_base},\"benchmarks\":\"$benchmarks_windows\"}"
+
+  if [ "$need_linux" = "1" ] || [ "$needs_xmpp" = "1" ]; then
+    linux_entries="${linux_entries}${sep_linux}${linux_entry}"
     sep_linux=","
     if [ "$mode" = "modern" ]; then n_modern_linux=$((n_modern_linux+1)); else n_legacy_linux=$((n_legacy_linux+1)); fi
   fi
   if [ "$need_macos" = "1" ]; then
-    macos_entries="${macos_entries}${sep_macos}${entry}"
+    macos_entries="${macos_entries}${sep_macos}${macos_entry}"
     sep_macos=","
     if [ "$mode" = "modern" ]; then n_modern_macos=$((n_modern_macos+1)); else n_legacy_macos=$((n_legacy_macos+1)); fi
   fi
   if [ "$need_windows" = "1" ]; then
-    windows_entries="${windows_entries}${sep_windows}${entry}"
+    windows_entries="${windows_entries}${sep_windows}${windows_entry}"
     sep_windows=","
     if [ "$mode" = "modern" ]; then n_modern_windows=$((n_modern_windows+1)); else n_legacy_windows=$((n_legacy_windows+1)); fi
   fi

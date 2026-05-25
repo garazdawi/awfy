@@ -43,8 +43,15 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       out = run(tmp, "OTP-28.5")
 
       assert [%{"ref" => "OTP-28.5", "mode" => "modern"}] = out["targets_modern_linux"]
-      assert out["targets_modern_macos"] == out["targets_modern_linux"]
-      assert out["targets_modern_windows"] == out["targets_modern_linux"]
+      # Per-platform entries differ only in linux-specific fields
+      # (`needs_xmpp`, `skip_synthetic`); the shared ref/sha/label
+      # fields match across platforms.
+      [linux] = out["targets_modern_linux"]
+      [macos] = out["targets_modern_macos"]
+      [windows] = out["targets_modern_windows"]
+      assert linux["sha"] == macos["sha"]
+      assert linux["sha"] == windows["sha"]
+      assert linux["label"] == macos["label"]
       assert out["targets_legacy_linux"] == []
       assert out["targets_legacy_macos"] == []
       assert out["targets_legacy_windows"] == []
@@ -109,6 +116,107 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert length(out["targets_modern_linux"]) == 1
       assert length(out["targets_modern_macos"]) == 1
       assert length(out["targets_modern_windows"]) == 1
+    end
+  end
+
+  describe "canonical benchmark set + per-target missing list" do
+    @sha String.duplicate("c", 40)
+
+    test "in fill mode with no existing rundirs, missing = full canonical set", %{tmp: tmp} do
+      out = run(tmp, "OTP-28.5",
+        fill_mode: "1",
+        canonical_synthetic: "Bounce,CD,phash2",
+        canonical_xmpp: ""
+      )
+
+      [linux] = out["targets_modern_linux"]
+      assert linux["benchmarks"] == "Bounce,CD,phash2"
+    end
+
+    test "in fill mode, missing = canonical minus what's already on gh-pages", %{tmp: tmp} do
+      # Bounce + CD already published for this SHA; phash2 missing.
+      # The resolver should emit benchmarks="phash2" so the matrix
+      # only re-measures the missing one, not the full set.
+      out = run(tmp, "OTP-28.5",
+        fill_mode: "1",
+        canonical_synthetic: "Bounce,CD,phash2",
+        canonical_xmpp: "",
+        existing_rundirs: [
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit"
+        ],
+        existing_benchees: [
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit/Bounce.benchee",
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit/CD.benchee"
+        ]
+      )
+
+      [linux] = out["targets_modern_linux"]
+      assert linux["benchmarks"] == "phash2"
+    end
+
+    test "in fill mode, all canonical present → ref skipped entirely", %{tmp: tmp} do
+      out = run(tmp, "OTP-28.5",
+        fill_mode: "1",
+        canonical_synthetic: "Bounce",
+        canonical_xmpp: "",
+        existing_rundirs: [
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit"
+        ],
+        existing_benchees:
+          for plat <- ["linux", "macos", "windows"] do
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-#{plat}-x86_64-jit/Bounce.benchee"
+          end
+      )
+
+      assert out["targets_modern_linux"] == []
+      assert out["targets_modern_macos"] == []
+      assert out["targets_modern_windows"] == []
+    end
+
+    test "needs_xmpp=true when dynamic_domains_pm missing on linux", %{tmp: tmp} do
+      out = run(tmp, "master:#{@sha}",
+        fill_mode: "1",
+        canonical_synthetic: "Bounce",
+        canonical_xmpp: "dynamic_domains_pm",
+        existing_rundirs: [
+          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-x86_64-jit"
+        ],
+        existing_benchees: [
+          # Bounce present on linux, but no dynamic_domains_pm anywhere
+          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-x86_64-jit/Bounce.benchee",
+          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-arm64-jit/Bounce.benchee",
+          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-macos-arm64-jit/Bounce.benchee"
+        ]
+      )
+
+      [linux] = out["targets_modern_linux"]
+      # Synthetic complete → no synthetic re-run, but XMPP missing.
+      assert linux["benchmarks"] == ""
+      assert linux["needs_xmpp"] == true
+      # skip_synthetic flips on so measure-linux doesn't re-measure
+      # the already-complete synthetic suite.
+      assert linux["skip_synthetic"] == true
+    end
+
+    test "no INPUT_BENCHMARKS + no canonical = legacy 'any rundir = done'", %{tmp: tmp} do
+      # Backward-compat path: when bench.yml's resolve job doesn't
+      # set CANONICAL_SYNTHETIC (local invocations, old workflow
+      # paths), fall back to the pre-canonical "any rundir present
+      # = skip" check.
+      out = run(tmp, "OTP-28.5",
+        fill_mode: "1",
+        canonical_synthetic: "",
+        canonical_xmpp: "",
+        existing_rundirs: [
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit",
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-macos-arm64-jit",
+          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-windows-x86_64-jit"
+        ]
+      )
+
+      assert out["targets_modern_linux"] == []
+      assert out["targets_modern_macos"] == []
+      assert out["targets_modern_windows"] == []
     end
   end
 
@@ -237,18 +345,23 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   defp run(tmp, refs, opts \\ []) do
     fill_mode = Keyword.get(opts, :fill_mode, "0")
     existing_rundirs = Keyword.get(opts, :existing_rundirs, [])
+    existing_benchees = Keyword.get(opts, :existing_benchees, [])
+    canonical_synthetic = Keyword.get(opts, :canonical_synthetic, "")
+    canonical_xmpp = Keyword.get(opts, :canonical_xmpp, "")
 
     output_file = Path.join(tmp, "github_output")
     File.write!(output_file, "")
 
-    install_stubs(tmp, existing_rundirs)
+    install_stubs(tmp, existing_rundirs, existing_benchees)
 
     env = [
       {"PATH", "#{tmp}:#{System.get_env("PATH")}"},
       {"GITHUB_OUTPUT", output_file},
       {"GITHUB_REPOSITORY", "test/awfy"},
       {"FILL_MODE", fill_mode},
-      {"INPUT_BENCHMARKS", Keyword.get(opts, :input_benchmarks, "")}
+      {"INPUT_BENCHMARKS", Keyword.get(opts, :input_benchmarks, "")},
+      {"CANONICAL_SYNTHETIC", canonical_synthetic},
+      {"CANONICAL_XMPP", canonical_xmpp}
     ]
 
     {log, status} =
@@ -281,7 +394,7 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     end)
   end
 
-  defp install_stubs(tmp, existing_rundirs) do
+  defp install_stubs(tmp, existing_rundirs, existing_benchees) do
     # `git ls-remote` returns "<sha>\t<refname>"; pick our canned SHA
     # based on the ref in argv. Falls back to a zero SHA so an
     # unmapped ref doesn't silently match a real one.
@@ -312,7 +425,20 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     # `_<sha10>-test-` so we just print each entry on its own line.
     # `gh api repos/erlang/otp/commits/<sha>` returns commit metadata;
     # we hand back {} so the timestamp lookup degrades to empty.
+    # `gh api ... git/trees/gh-pages?recursive=1` returns a list of
+    # benchmark file paths (.benchee blobs) — newer per-benchmark
+    # skip check reads this to compute the missing set.
     rundirs_str = Enum.join(existing_rundirs, "\n")
+
+    # `git/trees/gh-pages?recursive=1` returns a JSON tree object;
+    # the real script does `jq -r '.tree[]? | select(.type=="blob") | .path'`
+    # to extract benchee paths, so the stub has to emit valid JSON.
+    tree_json =
+      Jason.encode!(%{
+        "tree" =>
+          Enum.map(existing_benchees, fn path -> %{"path" => path, "type" => "blob"} end),
+        "truncated" => false
+      })
 
     gh_body = """
     args="$*"
@@ -321,7 +447,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
         printf '%s\\n' "#{rundirs_str}"
         ;;
       *git/trees/gh-pages*)
-        echo '{}'
+        cat <<'GH_TREE_JSON_EOF'
+    #{tree_json}
+    GH_TREE_JSON_EOF
         ;;
       *commits/*)
         echo '{}'

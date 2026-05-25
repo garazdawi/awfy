@@ -211,6 +211,29 @@ jobs:
               # force a full smoke matrix.
               - 'test/compare/**'
               - 'test/dashboard.test.js'
+      # setup-beam + mix compile so the resolver can ask each
+      # measure task `--dry-run` what .benchee filenames it would
+      # produce. Used by bin/resolve-fill-needs.sh's per-benchmark
+      # skip check — single source of truth (the measure tasks'
+      # filter code) instead of a separately-maintained canonical
+      # list. ~1 min overhead per resolve, run once per workflow.
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+      - name: mix compile (for dry-runs)
+        run: |
+          mix deps.get
+          mix compile
+      - id: canonical
+        name: Canonical benchmark list (from measure --dry-run)
+        run: |
+          synthetic="$(mix awfy.measure --dry-run | tr '\n' ',' | sed 's/,$//')"
+          xmpp="$(mix awfy.measure_xmpp --dry-run | tr '\n' ',' | sed 's/,$//')"
+          echo "synthetic=$synthetic" >> "$GITHUB_OUTPUT"
+          echo "xmpp=$xmpp" >> "$GITHUB_OUTPUT"
+          echo "[canonical] synthetic: $synthetic"
+          echo "[canonical] xmpp:      $xmpp"
       - id: r
         env:
           # Three triggers, three default scopes:
@@ -228,6 +251,10 @@ jobs:
           INPUT_RUNNER_POOL: >-
             ${{ github.event_name == 'push' && 'gha' ||
                 (inputs.runner_pool || 'gha') }}
+          # Canonical benchmark filenames, fed into resolve-fill-needs.sh
+          # for per-target missing-set computation.
+          CANONICAL_SYNTHETIC: ${{ steps.canonical.outputs.synthetic }}
+          CANONICAL_XMPP: ${{ steps.canonical.outputs.xmpp }}
           # Needed for the per-target commit-timestamp lookup; the
           # default GHA token is fine since erlang/otp is public.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -635,11 +662,18 @@ jobs:
             "ghcr.io/${{ github.repository }}:${{ matrix.target.sha }}-${{ matrix.arch.name }}" \
             awfy.preflight || true
       - name: Measure (${{ matrix.flavor }})
+        # Skip synthetic measure when fill-detection says this target
+        # was queued only because XMPP is missing for the same SHA —
+        # otherwise we'd re-measure a synthetic suite that's already
+        # complete on gh-pages. See bin/resolve-fill-needs.sh's
+        # `skip_synthetic` emission. The same job's measure-xmpp leg
+        # (a separate workflow job) does the XMPP work.
+        if: matrix.target.skip_synthetic != true
         env:
           ERL_FLAGS_VAL: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          BENCHMARKS: ${{ matrix.target.benchmarks }}
           # CPU pinning only matters on AWS — c6i hyperthread sibling
           # of vCPU 0 is vCPU 8 (left idle by the cpuset mask), giving
           # the physical core no contention. On Graviton 3 there's no
@@ -667,6 +701,7 @@ jobs:
               --ignore-preflight \
               $BENCH_ARG
       - uses: actions/upload-artifact@v7
+        if: matrix.target.skip_synthetic != true
         with:
           name: results-${{ matrix.target.short }}-linux-${{ matrix.arch.name }}-${{ matrix.flavor }}
           path: results/
@@ -809,7 +844,7 @@ jobs:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          BENCHMARKS: ${{ matrix.target.benchmarks }}
           RUNNER_POOL: ${{ needs.resolve.outputs.runner_pool }}
         run: |
           # CPU pinning on AWS only: pin the PowerShell process (and
@@ -937,7 +972,7 @@ jobs:
           ERL_FLAGS: ${{ matrix.flavor == 'emu' && '-emu_flavor emu' || '' }}
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          BENCHMARKS: ${{ matrix.target.benchmarks }}
         run: |
           BENCH_ARG=""
           if [ -n "$BENCHMARKS" ]; then
@@ -1036,7 +1071,7 @@ jobs:
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          BENCHMARKS: ${{ matrix.target.benchmarks }}
           CPU_PIN: ${{ needs.resolve.outputs.runner_pool == 'aws' && 'taskset -c 0' || '' }}
         run: |
           BENCH_ARG=""
@@ -1156,7 +1191,7 @@ jobs:
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.windows_otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          BENCHMARKS: ${{ matrix.target.benchmarks }}
           RUNNER_POOL: ${{ needs.resolve.outputs.runner_pool }}
         run: |
           if ($env:RUNNER_POOL -eq 'aws') {
@@ -1246,7 +1281,7 @@ jobs:
         env:
           AWFY_OTP_COMMIT_TIMESTAMP: ${{ matrix.target.commit_timestamp }}
           AWFY_OTP_VERSION: ${{ matrix.target.otp_label }}
-          BENCHMARKS: ${{ needs.resolve.outputs.benchmarks }}
+          BENCHMARKS: ${{ matrix.target.benchmarks }}
         run: |
           BENCH_ARG=""
           if [ -n "$BENCHMARKS" ]; then
@@ -1304,7 +1339,7 @@ jobs:
     runs-on: ${{ matrix.arch.gha_runner }}
     timeout-minutes: 45
     steps:
-      - name: Skip OTP < 27 (MongooseIM dropped 26 upstream)
+      - name: Skip OTP < 27 or fill says no XMPP needed
         id: gate
         run: |
           # MongooseIM 6.6.5 officially dropped OTP 26, and the
@@ -1319,6 +1354,19 @@ jobs:
           if [ "$OTP_MAJOR" -lt 27 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "OTP ${{ matrix.target.otp_label }} (major=$OTP_MAJOR) is < 27 — MongooseIM dropped 26 in 6.6.5; the pinned 6.6.0 tree also fails to build on 26 (-doc attr). XMPP bench skipped."
+            exit 0
+          fi
+
+          # Fill-mode skip: when bin/resolve-fill-needs.sh's
+          # `needs_xmpp` flag for this target is `false`, the XMPP
+          # measurement is already on gh-pages and there's nothing
+          # to backfill. Outside fill mode this field doesn't get
+          # set; we treat absent/empty as `true` (legacy "always run"
+          # behaviour) so push/dispatch flows still measure.
+          NEEDS_XMPP='${{ matrix.target.needs_xmpp }}'
+          if [ "$NEEDS_XMPP" = "false" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "XMPP already measured for this SHA — fill skip"
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
