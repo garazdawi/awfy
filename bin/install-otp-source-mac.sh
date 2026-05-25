@@ -33,6 +33,17 @@ set -euo pipefail
 REF="${1:?git ref required}"
 PREFIX_BASE="${2:-$HOME/.local/otp}"
 
+# Strip the AWFY-internal `master:` prefix that the resolve step in
+# bin/expand-otp-refs.sh emits for per-merge tracking
+# (PLAN/INFRA_REFACTOR.md follow-up — master_history tracking).
+# Downstream pipelines (SHA-detection at line 51, fetch-otp-source.sh's
+# `head_sha=$SHA` query, the OTP_MAJOR case) all expect either an
+# OTP tag, a branch name, or a bare 40-hex SHA — the colon-prefixed
+# form is an upstream signal we collapse here.
+case "$REF" in
+    master:*) REF="${REF#master:}" ;;
+esac
+
 # Resolve the awfy repo root up front. We `cd "$SRC"` further down
 # before invoking the target-beam compile, so $0-relative paths stop
 # resolving correctly past that point — pin AWFY_ROOT here while CWD

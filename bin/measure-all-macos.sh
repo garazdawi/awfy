@@ -92,9 +92,12 @@ elixir_for_major() {
 
 ref_major() {
   case "$1" in
-    OTP-*)        echo "${1#OTP-}" | cut -d. -f1 ;;
-    master|maint) echo 99 ;;
-    *)            echo "$1" | cut -d. -f1 ;;
+    OTP-*)             echo "${1#OTP-}" | cut -d. -f1 ;;
+    # `master:<sha>` is the master-history per-merge ref shape
+    # (bin/expand-otp-refs.sh, master_history mode). Route through
+    # the same modern-path major code as plain `master`/`maint`.
+    master|maint|master:*) echo 99 ;;
+    *)                 echo "$1" | cut -d. -f1 ;;
   esac
 }
 
@@ -114,10 +117,14 @@ ref_full_version() {
   # collapse to the version, branches pass through verbatim so master /
   # maint land at the right edge of the trend chart and aren't filtered
   # out by the stability page's `r.otp == "master"` check.
+  # `master:<sha>` (master-history form) collapses to "master" so each
+  # merge run lands in the same dashboard column; per-merge identity
+  # is preserved via the run-dir's sha10-bearing label.
   case "$ref" in
-    OTP-*)               echo "${ref#OTP-}" ;;
+    OTP-*)                echo "${ref#OTP-}" ;;
+    master:*)             echo "master" ;;
     master|maint|maint-*) echo "$ref" ;;
-    *)                   echo "$ref" ;;
+    *)                    echo "$ref" ;;
   esac
 }
 
@@ -126,6 +133,10 @@ resolve_sha10() {
   case "$ref" in
     master|maint)
       sha=$(git ls-remote https://github.com/erlang/otp.git "refs/heads/$ref" | cut -f1) ;;
+    # `master:<sha>` carries the pinned commit verbatim — strip the
+    # prefix and use it directly, skipping the ls-remote round-trip.
+    master:*)
+      sha="${ref#master:}" ;;
     *)
       sha=$(git ls-remote https://github.com/erlang/otp.git "$ref^{}" | head -1 | cut -f1)
       [ -z "$sha" ] && sha=$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1) ;;
