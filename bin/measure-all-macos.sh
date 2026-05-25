@@ -113,7 +113,7 @@ ref_major() {
 # time.
 ref_full_version() {
   local ref="$1"
-  # Mirror GHA's `otp_label` contract (see resolve-fill-needs.sh): tags
+  # Mirror GHA's `otp_label` contract (see `Awfy.Fill.Resolve`): tags
   # collapse to the version, branches pass through verbatim so master /
   # maint land at the right edge of the trend chart and aren't filtered
   # out by the stability page's `r.otp == "master"` check.
@@ -148,7 +148,7 @@ resolve_sha10() {
 # AWFY_OTP_COMMIT_TIMESTAMP so the dashboard's trend chart plots
 # each macOS measurement against the OTP commit's point in time
 # rather than clustering every refill at "today". Mirrors the
-# resolve-fill-needs.sh logic for the GHA path. Falls back to
+# `Awfy.Fill.Resolve` logic for the GHA path. Falls back to
 # empty (mix awfy.measure then uses wall-clock — same behaviour
 # as before this function existed) if `gh` isn't installed, the
 # user isn't logged in, or the API call fails. 10-char SHAs are
@@ -322,7 +322,7 @@ for ref in $REFS; do
   sha10=$(resolve_sha10 "$ref")
   echo "  major=$major sha10=$sha10"
 
-  # Mirror the CI extra_configure rule from resolve-fill-needs.sh:
+  # Mirror the CI extra_configure rule from `Awfy.Fill.Resolve`:
   # OTP < 24's crypto NIF references OpenSSL 1.1 APIs (e.g.
   # RSA_SSLV23_PADDING, RSA_padding_add_SSLv23) that OpenSSL 3
   # removed. Homebrew's openssl@3 — what install-otp-source-mac.sh

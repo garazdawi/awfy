@@ -3,28 +3,25 @@
 
 defmodule Awfy.Fill.ResolveFillNeedsTest do
   @moduledoc """
-  Tests for `bin/resolve-fill-needs.sh` — the resolver that turns a
+  Tests for `Awfy.Fill.Resolve` — the resolver that turns a
   comma-separated list of expanded OTP refs into the per-(mode,
   platform) JSON arrays + has_* booleans the bench.yml workflow
   matrices and job gates consume.
 
-  Network calls (`git ls-remote`, `gh api`, `curl`) are stubbed by
-  prepending a temp dir with fake binaries to `PATH`. The fake
-  binaries print canned responses based on their argv so the
-  resolver's pure logic (per-platform skip check, modern/legacy
-  split, union-by-major, windows_ref mapping) can be exercised
-  hermetically.
+  External commands (`git`, `gh`, helper scripts) are stubbed by
+  passing a fake shell function via the `:shell` option. The fake
+  pattern-matches on argv and returns canned `{output, exit_code}`
+  tuples so the resolver's pure logic (per-platform skip check,
+  modern/legacy split, union-by-major, windows_ref mapping,
+  master:<sha> cap) runs hermetically and in-process.
   """
 
   use ExUnit.Case, async: true
 
-  Code.require_file("shell_test_helper.exs", __DIR__)
-  alias Awfy.Fill.ShellTestHelper
+  alias Awfy.Fill.Resolve
 
-  @script Path.expand("../../bin/resolve-fill-needs.sh", __DIR__)
-
-  # Realistic-ish SHAs so the per-(ref, platform) skip-check grep
-  # (`_<sha10>-test-`) has something stable to match against.
+  # Realistic-ish SHAs so the per-(ref, platform) skip-check
+  # regex (`_<sha10>-test-`) has something stable to match against.
   @shas %{
     "OTP-20.3" => "a113f6117fd696ea6f84ed754055b4ec97a7ccb2",
     "OTP-21.3.8.24" => "2735ffc3d883afa727569fa5becba3d32e262ace",
@@ -34,13 +31,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     "OTP-28.5" => "f4506ee46d68694a1d23ca81c314092fd83e8f85"
   }
 
-  setup do
-    {:ok, tmp: ShellTestHelper.setup_stub_dir("awfy-resolve-test")}
-  end
-
   describe "modern/legacy partition" do
-    test "single modern OTP ref lands in modern_* only", %{tmp: tmp} do
-      out = run(tmp, "OTP-28.5")
+    test "single modern OTP ref lands in modern_* only" do
+      out = run("OTP-28.5")
 
       assert [%{"ref" => "OTP-28.5", "mode" => "modern"}] = out["targets_modern_linux"]
       # Per-platform entries differ only in linux-specific fields
@@ -60,8 +53,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert out["has_legacy_build"] == "false"
     end
 
-    test "single legacy (< 24) OTP ref lands in legacy_* only", %{tmp: tmp} do
-      out = run(tmp, "OTP-21.3.8.24")
+    test "single legacy (< 24) OTP ref lands in legacy_* only" do
+      out = run("OTP-21.3.8.24")
 
       assert [%{"ref" => "OTP-21.3.8.24", "mode" => "legacy"}] = out["targets_legacy_linux"]
       assert out["targets_modern_linux"] == []
@@ -70,8 +63,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert out["has_legacy_build"] == "true"
     end
 
-    test "mixed modern + legacy refs are partitioned by major", %{tmp: tmp} do
-      out = run(tmp, "OTP-21.3.8.24,OTP-28.5")
+    test "mixed modern + legacy refs are partitioned by major" do
+      out = run("OTP-21.3.8.24,OTP-28.5")
 
       assert [%{"ref" => "OTP-21.3.8.24"}] = out["targets_legacy_linux"]
       assert [%{"ref" => "OTP-28.5"}] = out["targets_modern_linux"]
@@ -81,8 +74,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   describe "master:<sha> (master-history) refs" do
     @history_sha String.duplicate("a", 40)
 
-    test "lands in modern_* with otp_label=master + bare SHA windows_ref", %{tmp: tmp} do
-      out = run(tmp, "master:#{@history_sha}")
+    test "lands in modern_* with otp_label=master + bare SHA windows_ref" do
+      out = run("master:#{@history_sha}")
 
       [linux] = out["targets_modern_linux"]
       assert linux["ref"] == "master:#{@history_sha}"
@@ -100,10 +93,10 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert windows["windows_otp_label"] == "master"
     end
 
-    test "every merge gets a distinct short label (one row per merge)", %{tmp: tmp} do
+    test "every merge gets a distinct short label (one row per merge)" do
       a = String.duplicate("a", 40)
       b = String.duplicate("b", 40)
-      out = run(tmp, "master:#{a},master:#{b}")
+      out = run("master:#{a},master:#{b}")
 
       shorts = Enum.map(out["targets_modern_linux"], & &1["short"])
       assert "aaaaaaaaaa" in shorts
@@ -111,8 +104,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert length(shorts) == 2
     end
 
-    test "all platforms see the same merge (no platform-skipping at resolve time)", %{tmp: tmp} do
-      out = run(tmp, "master:#{@history_sha}")
+    test "all platforms see the same merge (no platform-skipping at resolve time)" do
+      out = run("master:#{@history_sha}")
       assert length(out["targets_modern_linux"]) == 1
       assert length(out["targets_modern_macos"]) == 1
       assert length(out["targets_modern_windows"]) == 1
@@ -134,9 +127,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
 
     defp master_refs(shas), do: Enum.map_join(shas, ",", &"master:#{&1}")
 
-    test "drops master:<sha> entries beyond the cap (oldest-first kept)", %{tmp: tmp} do
+    test "drops master:<sha> entries beyond the cap (oldest-first kept)" do
       shas = gen_shas(7)
-      out = run(tmp, master_refs(shas), max_master_merges: 3)
+      out = run(master_refs(shas), max_master_merges: 3)
 
       kept = Enum.map(out["targets_modern_linux"], & &1["sha"])
       assert length(kept) == 3
@@ -145,25 +138,25 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert kept == Enum.take(shas, 3)
     end
 
-    test "cap counts unique SHAs, not per-platform entries", %{tmp: tmp} do
+    test "cap counts unique SHAs, not per-platform entries" do
       # Three master SHAs, cap=3, no fill skip → each lands on all
       # three platforms = 9 platform entries total, but only 3 SHAs
       # consumed the cap.
       shas = gen_shas(3)
-      out = run(tmp, master_refs(shas), max_master_merges: 3)
+      out = run(master_refs(shas), max_master_merges: 3)
 
       assert length(out["targets_modern_linux"]) == 3
       assert length(out["targets_modern_macos"]) == 3
       assert length(out["targets_modern_windows"]) == 3
     end
 
-    test "maint-tip refs aren't subject to the cap", %{tmp: tmp} do
+    test "maint-tip refs aren't subject to the cap" do
       # Five master:<sha> + two OTP tags, cap=2. The two OTP tags
       # should land regardless of how full the master cap is.
       master_shas = gen_shas(5)
       refs = master_refs(master_shas) <> ",OTP-21.3.8.24,OTP-28.5"
 
-      out = run(tmp, refs, max_master_merges: 2)
+      out = run(refs, max_master_merges: 2)
 
       assert length(out["targets_modern_linux"]) == 2 + 1
       # Both OTP-* refs land in their respective mode arrays.
@@ -179,7 +172,7 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert kept_master == Enum.take(master_shas, 2)
     end
 
-    test "already-done master:<sha> don't consume cap slots", %{tmp: tmp} do
+    test "already-done master:<sha> don't consume cap slots" do
       # Five master SHAs; the first two are already complete on
       # gh-pages. Cap=3. We expect the three later ones (which still
       # need work) to land — the cap restricts new work, not total
@@ -200,8 +193,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
         end
 
       out =
-        run(tmp, master_refs([done_a, done_b | rest]),
-          fill_mode: "1",
+        run(master_refs([done_a, done_b | rest]),
+          fill_mode: true,
           canonical_synthetic: "Bounce",
           canonical_xmpp: "",
           max_master_merges: 3,
@@ -213,9 +206,9 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert kept == rest
     end
 
-    test "MAX_MASTER_MERGES=0 disables the cap", %{tmp: tmp} do
+    test "MAX_MASTER_MERGES=0 disables the cap" do
       shas = gen_shas(8)
-      out = run(tmp, master_refs(shas), max_master_merges: 0)
+      out = run(master_refs(shas), max_master_merges: 0)
       assert length(out["targets_modern_linux"]) == 8
     end
   end
@@ -223,72 +216,76 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   describe "canonical benchmark set + per-target missing list" do
     @sha String.duplicate("c", 40)
 
-    test "in fill mode with no existing rundirs, missing = full canonical set", %{tmp: tmp} do
-      out = run(tmp, "OTP-28.5",
-        fill_mode: "1",
-        canonical_synthetic: "Bounce,CD,phash2",
-        canonical_xmpp: ""
-      )
+    test "in fill mode with no existing rundirs, missing = full canonical set" do
+      out =
+        run("OTP-28.5",
+          fill_mode: true,
+          canonical_synthetic: "Bounce,CD,phash2",
+          canonical_xmpp: ""
+        )
 
       [linux] = out["targets_modern_linux"]
       assert linux["benchmarks"] == "Bounce,CD,phash2"
     end
 
-    test "in fill mode, missing = canonical minus what's already on gh-pages", %{tmp: tmp} do
+    test "in fill mode, missing = canonical minus what's already on gh-pages" do
       # Bounce + CD already published for this SHA; phash2 missing.
       # The resolver should emit benchmarks="phash2" so the matrix
       # only re-measures the missing one, not the full set.
-      out = run(tmp, "OTP-28.5",
-        fill_mode: "1",
-        canonical_synthetic: "Bounce,CD,phash2",
-        canonical_xmpp: "",
-        existing_rundirs: [
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit"
-        ],
-        existing_benchees: [
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit/Bounce.benchee",
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit/CD.benchee"
-        ]
-      )
+      out =
+        run("OTP-28.5",
+          fill_mode: true,
+          canonical_synthetic: "Bounce,CD,phash2",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit"
+          ],
+          existing_benchees: [
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit/Bounce.benchee",
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit/CD.benchee"
+          ]
+        )
 
       [linux] = out["targets_modern_linux"]
       assert linux["benchmarks"] == "phash2"
     end
 
-    test "in fill mode, all canonical present → ref skipped entirely", %{tmp: tmp} do
-      out = run(tmp, "OTP-28.5",
-        fill_mode: "1",
-        canonical_synthetic: "Bounce",
-        canonical_xmpp: "",
-        existing_rundirs: [
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit"
-        ],
-        existing_benchees:
-          for plat <- ["linux", "macos", "windows"] do
-            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-#{plat}-x86_64-jit/Bounce.benchee"
-          end
-      )
+    test "in fill mode, all canonical present → ref skipped entirely" do
+      out =
+        run("OTP-28.5",
+          fill_mode: true,
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit"
+          ],
+          existing_benchees:
+            for plat <- ["linux", "macos", "windows"] do
+              "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-#{plat}-x86_64-jit/Bounce.benchee"
+            end
+        )
 
       assert out["targets_modern_linux"] == []
       assert out["targets_modern_macos"] == []
       assert out["targets_modern_windows"] == []
     end
 
-    test "needs_xmpp=true when dynamic_domains_pm missing on linux", %{tmp: tmp} do
-      out = run(tmp, "master:#{@sha}",
-        fill_mode: "1",
-        canonical_synthetic: "Bounce",
-        canonical_xmpp: "dynamic_domains_pm",
-        existing_rundirs: [
-          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-x86_64-jit"
-        ],
-        existing_benchees: [
-          # Bounce present on linux, but no dynamic_domains_pm anywhere
-          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-x86_64-jit/Bounce.benchee",
-          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-arm64-jit/Bounce.benchee",
-          "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-macos-arm64-jit/Bounce.benchee"
-        ]
-      )
+    test "needs_xmpp=true when dynamic_domains_pm missing on linux" do
+      out =
+        run("master:#{@sha}",
+          fill_mode: true,
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "dynamic_domains_pm",
+          existing_rundirs: [
+            "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-x86_64-jit"
+          ],
+          existing_benchees: [
+            # Bounce present on linux, but no dynamic_domains_pm anywhere
+            "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-x86_64-jit/Bounce.benchee",
+            "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-linux-arm64-jit/Bounce.benchee",
+            "20260101T0000_otp30_elixir1.19.5_cccccccccc-test-macos-arm64-jit/Bounce.benchee"
+          ]
+        )
 
       [linux] = out["targets_modern_linux"]
       # Synthetic complete → no synthetic re-run, but XMPP missing.
@@ -299,21 +296,22 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert linux["skip_synthetic"] == true
     end
 
-    test "no INPUT_BENCHMARKS + no canonical = legacy 'any rundir = done'", %{tmp: tmp} do
+    test "no INPUT_BENCHMARKS + no canonical = legacy 'any rundir = done'" do
       # Backward-compat path: when bench.yml's resolve job doesn't
       # set CANONICAL_SYNTHETIC (local invocations, old workflow
       # paths), fall back to the pre-canonical "any rundir present
       # = skip" check.
-      out = run(tmp, "OTP-28.5",
-        fill_mode: "1",
-        canonical_synthetic: "",
-        canonical_xmpp: "",
-        existing_rundirs: [
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit",
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-macos-arm64-jit",
-          "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-windows-x86_64-jit"
-        ]
-      )
+      out =
+        run("OTP-28.5",
+          fill_mode: true,
+          canonical_synthetic: "",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit",
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-macos-arm64-jit",
+            "20260101T0000_otp28_elixir1.19.5_f4506ee46d-test-windows-x86_64-jit"
+          ]
+        )
 
       assert out["targets_modern_linux"] == []
       assert out["targets_modern_macos"] == []
@@ -322,15 +320,15 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   end
 
   describe "windows_ref legacy mapping" do
-    test "OTP-21.3.8.24 → windows_ref OTP-21.3 (function-release installer)", %{tmp: tmp} do
-      out = run(tmp, "OTP-21.3.8.24")
+    test "OTP-21.3.8.24 → windows_ref OTP-21.3 (function-release installer)" do
+      out = run("OTP-21.3.8.24")
 
       assert [%{"windows_ref" => "OTP-21.3", "windows_otp_label" => "21.3"}] =
                out["targets_legacy_windows"]
     end
 
-    test "modern refs pass windows_ref through unchanged", %{tmp: tmp} do
-      out = run(tmp, "OTP-28.5")
+    test "modern refs pass windows_ref through unchanged" do
+      out = run("OTP-28.5")
 
       assert [%{"windows_ref" => "OTP-28.5", "windows_otp_label" => "28.5"}] =
                out["targets_modern_windows"]
@@ -338,14 +336,14 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   end
 
   describe "targets_legacy_build union" do
-    test "windows-only legacy work still produces a build entry", %{tmp: tmp} do
+    test "windows-only legacy work still produces a build entry" do
       # Pretend OTP-21.3.8.24 already has linux + macos on gh-pages, only
       # windows is missing. The resolver should still emit a legacy_build
       # entry so build-linux-target + prep-target-bundle fire and the
       # downstream measure-windows-target row materialises.
       out =
-        run(tmp, "OTP-21.3.8.24",
-          fill_mode: "1",
+        run("OTP-21.3.8.24",
+          fill_mode: true,
           existing_rundirs: [
             "20260101T0000_otp21_elixir1.11.4_2735ffc3d8-test-linux-x86_64-emu",
             "20260101T0000_otp21_elixir1.11.4_2735ffc3d8-test-macos-arm64-emu"
@@ -359,11 +357,11 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert out["has_legacy_build"] == "true"
     end
 
-    test "deduplicates by major across the three legacy arrays", %{tmp: tmp} do
+    test "deduplicates by major across the three legacy arrays" do
       # OTP-21 appears in macos + windows arrays; expect one entry in build.
       out =
-        run(tmp, "OTP-21.3.8.24",
-          fill_mode: "1",
+        run("OTP-21.3.8.24",
+          fill_mode: true,
           existing_rundirs: [
             "20260101T0000_otp21_elixir1.11.4_2735ffc3d8-test-linux-x86_64-emu"
           ]
@@ -372,8 +370,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert [%{"major" => "21"}] = out["targets_legacy_build"]
     end
 
-    test "multiple legacy majors each get their own build entry", %{tmp: tmp} do
-      out = run(tmp, "OTP-21.3.8.24,OTP-22.3.4.27,OTP-23.3.4.20")
+    test "multiple legacy majors each get their own build entry" do
+      out = run("OTP-21.3.8.24,OTP-22.3.4.27,OTP-23.3.4.20")
 
       majors =
         out["targets_legacy_build"]
@@ -384,8 +382,8 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert out["has_legacy_build"] == "true"
     end
 
-    test "modern-only run leaves legacy_build empty", %{tmp: tmp} do
-      out = run(tmp, "OTP-26.2.5.20,OTP-28.5")
+    test "modern-only run leaves legacy_build empty" do
+      out = run("OTP-26.2.5.20,OTP-28.5")
 
       assert out["targets_legacy_build"] == []
       assert out["has_legacy_build"] == "false"
@@ -393,10 +391,10 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
   end
 
   describe "fill-mode skip check" do
-    test "ref with all three platforms on gh-pages is fully skipped", %{tmp: tmp} do
+    test "ref with all three platforms on gh-pages is fully skipped" do
       out =
-        run(tmp, "OTP-28.5",
-          fill_mode: "1",
+        run("OTP-28.5",
+          fill_mode: true,
           existing_rundirs: [
             "20260101_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit",
             "20260101_otp28_elixir1.19.5_f4506ee46d-test-macos-arm64-jit",
@@ -409,10 +407,10 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert out["targets_modern_windows"] == []
     end
 
-    test "missing one platform → only that platform is in the matrix", %{tmp: tmp} do
+    test "missing one platform → only that platform is in the matrix" do
       out =
-        run(tmp, "OTP-28.5",
-          fill_mode: "1",
+        run("OTP-28.5",
+          fill_mode: true,
           existing_rundirs: [
             "20260101_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit",
             "20260101_otp28_elixir1.19.5_f4506ee46d-test-macos-arm64-jit"
@@ -424,10 +422,10 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert [%{"ref" => "OTP-28.5"}] = out["targets_modern_windows"]
     end
 
-    test "fill_mode off ignores gh-pages contents and runs every platform", %{tmp: tmp} do
+    test "fill_mode off ignores gh-pages contents and runs every platform" do
       out =
-        run(tmp, "OTP-28.5",
-          fill_mode: "0",
+        run("OTP-28.5",
+          fill_mode: false,
           existing_rundirs: [
             "20260101_otp28_elixir1.19.5_f4506ee46d-test-linux-x86_64-jit",
             "20260101_otp28_elixir1.19.5_f4506ee46d-test-macos-arm64-jit",
@@ -443,148 +441,127 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
 
   # --- harness -------------------------------------------------------
 
-  defp run(tmp, refs, opts \\ []) do
-    fill_mode = Keyword.get(opts, :fill_mode, "0")
+  # Call the resolver in-process with a fake shell. We decode the
+  # JSON values it returns so test assertions see Elixir
+  # lists/maps rather than the strings the GHA output file would
+  # contain.
+  defp run(refs, opts \\ []) do
     existing_rundirs = Keyword.get(opts, :existing_rundirs, [])
     existing_benchees = Keyword.get(opts, :existing_benchees, [])
-    canonical_synthetic = Keyword.get(opts, :canonical_synthetic, "")
-    canonical_xmpp = Keyword.get(opts, :canonical_xmpp, "")
 
-    output_file = Path.join(tmp, "github_output")
-    File.write!(output_file, "")
-
-    install_stubs(tmp, existing_rundirs, existing_benchees)
-
-    env = [
-      {"PATH", "#{tmp}:#{System.get_env("PATH")}"},
-      {"GITHUB_OUTPUT", output_file},
-      {"GITHUB_REPOSITORY", "test/awfy"},
-      {"FILL_MODE", fill_mode},
-      {"INPUT_BENCHMARKS", Keyword.get(opts, :input_benchmarks, "")},
-      {"CANONICAL_SYNTHETIC", canonical_synthetic},
-      {"CANONICAL_XMPP", canonical_xmpp},
-      {"MAX_MASTER_MERGES",
-       opts |> Keyword.get(:max_master_merges, 50) |> to_string()}
+    resolver_opts = [
+      fill_mode: Keyword.get(opts, :fill_mode, false),
+      input_benchmarks: Keyword.get(opts, :input_benchmarks, ""),
+      canonical_synthetic: Keyword.get(opts, :canonical_synthetic, ""),
+      canonical_xmpp: Keyword.get(opts, :canonical_xmpp, ""),
+      max_master_merges: Keyword.get(opts, :max_master_merges, 50),
+      github_repository: "test/awfy",
+      shell: fake_shell(existing_rundirs, existing_benchees)
     ]
 
-    {log, status} =
-      System.cmd("bash", [@script, refs], env: env, stderr_to_stdout: true)
-
-    assert status == 0, "resolver exited #{status}:\n#{log}"
-
-    parse_output(output_file)
+    refs
+    |> Resolve.resolve(resolver_opts)
+    |> decode_outputs()
   end
 
-  defp parse_output(path) do
-    path
-    |> File.read!()
-    |> String.split("\n", trim: true)
-    |> Map.new(fn line ->
-      [k, v] = String.split(line, "=", parts: 2)
-
-      # Only the targets_* values are JSON arrays; the has_* booleans
-      # are plain "true"/"false" strings, which Jason.decode would
-      # turn into Elixir booleans — keep them as strings so the
-      # assertions can match the literal GHA output.
-      decoded =
-        case v do
-          "[" <> _ -> Jason.decode!(v)
-          "{" <> _ -> Jason.decode!(v)
-          _ -> v
-        end
-
-      {k, decoded}
+  # The resolver emits targets_* as Jason-encoded strings (so the
+  # CLI wrapper can write them verbatim to $GITHUB_OUTPUT). Decode
+  # back to Elixir terms here so test bodies pattern-match on lists
+  # and maps. has_* booleans stay as the literal "true"/"false"
+  # strings, mirroring what bench.yml's matrix gates compare
+  # against.
+  defp decode_outputs(map) do
+    Map.new(map, fn
+      {"targets_" <> _ = k, v} -> {k, Jason.decode!(v)}
+      {k, v} -> {k, v}
     end)
   end
 
-  defp install_stubs(tmp, existing_rundirs, existing_benchees) do
-    # `git ls-remote` returns "<sha>\t<refname>"; pick our canned SHA
-    # based on the ref in argv. Falls back to a zero SHA so an
-    # unmapped ref doesn't silently match a real one.
-    sha_cases =
-      @shas
-      |> Enum.map(fn {ref, sha} ->
-        "    *#{ref}*) echo -e \"#{sha}\\trefs/tags/#{ref}\" ;;"
-      end)
-      |> Enum.join("\n")
-
-    git_body = """
-    case "$1" in
-      ls-remote)
-        case "$3" in
-    #{sha_cases}
-          *) ;;
-        esac
-        ;;
-      remote)
-        echo "https://github.com/test/awfy.git"
-        ;;
-      *) exit 0 ;;
-    esac
-    """
-
-    # `gh api repos/.../contents?ref=gh-pages` returns one rundir name
-    # per line via `--jq '.[].name'`. The fill probe greps these for
-    # `_<sha10>-test-` so we just print each entry on its own line.
-    # `gh api repos/erlang/otp/commits/<sha>` returns commit metadata;
-    # we hand back {} so the timestamp lookup degrades to empty.
-    # `gh api ... git/trees/gh-pages?recursive=1` returns a list of
-    # benchmark file paths (.benchee blobs) — newer per-benchmark
-    # skip check reads this to compute the missing set.
-    rundirs_str = Enum.join(existing_rundirs, "\n")
-
-    # `git/trees/gh-pages?recursive=1` returns a JSON tree object;
-    # the real script does `jq -r '.tree[]? | select(.type=="blob") | .path'`
-    # to extract benchee paths, so the stub has to emit valid JSON.
-    tree_json =
-      Jason.encode!(%{
-        "tree" =>
-          Enum.map(existing_benchees, fn path -> %{"path" => path, "type" => "blob"} end),
-        "truncated" => false
-      })
-
-    gh_body = """
-    args="$*"
-    case "$args" in
-      *contents?ref=gh-pages*)
-        printf '%s\\n' "#{rundirs_str}"
-        ;;
-      *git/trees/gh-pages*)
-        cat <<'GH_TREE_JSON_EOF'
-    #{tree_json}
-    GH_TREE_JSON_EOF
-        ;;
-      *commits/*)
-        echo '{}'
-        ;;
-      *)
-        echo '{}'
-        ;;
-    esac
-    """
-
-    # curl gets called by next-master-major.sh (which probes
-    # erlang/otp's master OTP_VERSION when resolving master / maint /
-    # master:<sha> refs) and by the non-OTP-* fallback in
-    # otp_major_for_ref. Print a deterministic OTP_VERSION for any
-    # OTP_VERSION-looking URL, exit 0 otherwise so stray
-    # invocations don't escape the sandbox.
-    curl_body = """
-    for arg in "$@"; do
-      case "$arg" in
-        *OTP_VERSION*)
-          echo "30.0"
-          exit 0
-          ;;
-      esac
-    done
-    exit 0
-    """
-
-    write_stub(tmp, "git", git_body)
-    write_stub(tmp, "gh", gh_body)
-    write_stub(tmp, "curl", curl_body)
+  # The fake shell dispatches on the basename of the command and
+  # an argv "shape" (the first argv element identifies the API
+  # surface). Argv coverage mirrors what `Awfy.Fill.Resolve`
+  # actually calls; an unhandled call falls through to flunk/1 so
+  # new resolver shell-outs surface as test failures rather than
+  # silent empty strings.
+  defp fake_shell(existing_rundirs, existing_benchees) do
+    fn cmd, args ->
+      dispatch(Path.basename(cmd), args, existing_rundirs, existing_benchees)
+    end
   end
 
-  defp write_stub(dir, name, body), do: ShellTestHelper.write_stub(dir, name, body)
+  defp dispatch("git", ["ls-remote", _url, ref], _rundirs, _benchees) do
+    # Trim a trailing ^{} (annotated-tag dereference) so the lookup
+    # table is keyed by the canonical ref name.
+    base = String.replace_suffix(ref, "^{}", "")
+
+    case Map.fetch(@shas, base) do
+      {:ok, sha} -> {"#{sha}\trefs/tags/#{base}\n", 0}
+      :error -> {"", 0}
+    end
+  end
+
+  defp dispatch("gh", ["api" | rest], rundirs, benchees) do
+    gh_api(rest, rundirs, benchees)
+  end
+
+  defp dispatch("curl", args, _rundirs, _benchees) do
+    if Enum.any?(args, &String.contains?(&1, "OTP_VERSION")) do
+      {"30.0\n", 0}
+    else
+      {"", 0}
+    end
+  end
+
+  defp dispatch("next-master-major.sh", _args, _rundirs, _benchees), do: {"30\n", 0}
+
+  defp dispatch("elixir-for-otp.sh", [major], _rundirs, _benchees) do
+    # Mirror priv/elixir-for-otp.sh's table; only the rows the
+    # tests exercise are needed. Default lines up with the script's
+    # catch-all (latest Elixir).
+    out =
+      case major do
+        "20" -> "1.9.4\n"
+        "21" -> "1.11.4\n"
+        "22" -> "1.13.4\n"
+        "23" -> "1.14.5\n"
+        "24" -> "1.16.3\n"
+        "25" -> "1.17.3\n"
+        "26" -> "1.18.4\n"
+        "27" -> "1.19.5\n"
+        _ -> "1.19.5\n"
+      end
+
+    {out, 0}
+  end
+
+  defp dispatch(prog, args, _rundirs, _benchees) do
+    flunk("fake shell: unhandled call #{prog} #{Enum.join(args, " ")}")
+  end
+
+  # `gh api <url> [flags]`. We dispatch on the URL fragment that
+  # tells us which endpoint the resolver is hitting.
+  defp gh_api([url | _flags], rundirs, benchees) when is_binary(url) do
+    cond do
+      String.contains?(url, "contents?ref=gh-pages") ->
+        {Enum.join(rundirs, "\n") <> "\n", 0}
+
+      String.contains?(url, "git/trees/gh-pages") ->
+        {gh_tree_json(benchees), 0}
+
+      String.contains?(url, "commits/") ->
+        # The resolver's call uses `--jq '.commit.committer.date // ""'`
+        # so an empty line is the documented "no date" sentinel.
+        {"\n", 0}
+
+      true ->
+        {"", 0}
+    end
+  end
+
+  defp gh_tree_json(paths) do
+    Jason.encode!(%{
+      "tree" => Enum.map(paths, fn path -> %{"path" => path, "type" => "blob"} end),
+      "truncated" => false
+    })
+  end
 end

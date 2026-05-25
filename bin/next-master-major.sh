@@ -8,7 +8,7 @@
 # next-major-after-the-latest-release; bumps roughly yearly.
 #
 # Used by:
-#   * bin/resolve-fill-needs.sh — labelling `master` runs in fill
+#   * `Awfy.Fill.Resolve` (lib/awfy/fill/resolve.ex) — labelling `master` runs in fill
 #     and as a final fallback when a SHA's OTP_VERSION can't be
 #     fetched
 #   * .github/workflows/bench.yml — same role in the production

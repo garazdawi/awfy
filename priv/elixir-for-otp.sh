@@ -7,7 +7,7 @@
 # source of truth — `bench.yml`'s "Pin Elixir version" steps,
 # `bin/install-otp-source-mac.sh`'s post-build Elixir install,
 # `bin/measure-all-macos.sh`'s modern-path PATH wiring, and
-# `bin/resolve-fill-needs.sh`'s matrix builder all read from here.
+# `Awfy.Fill.Resolve`'s matrix builder all read from here.
 #
 # The mapping pins the last Elixir release that supports each OTP
 # major, per Elixir's release notes

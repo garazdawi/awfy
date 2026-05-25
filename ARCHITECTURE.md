@@ -504,7 +504,7 @@ One workflow, three triggers, two pools.
 
 Shorthand `26`, `27`, `28` (etc., `20`–`29`) expand to the latest
 matching `OTP-X.Y.Z` tag at resolve time. Special tokens `fill` and
-`all` are handled by `bin/expand-otp-refs.sh` + `bin/resolve-fill-needs.sh`.
+`all` are handled by `bin/expand-otp-refs.sh` + `Awfy.Fill.Resolve`.
 
 The `resolve` job emits six per-`(major, platform)` arrays
 (`targets_modern_{linux,macos,windows}` for OTP ≥ 24,

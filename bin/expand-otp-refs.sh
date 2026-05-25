@@ -59,7 +59,7 @@
 # The history window is bounded by both OTP-29.0 (release floor,
 # the start of master-merge tracking) and a rolling 3-month date
 # window — once OTP-29.0 itself slips past 3 months ago, the date
-# is what matters. `bin/resolve-fill-needs.sh` further caps the
+# is what matters. `Awfy.Fill.Resolve` further caps the
 # *needed* subset at 50 SHAs per run so a freshly-empty gh-pages
 # doesn't queue hundreds of measure jobs in one matrix.
 
@@ -112,7 +112,7 @@ expand_ref() {
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Format `master_history` enumeration output (one SHA per line) into
-# the comma-separated `master:<sha>` ref form `resolve-fill-needs.sh`
+# the comma-separated `master:<sha>` ref form `Awfy.Fill.Resolve`
 # strips back to a bare SHA + sets otp_label="master" for. The
 # prefix is the explicit signal "this SHA came from master's
 # merge history" — without it, a bare 40-char SHA would fall into
@@ -204,7 +204,7 @@ if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
   # released maint tips.
   #
   # Then append every merge commit on master since OTP-29.0 as a
-  # `master:<sha>` row. Each is resolved by resolve-fill-needs.sh to
+  # `master:<sha>` row. Each is resolved by `Awfy.Fill.Resolve` to
   # a label-distinct run-dir but kept under otp_label="master" so the
   # existing trend chart's master column still renders the latest;
   # the per-merge data lives in meta.json.git.sha for a future
