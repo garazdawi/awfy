@@ -55,6 +55,13 @@
 # (no maint-tips). Use this from `workflow_dispatch` when the
 # operator wants to track master without re-running stable
 # releases.
+#
+# The history window is bounded by both OTP-29.0 (release floor,
+# the start of master-merge tracking) and a rolling 3-month date
+# window — once OTP-29.0 itself slips past 3 months ago, the date
+# is what matters. `bin/resolve-fill-needs.sh` further caps the
+# *needed* subset at 50 SHAs per run so a freshly-empty gh-pages
+# doesn't queue hundreds of measure jobs in one matrix.
 
 set -euo pipefail
 
@@ -114,10 +121,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 #
 # `AWFY_ENUMERATE_MERGES_SH` env var overrides the enumerate-script
 # path so tests can stub it without going to network.
+#
+# `AWFY_MERGES_SINCE_DATE` (defaulting to "3 months ago") narrows
+# the enumerate window via `git log --since=`. Keeps the master
+# timeline focused on recent activity — older measurements stay
+# in gh-pages and the dashboard, but new fill runs no longer
+# include the entire OTP-29.0..master backlog as candidates.
 master_history_refs() {
   local since="${1:-OTP-29.0}"
   local script="${AWFY_ENUMERATE_MERGES_SH:-$SCRIPT_DIR/enumerate-master-merges.sh}"
-  "$script" "$since" \
+  AWFY_MERGES_SINCE_DATE="${AWFY_MERGES_SINCE_DATE:-3 months ago}" \
+    "$script" "$since" \
     | awk 'NF { print "master:" $0 }' \
     | tr "\n" "," \
     | sed 's/,$//'

@@ -16,6 +16,15 @@
 #                 OTP-29.0, the release where master-merge tracking
 #                 started for the AWFY dashboard.
 #
+# Environment:
+#   AWFY_MERGES_SINCE_DATE — optional, e.g. "3 months ago". When
+#                            set, narrows the output to merges whose
+#                            commit date is also newer than this
+#                            git-parseable date. The effective lower
+#                            bound is `max(<since-ref>, <date>)`, so
+#                            an old since-ref + recent date gives a
+#                            rolling window.
+#
 # Output:
 #   stdout      — one 40-char SHA per line.
 #   stderr      — progress diagnostics + cache notes.
@@ -75,18 +84,24 @@ fi
 # dashboard's category axis sorts left-to-right by commit time —
 # matches the convention `sort -V` gives the maint-tip enumeration
 # in bin/expand-otp-refs.sh.
+SINCE_DATE_OPT=()
+if [ -n "${AWFY_MERGES_SINCE_DATE:-}" ]; then
+  SINCE_DATE_OPT=("--since=$AWFY_MERGES_SINCE_DATE")
+fi
+
 shas="$(git -C "$MIRROR" log \
   --merges \
   --first-parent \
   --reverse \
   --format='%H' \
+  "${SINCE_DATE_OPT[@]}" \
   "${SINCE_REF}..origin/master")"
 
 if [ -z "$shas" ]; then
-  echo "[enumerate-master-merges] no merges between $SINCE_REF and origin/master" >&2
+  echo "[enumerate-master-merges] no merges between $SINCE_REF and origin/master${AWFY_MERGES_SINCE_DATE:+ (since $AWFY_MERGES_SINCE_DATE)}" >&2
   exit 0
 fi
 
 count="$(echo "$shas" | wc -l | xargs)"
-echo "[enumerate-master-merges] $count merges since $SINCE_REF" >&2
+echo "[enumerate-master-merges] $count merges since $SINCE_REF${AWFY_MERGES_SINCE_DATE:+ (capped at \"$AWFY_MERGES_SINCE_DATE\")}" >&2
 echo "$shas"
