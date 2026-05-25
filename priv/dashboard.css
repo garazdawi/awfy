@@ -131,6 +131,34 @@ h3.snapshot-heading { margin-top: 1rem; }
    dataset in the chart. Inline height set by JS based on the
    benchmark count so labels stay readable on long lists. */
 .master-drill-chart-wrap { position: relative; width: 100%; margin: 1rem 0; }
+
+/* Mixed-series confirmation modal — fires when the user clicks a
+   datapoint on a different (mc, flavor) series than what's
+   already pinned. Speedup numbers across platforms anchor at
+   different baselines, so silently mixing them in the comparison
+   chart is the misread path. The modal makes that explicit. */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-card {
+  background: var(--er-bg, #fff);
+  color: var(--er-text);
+  border: 1px solid var(--er-border);
+  border-radius: 6px;
+  padding: 1.1rem 1.2rem;
+  max-width: 560px; width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+}
+.modal-card h3 { margin: 0 0 0.5rem 0; }
+.modal-card p { margin: 0.4rem 0; }
+.modal-card .sub { font-size: 0.86rem; color: var(--er-muted); }
+.modal-actions {
+  display: flex; gap: 0.6rem; justify-content: flex-end;
+  margin-top: 1rem;
+}
+.modal-actions .reset-btn { margin: 0; }
 .master-drill-card-head { display: flex; align-items: baseline; gap: 0.5rem; }
 .master-drill-card-title { font-weight: 600; }
 .master-drill-card-sub { color: var(--er-muted); font-size: 0.78rem; flex-grow: 1; }

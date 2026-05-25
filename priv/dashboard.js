@@ -1171,6 +1171,76 @@ function pinMasterDrillCard(info) {
   if (!panel) return;
   const key = info.run_label + "::" + info.series_label;
   if (masterDrillKeys.has(key)) return;
+
+  // Mixed-series guard: if there are already pinned cards in a
+  // different (mc, flavor) series, the bars in the comparison chart
+  // would mix speedups vs different platform-baselines — comparable
+  // as relative progress, NOT as absolute throughput. Confirm with
+  // the user before letting them silently misread the chart.
+  const existingSeries = uniquePinnedSeries();
+  if (existingSeries.size > 0 && !existingSeries.has(info.series_label)) {
+    openMixSeriesModal(info, Array.from(existingSeries));
+    return;
+  }
+
+  doPinMasterDrillCard(info, key);
+}
+
+function uniquePinnedSeries() {
+  const set = new Set();
+  masterDrillDatasets.forEach((_v, k) => {
+    // key shape is `<run_label>::<series_label>`.
+    const sep = k.indexOf("::");
+    if (sep >= 0) set.add(k.slice(sep + 2));
+  });
+  return set;
+}
+
+function openMixSeriesModal(info, existingSeriesList) {
+  const overlay = document.getElementById("master-drill-mix-modal");
+  if (!overlay) {
+    // Fallback if the modal markup somehow isn't on the page: just
+    // pin without prompting. Better than swallowing the click.
+    doPinMasterDrillCard(info, info.run_label + "::" + info.series_label);
+    return;
+  }
+  document.getElementById("master-drill-mix-existing").textContent =
+    existingSeriesList.join(", ");
+  document.getElementById("master-drill-mix-new").textContent = info.series_label;
+
+  const close = () => { overlay.style.display = "none"; };
+  // Reset old handlers by cloning the buttons — modal can fire many
+  // times in a session and stale closures would queue up extra
+  // listeners.
+  ["master-drill-mix-cancel", "master-drill-mix-clear", "master-drill-mix-add"]
+    .forEach(id => {
+      const old = document.getElementById(id);
+      const clone = old.cloneNode(true);
+      old.parentNode.replaceChild(clone, old);
+    });
+
+  document.getElementById("master-drill-mix-cancel").addEventListener("click", close);
+
+  document.getElementById("master-drill-mix-add").addEventListener("click", () => {
+    close();
+    doPinMasterDrillCard(info, info.run_label + "::" + info.series_label);
+  });
+
+  document.getElementById("master-drill-mix-clear").addEventListener("click", () => {
+    close();
+    const panel = document.getElementById("master-drill");
+    masterDrillKeys.clear();
+    masterDrillDatasets.clear();
+    if (panel) panel.innerHTML = "";
+    doPinMasterDrillCard(info, info.run_label + "::" + info.series_label);
+  });
+
+  overlay.style.display = "flex";
+}
+
+function doPinMasterDrillCard(info, key) {
+  const panel = document.getElementById("master-drill");
+  if (!panel) return;
   masterDrillKeys.add(key);
 
   // Header + clear-all button on first card pin.

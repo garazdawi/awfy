@@ -1376,6 +1376,18 @@ defmodule Mix.Tasks.Awfy.Compare do
           <canvas id="master-drill-shared-chart"></canvas>
         </div>
         <div id="master-drill" class="master-drill"></div>
+        <div id="master-drill-mix-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true">
+          <div class="modal-card">
+            <h3>Add a different platform?</h3>
+            <p>The pinned cards are currently all on <strong id="master-drill-mix-existing"></strong>. You're about to add <strong id="master-drill-mix-new"></strong>.</p>
+            <p class="sub">The bars in the comparison chart are <em>speedup vs each platform's own earliest measurement</em> — a 5.2× on linux-x86_64 and a 4.8× on macos-arm64 each mean "this commit is N× faster than that platform's OTP-20.3 baseline". They're comparable as relative progress but <strong>not</strong> as absolute throughput — different hardware, different baselines. Pinning across platforms in the same chart is usually a misread.</p>
+            <div class="modal-actions">
+              <button id="master-drill-mix-cancel" type="button" class="reset-btn">Cancel</button>
+              <button id="master-drill-mix-clear" type="button" class="reset-btn">Add + Clear others</button>
+              <button id="master-drill-mix-add" type="button" class="reset-btn">Add anyway</button>
+            </div>
+          </div>
+        </div>
         """
       else
         ""
