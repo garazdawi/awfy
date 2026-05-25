@@ -68,7 +68,8 @@ defmodule Mix.Tasks.Awfy.Measure do
     no_clobber: :boolean,
     ignore_preflight: :boolean,
     no_otp_benchmarks: :boolean,
-    out: :string
+    out: :string,
+    dry_run: :boolean
   ]
 
   @impl true
@@ -76,13 +77,6 @@ defmodule Mix.Tasks.Awfy.Measure do
     Mix.Task.run("compile", [])
 
     {opts, _, _} = OptionParser.parse(args, strict: @switches)
-
-    unless opts[:ignore_preflight] do
-      enforce_preflight()
-    end
-
-    {:ok, run_ctx, dir} = Awfy.Measure.Setup.prepare(opts, :synthetic)
-    label = run_ctx.label
 
     lang = Helpers.parse_lang(opts[:lang])
     bench_filter = Helpers.parse_benchmarks(opts[:benchmarks])
@@ -93,6 +87,32 @@ defmodule Mix.Tasks.Awfy.Measure do
       |> Helpers.filter_benchmarks(bench_filter)
 
     otp_families = otp_families_to_run(bench_filter, opts)
+
+    # Dry-run mode: print the .benchee filenames this task WOULD
+    # produce (one per line on stdout), then exit. Used by
+    # bin/resolve-fill-needs.sh to compute the canonical benchmark
+    # set on each gh-pages probe — single source of truth (the actual
+    # measure-task's filter logic) instead of a separately-maintained
+    # hardcoded list that drifts when benchmarks are added.
+    if opts[:dry_run] do
+      names =
+        Enum.map(candidates, fn entry -> Awfy.name(entry) end) ++
+          Enum.map(otp_families, fn mod -> mod.name() end)
+
+      names
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.each(&IO.puts/1)
+
+      System.halt(0)
+    end
+
+    unless opts[:ignore_preflight] do
+      enforce_preflight()
+    end
+
+    {:ok, run_ctx, dir} = Awfy.Measure.Setup.prepare(opts, :synthetic)
+    label = run_ctx.label
 
     if candidates == [] and otp_families == [] do
       # When `--benchmarks` is set and nothing matches, treat the run

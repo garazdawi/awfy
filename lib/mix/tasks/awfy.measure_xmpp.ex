@@ -37,7 +37,8 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
     topology: :string,
     label: :string,
     out: :string,
-    no_clobber: :boolean
+    no_clobber: :boolean,
+    dry_run: :boolean
   ]
 
   @default_scenario "dynamic_domains_pm"
@@ -51,6 +52,15 @@ defmodule Mix.Tasks.Awfy.MeasureXmpp do
 
     scenario = opts[:scenario] || @default_scenario
     topology = parse_topology(opts[:topology] || @default_topology)
+
+    # Dry-run mode: print the .benchee filename this task WOULD
+    # produce, then exit. Mirrors the same hook on `mix awfy.measure`
+    # so bin/resolve-fill-needs.sh can ask each measure task what
+    # it'd write without spinning up Docker / Colima / amoc.
+    if opts[:dry_run] do
+      IO.puts(scenario)
+      System.halt(0)
+    end
 
     {:ok, ctx, dir} = Awfy.Measure.Setup.prepare(opts, :xmpp)
 
