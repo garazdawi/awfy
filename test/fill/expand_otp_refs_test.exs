@@ -47,7 +47,8 @@ defmodule Awfy.Fill.ExpandOtpRefsTest do
   setup do
     tmp = ShellTestHelper.setup_stub_dir("awfy-expand-test")
     install_curl_stub(tmp, @table)
-    {:ok, tmp: tmp}
+    empty_stub = install_empty_merges_stub(tmp)
+    {:ok, tmp: tmp, empty_merges_stub: empty_stub}
   end
 
   describe "all / fill expansion" do
@@ -67,6 +68,59 @@ defmodule Awfy.Fill.ExpandOtpRefsTest do
 
     test "OTP-20 is pinned to OTP-20.3 (no src-dist for security patches)", %{tmp: tmp} do
       assert String.contains?(run(tmp, "all"), "OTP-20.3")
+    end
+  end
+
+  describe "master_history expansion" do
+    setup %{tmp: tmp} do
+      # Stub the enumerate-master-merges helper via env-var override.
+      # Write a fake script that emits 3 deterministic SHAs so tests
+      # can pin the exact output shape.
+      stub = Path.join(tmp, "enumerate-master-merges-stub.sh")
+
+      File.write!(stub, """
+      #!/usr/bin/env bash
+      echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      echo bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      echo cccccccccccccccccccccccccccccccccccccccc
+      """)
+
+      File.chmod!(stub, 0o755)
+      {:ok, stub: stub}
+    end
+
+    test "`master_history` emits one master:<sha> ref per merge", %{tmp: tmp, stub: stub} do
+      assert run_with_stub(tmp, "master_history", stub) ==
+               "master:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa," <>
+                 "master:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb," <>
+                 "master:cccccccccccccccccccccccccccccccccccccccc"
+    end
+
+    test "`fill` appends the same merge list to the maint-tip set", %{tmp: tmp, stub: stub} do
+      out = run_with_stub(tmp, "fill", stub)
+      assert String.starts_with?(out, "OTP-20.3,")
+      assert String.ends_with?(
+               out,
+               ",master,master:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,master:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,master:cccccccccccccccccccccccccccccccccccccccc"
+             )
+    end
+
+    test "`all` includes the same merge list", %{tmp: tmp, stub: stub} do
+      out = run_with_stub(tmp, "all", stub)
+      assert out =~ "master:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    end
+
+    test "empty enumeration falls back gracefully", %{tmp: tmp} do
+      empty_stub = Path.join(tmp, "empty-stub.sh")
+      File.write!(empty_stub, "#!/usr/bin/env bash\nexit 0\n")
+      File.chmod!(empty_stub, 0o755)
+
+      # On master_history with no merges, exit cleanly with a warning
+      # rather than emitting an empty refs list that would crash the
+      # workflow.
+      {log, status} = run_raw_with_stub(tmp, "master_history", empty_stub)
+      assert status == 0
+      assert log =~ "no refs"
     end
   end
 
@@ -125,8 +179,45 @@ defmodule Awfy.Fill.ExpandOtpRefsTest do
   end
 
   defp run_raw(tmp, input) do
-    env = [{"PATH", "#{tmp}:#{System.get_env("PATH")}"}]
+    env = [
+      {"PATH", "#{tmp}:#{System.get_env("PATH")}"},
+      # Default to the empty-merges stub so `all`/`fill` paths don't
+      # touch network for the master-history enumeration. Tests that
+      # want a populated merge list use `run_with_stub/3` below to
+      # override.
+      {"AWFY_ENUMERATE_MERGES_SH", Path.join(tmp, "enumerate-master-merges-empty.sh")}
+    ]
+
     System.cmd("bash", [@script, input], env: env, stderr_to_stdout: true)
+  end
+
+  # Same as `run/2` / `run_raw/2` but injects an AWFY_ENUMERATE_MERGES_SH
+  # env var so `master_history_refs()` in expand-otp-refs.sh calls the
+  # stub instead of going to network for an erlang/otp clone.
+  defp run_with_stub(tmp, input, stub) do
+    {out, status} = run_raw_with_stub(tmp, input, stub)
+    assert status == 0, "expand-otp-refs exited #{status}:\n#{out}"
+    out |> String.split("\n", trim: true) |> List.last()
+  end
+
+  defp run_raw_with_stub(tmp, input, stub) do
+    env = [
+      {"PATH", "#{tmp}:#{System.get_env("PATH")}"},
+      {"AWFY_ENUMERATE_MERGES_SH", stub}
+    ]
+
+    System.cmd("bash", [@script, input], env: env, stderr_to_stdout: true)
+  end
+
+  # Empty enumerate-master-merges stub. Default for the existing
+  # `all`/`fill` tests so they keep asserting the maint-tip-only
+  # output; tests that need a populated merge list inject their own
+  # stub via run_with_stub/3.
+  defp install_empty_merges_stub(dir) do
+    path = Path.join(dir, "enumerate-master-merges-empty.sh")
+    File.write!(path, "#!/usr/bin/env bash\nexit 0\n")
+    File.chmod!(path, 0o755)
+    path
   end
 
   defp install_curl_stub(dir, table) do

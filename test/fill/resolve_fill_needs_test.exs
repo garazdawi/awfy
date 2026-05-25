@@ -71,6 +71,44 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     end
   end
 
+  describe "master:<sha> (master-history) refs" do
+    @history_sha String.duplicate("a", 40)
+
+    test "lands in modern_* with otp_label=master + bare SHA windows_ref", %{tmp: tmp} do
+      out = run(tmp, "master:#{@history_sha}")
+
+      [linux] = out["targets_modern_linux"]
+      assert linux["ref"] == "master:#{@history_sha}"
+      assert linux["sha"] == @history_sha
+      assert linux["short"] == String.slice(@history_sha, 0..9)
+      assert linux["otp_label"] == "master"
+      assert linux["mode"] == "modern"
+      # Windows must use the bare SHA so install-otp-windows.ps1's
+      # `head_sha=<sha>` query against erlang/otp's GHA runs matches.
+      [windows] = out["targets_modern_windows"]
+      assert windows["windows_ref"] == @history_sha
+      assert windows["windows_otp_label"] == "master"
+    end
+
+    test "every merge gets a distinct short label (one row per merge)", %{tmp: tmp} do
+      a = String.duplicate("a", 40)
+      b = String.duplicate("b", 40)
+      out = run(tmp, "master:#{a},master:#{b}")
+
+      shorts = Enum.map(out["targets_modern_linux"], & &1["short"])
+      assert "aaaaaaaaaa" in shorts
+      assert "bbbbbbbbbb" in shorts
+      assert length(shorts) == 2
+    end
+
+    test "all platforms see the same merge (no platform-skipping)", %{tmp: tmp} do
+      out = run(tmp, "master:#{@history_sha}")
+      assert length(out["targets_modern_linux"]) == 1
+      assert length(out["targets_modern_macos"]) == 1
+      assert length(out["targets_modern_windows"]) == 1
+    end
+  end
+
   describe "windows_ref legacy mapping" do
     test "OTP-21.3.8.24 → windows_ref OTP-21.3 (function-release installer)", %{tmp: tmp} do
       out = run(tmp, "OTP-21.3.8.24")
@@ -291,10 +329,23 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     esac
     """
 
-    # curl is only called for non-OTP-* refs in the OTP_VERSION
-    # fallback path; tests don't exercise that, but stub it anyway
-    # so a stray invocation doesn't escape the sandbox to real network.
-    curl_body = "exit 0\n"
+    # curl gets called by next-master-major.sh (which probes
+    # erlang/otp's master OTP_VERSION when resolving master / maint /
+    # master:<sha> refs) and by the non-OTP-* fallback in
+    # otp_major_for_ref. Print a deterministic OTP_VERSION for any
+    # OTP_VERSION-looking URL, exit 0 otherwise so stray
+    # invocations don't escape the sandbox.
+    curl_body = """
+    for arg in "$@"; do
+      case "$arg" in
+        *OTP_VERSION*)
+          echo "30.0"
+          exit 0
+          ;;
+      esac
+    done
+    exit 0
+    """
 
     write_stub(tmp, "git", git_body)
     write_stub(tmp, "gh", gh_body)

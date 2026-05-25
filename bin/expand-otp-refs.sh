@@ -46,7 +46,15 @@
 #   trend chart's category axis populates left-to-right. We append
 #   `maint` (next function release of current major) and `master`
 #   (next major) at the end so they land at the right edge of every
-#   chart.
+#   chart, followed by `master:<sha>` rows — one per merge commit on
+#   master since OTP-29.0 — so the dashboard records a data point
+#   per landed feature. The merge SHAs flow through the same fill
+#   skip check, so subsequent fills are cheap: only new merges land.
+#
+# `master_history` expansion: emit ONLY the master merge commits
+# (no maint-tips). Use this from `workflow_dispatch` when the
+# operator wants to track master without re-running stable
+# releases.
 
 set -euo pipefail
 
@@ -93,6 +101,37 @@ expand_ref() {
     *) echo "$r" ;;
   esac
 }
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Format `master_history` enumeration output (one SHA per line) into
+# the comma-separated `master:<sha>` ref form `resolve-fill-needs.sh`
+# strips back to a bare SHA + sets otp_label="master" for. The
+# prefix is the explicit signal "this SHA came from master's
+# merge history" — without it, a bare 40-char SHA would fall into
+# the catch-all and get labeled by its resolved major (e.g. "30"),
+# splitting one bench column per merge.
+#
+# `AWFY_ENUMERATE_MERGES_SH` env var overrides the enumerate-script
+# path so tests can stub it without going to network.
+master_history_refs() {
+  local since="${1:-OTP-29.0}"
+  local script="${AWFY_ENUMERATE_MERGES_SH:-$SCRIPT_DIR/enumerate-master-merges.sh}"
+  "$script" "$since" \
+    | awk 'NF { print "master:" $0 }' \
+    | tr "\n" "," \
+    | sed 's/,$//'
+}
+
+if [ "$INPUT_REFS" = "master_history" ]; then
+  refs="$(master_history_refs OTP-29.0)"
+  if [ -z "$refs" ]; then
+    echo "::warning::master_history produced no refs (no merges since OTP-29.0?)" >&2
+    exit 0
+  fi
+  echo "$refs"
+  exit 0
+fi
 
 if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
   # One tip per major: the latest patch on the active (newest)
@@ -149,7 +188,22 @@ if [ "$INPUT_REFS" = "all" ] || [ "$INPUT_REFS" = "fill" ]; then
   # release of the current major; pairing it with `master` (next
   # major) gives two forward-looking trend points alongside the
   # released maint tips.
-  echo "${CANDIDATES}maint,master"
+  #
+  # Then append every merge commit on master since OTP-29.0 as a
+  # `master:<sha>` row. Each is resolved by resolve-fill-needs.sh to
+  # a label-distinct run-dir but kept under otp_label="master" so the
+  # existing trend chart's master column still renders the latest;
+  # the per-merge data lives in meta.json.git.sha for a future
+  # master-history view to consume (PLAN/INFRA_REFACTOR.md follow-up).
+  # Fill mode's gh-pages skip check means only NEW merges land each
+  # run; first invocation re-measures everything since the cutoff,
+  # subsequent invocations only catch up on what landed since.
+  HISTORY="$(master_history_refs OTP-29.0)"
+  if [ -n "$HISTORY" ]; then
+    echo "${CANDIDATES}maint,master,${HISTORY}"
+  else
+    echo "${CANDIDATES}maint,master"
+  fi
   exit 0
 fi
 

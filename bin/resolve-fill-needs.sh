@@ -122,7 +122,10 @@ otp_major_for_ref() {
     OTP-*)
       echo "${r#OTP-}" | cut -d. -f1
       ;;
-    master)
+    master|master:*)
+      # `master:<sha>` carries a pinned merge commit but still
+      # represents master — the major is master's current major.
+      # See bin/expand-otp-refs.sh for the prefix convention.
       next_master_major
       ;;
     maint-*)
@@ -249,16 +252,32 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   [ -z "$raw" ] && continue
   ref="$raw"
 
-  # Resolve to a commit SHA. Annotated tags (which is how OTP
-  # releases are tagged) need `^{}` to dereference the tag object to
-  # the commit it points at; lightweight tags and branches return
-  # empty for `^{}` so fall back to the plain ref. Without this, the
-  # SHA below is the tag object itself, which then 404s against the
-  # commits API.
-  sha="$(git ls-remote https://github.com/erlang/otp.git "$ref^{}" | head -1 | cut -f1)"
-  if [ -z "$sha" ]; then
-    sha="$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1)"
-  fi
+  # `master:<sha>` is the master-history form (per
+  # bin/expand-otp-refs.sh): each merge commit on master since the
+  # cutoff becomes one row, but all share otp_label="master" so the
+  # dashboard's existing master column collects them (latest wins
+  # for display; meta.json.git.sha preserves the per-merge identity
+  # for a future history-timeline view). Strip the prefix here; the
+  # SHA is already pinned so we skip the `git ls-remote` lookup the
+  # other refs do.
+  case "$ref" in
+    master:*)
+      sha="${ref#master:}"
+      ;;
+    *)
+      # Resolve to a commit SHA. Annotated tags (which is how OTP
+      # releases are tagged) need `^{}` to dereference the tag object to
+      # the commit it points at; lightweight tags and branches return
+      # empty for `^{}` so fall back to the plain ref. Without this, the
+      # SHA below is the tag object itself, which then 404s against the
+      # commits API.
+      sha="$(git ls-remote https://github.com/erlang/otp.git "$ref^{}" | head -1 | cut -f1)"
+      if [ -z "$sha" ]; then
+        sha="$(git ls-remote https://github.com/erlang/otp.git "$ref" | head -1 | cut -f1)"
+      fi
+      ;;
+  esac
+
   if [ -z "$sha" ]; then
     echo "::error::could not resolve ref '$ref' on erlang/otp" >&2
     exit 1
@@ -346,7 +365,14 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
   # without bare `maint` here it falls into the catch-all and gets
   # relabelled as its resolved major (28), folding into the 28.x
   # lineage instead of getting its own dashboard slot.
+  #
+  # `master:<sha>` (master-history form) collapses to "master" too so
+  # every merge run lands in the same dashboard column. The per-merge
+  # identity is preserved in meta.json.git.sha + the run-dir's
+  # SHA-bearing label; a future master-history view will read those
+  # to plot the per-merge timeline.
   case "$ref" in
+    master:*)             otp_label="master" ;;
     master|maint|maint-*) otp_label="$ref" ;;
     OTP-*)                otp_label="${ref#OTP-}" ;;
     *)                    otp_label="$major" ;;
@@ -373,6 +399,15 @@ for raw in $(echo "$EXPANDED_REFS" | tr ',' ' '); do
     # "21.0.9" we use everywhere else. Without this, OTP-21.0.9's
     # Windows row claims it ran 21.0.9 while really running 21.0.
     windows_otp_label="$xy"
+  elif [[ "$ref" == master:* ]]; then
+    # `master:<sha>` (master-history form): install-otp-windows.ps1
+    # walks `repos/erlang/otp/actions/runs?head_sha=<sha>` to find the
+    # "Build and check Erlang/OTP" workflow run that produced the
+    # otp_win32_installer artifact for that commit. Pass the bare
+    # SHA so the head_sha filter matches; the `master:` prefix is
+    # an AWFY-internal signal that the GHA API doesn't understand.
+    windows_ref="$sha"
+    windows_otp_label="master"
   else
     windows_ref="$ref"
     windows_otp_label="$otp_label"

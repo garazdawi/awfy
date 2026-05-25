@@ -33,13 +33,27 @@
 # Special tokens for `otp_refs`:
 #   * "all"  — expand to the maint-tip of every major from OTP-20
 #              onwards (the active maint branch only — grey
-#              sub-branches like maint-23.2 are skipped) + master.
+#              sub-branches like maint-23.2 are skipped) + master
+#              + every merge commit on master since OTP-29.0
+#              (master-history tracking; see master_history below).
 #              Triggers a `wipe_gh_pages` flag so the dashboard ends
 #              up reflecting only this run's data with consistent
 #              labels.
 #   * "fill" — same candidate set as "all", then drop refs whose
 #              run-dirs are already on gh-pages. Cheap idempotent
-#              backfill; safe to run on cron.
+#              backfill; safe to run on cron. First fill after each
+#              new master merge picks it up automatically.
+#   * "master_history" — ONLY the merge commits on erlang/otp's
+#              master since OTP-29.0, no maint-tips. Useful for a
+#              focused per-merge run from workflow_dispatch without
+#              re-measuring stable releases. Each merge becomes one
+#              row with `otp_label=master`; the dashboard's existing
+#              master column shows the latest, and meta.json.git.sha
+#              preserves the per-merge identity for the future
+#              master-history timeline view. Windows is included —
+#              install-otp-windows.ps1 walks erlang/otp's
+#              `actions/runs?head_sha=<sha>` to find the per-commit
+#              `otp_win32_installer` artifact.
 #
 # Optional `benchmarks` input (workflow_dispatch only): comma list
 # like `Bounce,CD`. When set, every measure-* job passes
@@ -66,11 +80,13 @@ on:
         options: [gha, aws]
         default: gha
       otp_refs:
-        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…), or 'fill' / 'all'"
+        description: "Comma-separated OTP refs (tags / branches / SHAs / shorthand 20|21|…), or 'fill' / 'all' / 'master_history'"
         required: false
         # 'fill' is the friendly default — runs whatever's missing
-        # from gh-pages and no more. Pass 'all' for a full rebuild,
-        # or a comma list to target specific refs.
+        # from gh-pages and no more (including new master merges).
+        # Pass 'all' for a full rebuild, 'master_history' for the
+        # master-only per-merge sweep, or a comma list to target
+        # specific refs.
         default: "fill"
       benchmarks:
         description: "Comma-separated benchmark names (Bounce,CD,…) — empty = full suite. Pair with 'fill' to backfill a single benchmark across refs that don't yet have its data."
