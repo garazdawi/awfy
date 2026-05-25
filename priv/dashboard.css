@@ -115,6 +115,37 @@ h3.snapshot-heading { margin-top: 1rem; }
 }
 .snapshot-majors b { color: var(--er-text); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .snapshot-majors label { cursor: pointer; user-select: none; display: inline-flex; gap: 0.25rem; align-items: center; }
+/* Master timeline drill-down — one card per clicked datapoint with
+   commit/PR + per-benchmark medians. Same flex-card layout as the
+   sparkline panel below but with a bigger card width since the
+   per-benchmark table is the heaviest content. */
+.master-drill { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
+.master-drill-head { flex-basis: 100%; }
+.master-drill-head h3 { margin: 0; }
+.master-drill-head p { margin: 0.2rem 0 0.5rem 0; }
+.master-drill-head .reset-btn { margin: 0; }
+.master-drill-card { border: 1px solid var(--er-border); border-radius: 4px; padding: 0.6rem 0.8rem; background: var(--er-tint); font-size: 0.88rem; flex: 0 0 360px; max-width: 100%; }
+/* Shared bar chart for the master-drill panel — sits ABOVE the
+   cards so multiple pinned points show as grouped bars per
+   benchmark; per-card colored stripe pairs each card to its
+   dataset in the chart. Inline height set by JS based on the
+   benchmark count so labels stay readable on long lists. */
+.master-drill-chart-wrap { position: relative; width: 100%; margin: 1rem 0; }
+.master-drill-card-head { display: flex; align-items: baseline; gap: 0.5rem; }
+.master-drill-card-title { font-weight: 600; }
+.master-drill-card-sub { color: var(--er-muted); font-size: 0.78rem; flex-grow: 1; }
+.master-drill-card-x { background: none; border: none; cursor: pointer; color: var(--er-muted); font-size: 1.1rem; line-height: 1; padding: 0 0.3rem; }
+.master-drill-card-x:hover { color: var(--er-red); }
+.master-drill-card-ratio { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--er-text); margin: 0.3rem 0; font-size: 0.85rem; }
+.master-drill-card-pr { margin: 0.4rem 0; font-size: 0.82rem; }
+.master-drill-card-commit { margin-bottom: 0.3rem; }
+.master-drill-card-pulls { color: var(--er-text); }
+.master-drill-card-benches { font-size: 0.82rem; margin-top: 0.4rem; }
+.master-drill-card-benches summary { cursor: pointer; color: var(--er-muted); font-size: 0.82rem; }
+table.master-drill-benches { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 0.3rem; }
+table.master-drill-benches th, table.master-drill-benches td { padding: 0.2rem 0.4rem; border-bottom: 1px solid var(--er-border); text-align: left; }
+table.master-drill-benches td.num, table.master-drill-benches th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
 .spark-panel { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
 .spark-panel-head { flex-basis: 100%; }
 .spark-panel-head h3 { margin: 0; }

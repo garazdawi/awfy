@@ -376,6 +376,12 @@ function readUIState() {
 }
 
 function applyFilters(rows, state) {
+  // Master page rows have already been server-side filtered + flavor-
+  // cutoff-resolved + aggregated; the controls (tabs, flavor radio,
+  // error-bars checkbox) aren't rendered on master.html so state's
+  // fields are undefined. Pass through.
+  if (PAGE_KIND === "master") return rows;
+
   const langOK = Array.isArray(state.lang)
     ? (r) => state.lang.includes(seriesAxis(r))
     : (r) => seriesAxis(r) === state.lang;
@@ -439,10 +445,20 @@ function buildSeries(rows, xAxis, showWhiskers) {
       //     so user sees "atom" / "binary_4k" / … not "macos-arm64".
       label:
         items[0].input ||
-        (PAGE_KIND === "bench" ? items[0].machine_class : items[0].lang),
+        (PAGE_KIND === "bench" || PAGE_KIND === "master"
+          ? items[0].machine_class + " / " + items[0].emu_flavor
+          : items[0].lang),
       data: sorted.map(r => {
         const x = xAxis === "otp" ? r.otp : Date.parse(r.timestamp);
-        const ratio = (baseMs && r.median_ms) ? baseMs / r.median_ms : null;
+        // Master timeline pre-computes the y server-side
+        // (master_y = speedup vs the full-history baseline, e.g.
+        // OTP-20.3) so the number matches the main suite chart's
+        // OTP-29.0 cell. Without this override buildSeries would
+        // ratio against the earliest VISIBLE point (OTP-29.0 in
+        // the 3-month window) and the y would collapse to ~1.0×.
+        const ratio = (typeof r.master_y === "number")
+          ? r.master_y
+          : ((baseMs && r.median_ms) ? baseMs / r.median_ms : null);
         // Whisker = ±2σ of per-iteration timings, capped at half
         // the median. σ tells the story we want — "this benchmark
         // has high spread per iteration" — and stays visible across
@@ -477,6 +493,13 @@ function buildSeries(rows, xAxis, showWhiskers) {
           // panel below the chart. Null for synthetic benchmarks.
           samples: r.samples || null,
           samples_unit: r.samples_unit || "",
+          // Master-timeline drill-down fields (master.html only).
+          // otp_tag is "OTP-X.Y.Z" for tagged maint-tip points,
+          // null for master merges. run_sha + bench_details power
+          // the click drill-down's PR lookup + per-bench table.
+          otp_tag: r.otp_tag || null,
+          run_sha: r.run_sha || null,
+          bench_details: r.bench_details || null,
           otp_for_panel: r.otp,
           machine_class_for_panel: r.machine_class,
           flavor_for_panel: r.emu_flavor
@@ -911,10 +934,44 @@ function renderChart() {
     });
   }
 
+  // Inline Chart.js plugin for the master timeline page that paints
+  // each tagged datapoint's otp_tag (e.g. "OTP-28.5") just above the
+  // point. Skipping null tags (master merges) keeps the chart legible
+  // — the user identifies merges by clicking the dot, not by reading
+  // 13+ short-SHA labels overlapping on the right edge of the chart.
+  const masterTagLabelsPlugin = {
+    id: "masterTagLabels",
+    afterDatasetsDraw: (chart) => {
+      if (PAGE_KIND !== "master") return;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.font = "11px Montserrat, sans-serif";
+      ctx.fillStyle = "#444";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      chart.data.datasets.forEach((ds, di) => {
+        const meta = chart.getDatasetMeta(di);
+        ds.data.forEach((d, i) => {
+          if (!d.otp_tag) return;
+          const pt = meta.data[i];
+          if (!pt) return;
+          // Strip the "OTP-" prefix for chart legibility — the page
+          // header already says these are OTP versions. Keep the
+          // tag attribute itself untouched so the drill-down can
+          // still report "OTP-28.5".
+          const label = d.otp_tag.replace(/^OTP-/, "");
+          ctx.fillText(label, pt.x, pt.y - 6);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById("chart"), {
     type: chartType,
     data: { datasets },
+    plugins: [masterTagLabelsPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -1016,15 +1073,31 @@ function renderChart() {
           }
         }
       },
-      // Per-bench application-bench rows carry per-second sample
-      // series; clicking a datapoint pins a sparkline card to the
-      // panel below so a user can eyeball master vs 28.5 (etc.)
-      // side-by-side. Silently no-ops on synthetic rows (no samples).
+      // Per-page click semantics:
+      //  * master   — pin a drill-down card (commit subject + PR
+      //               link + per-benchmark table) for the clicked
+      //               datapoint.
+      //  * bench    — pin a sparkline card for XMPP rows; no-op for
+      //               synthetic rows.
       onClick: (evt, elements, chart) => {
         if (!elements.length) return;
         const el = elements[0];
         const raw = chart.data.datasets[el.datasetIndex].data[el.index];
-        if (!raw || !raw.samples) return;
+        if (!raw) return;
+        if (PAGE_KIND === "master") {
+          pinMasterDrillCard({
+            run_label: raw.run_label,
+            series_label: chart.data.datasets[el.datasetIndex].label,
+            otp_tag: raw.otp_tag,
+            run_sha: raw.run_sha,
+            bench_details: raw.bench_details,
+            base_ms: raw.base_ms,
+            ratio: raw.y,
+            timestamp: raw.x
+          });
+          return;
+        }
+        if (!raw.samples) return;
         pinSparklineCard({
           run_label: raw.run_label,
           series_label: chart.data.datasets[el.datasetIndex].label,
@@ -1084,6 +1157,333 @@ function sparklineSVG(samples, unit) {
 // alongside run_label so the same OTP measured on two platforms can
 // each have a pinned card.
 const pinnedKeys = new Set();
+// ---------- Master timeline drill-down -------------------------------
+// Clicking a datapoint on master.html pins a card to #master-drill
+// with: (1) the OTP identity (tag or short SHA), (2) the commit
+// subject + PR link, lazy-fetched from api.github.com and cached in
+// localStorage so a re-click is instant and a re-render keeps the
+// data, (3) a per-benchmark median table from the embedded
+// `bench_details` array.
+const masterDrillKeys = new Set();
+
+function pinMasterDrillCard(info) {
+  const panel = document.getElementById("master-drill");
+  if (!panel) return;
+  const key = info.run_label + "::" + info.series_label;
+  if (masterDrillKeys.has(key)) return;
+  masterDrillKeys.add(key);
+
+  // Header + clear-all button on first card pin.
+  if (!document.getElementById("master-drill-head")) {
+    const head = document.createElement("div");
+    head.id = "master-drill-head";
+    head.className = "master-drill-head";
+    head.innerHTML =
+      '<h3>Click a point for details</h3>' +
+      '<p class="sub">Each click pins a card with the commit, PR, and per-benchmark medians for that datapoint. Click again to drop a pinned card.</p>' +
+      '<button id="master-drill-clear" type="button" class="reset-btn">Clear all</button>';
+    panel.appendChild(head);
+    document.getElementById("master-drill-clear").addEventListener("click", () => {
+      masterDrillKeys.clear();
+      masterDrillDatasets.clear();
+      rebuildSharedDrillChart();
+      panel.innerHTML = "";
+    });
+  }
+
+  const sha10 = (info.run_sha || "").slice(0, 10);
+  const title = info.otp_tag || (sha10 ? "master@" + sha10 : "master");
+  const dateStr = info.timestamp ? new Date(info.timestamp).toLocaleString() : "";
+
+  // Each pinned card gets a stable color from a palette; that color
+  // also tints the card's bar dataset in the shared chart below so
+  // the eye can pair card ↔ bars across the page.
+  const cardColor = pickCardColor(masterDrillKeys.size);
+
+  const card = document.createElement("div");
+  card.className = "master-drill-card";
+  card.dataset.key = key;
+  card.style.borderLeft = "4px solid " + cardColor;
+  card.innerHTML =
+    '<div class="master-drill-card-head">' +
+      '<span class="master-drill-card-title">' + escapeHtml(title) + '</span>' +
+      '<span class="master-drill-card-sub">' + escapeHtml(info.series_label) +
+        (dateStr ? ' · ' + escapeHtml(dateStr) : '') + '</span>' +
+      '<button class="master-drill-card-x" type="button" title="Remove">×</button>' +
+    '</div>' +
+    '<div class="master-drill-card-ratio">' +
+      (typeof info.ratio === "number" ? info.ratio.toFixed(3) + '× vs anchor' : '') +
+    '</div>' +
+    '<div class="master-drill-card-pr"><em style="color: var(--er-muted)">Loading PR info…</em></div>' +
+    '<details class="master-drill-card-benches">' +
+      '<summary>Per-benchmark table (' + (info.bench_details ? info.bench_details.length : 0) + ')</summary>' +
+      renderBenchDetailsTable(info.bench_details) +
+    '</details>';
+
+  card.querySelector(".master-drill-card-x").addEventListener("click", () => {
+    masterDrillKeys.delete(key);
+    masterDrillDatasets.delete(key);
+    card.remove();
+    rebuildSharedDrillChart();
+    if (!panel.querySelector(".master-drill-card")) panel.innerHTML = "";
+  });
+  panel.appendChild(card);
+
+  // Register this point's per-benchmark data in the shared chart.
+  // The chart lives outside the card so multiple pinned points are
+  // comparable in one place — see #master-drill-chart-wrap in the
+  // page template. Horizontal bars (indexAxis: "y") because there
+  // are 25+ benchmarks per point and vertical bars would clip the
+  // names on a narrow viewport.
+  masterDrillDatasets.set(key, {
+    title: title,
+    color: cardColor,
+    bench_details: info.bench_details || []
+  });
+  rebuildSharedDrillChart();
+
+  // Lazy-load PR info from api.github.com. CORS-enabled, public-readable,
+  // no auth needed for the 60 req/hr free-tier limit (one click = one
+  // request, dashboard caches per SHA in localStorage). Master-merge
+  // commits typically have one PR; maint-tip release commits typically
+  // have none.
+  if (info.run_sha) {
+    fetchCommitInfo(info.run_sha).then((data) => {
+      const el = card.querySelector(".master-drill-card-pr");
+      if (el && data) el.innerHTML = renderPrInfo(data);
+    }).catch(() => {
+      const el = card.querySelector(".master-drill-card-pr");
+      if (el) el.innerHTML = '<em style="color: var(--er-muted)">PR lookup failed (rate-limited or offline).</em>';
+    });
+  } else {
+    const el = card.querySelector(".master-drill-card-pr");
+    if (el) el.innerHTML = '<em style="color: var(--er-muted)">No commit SHA recorded for this run.</em>';
+  }
+}
+
+// Shared bar chart for the master-timeline drill-down. Lives outside
+// the cards (above the card grid) so multiple pinned points show up
+// as grouped bars side-by-side per benchmark — a single glance
+// answers "which benchmark moved when going from this commit to that
+// commit". Horizontal bars (indexAxis: "y") because there are 25+
+// benchmark names per point and vertical labels would clip on
+// narrow viewports.
+const masterDrillDatasets = new Map(); // key -> { title, color, bench_details }
+const DRILL_CARD_COLORS = [
+  "#a2003e", // AWFY red
+  "#5a78b8", // soft blue
+  "#3d8b41", // green
+  "#b58900", // amber
+  "#8d4198", // purple
+  "#0a8294"  // teal
+];
+function pickCardColor(idx) {
+  return DRILL_CARD_COLORS[idx % DRILL_CARD_COLORS.length];
+}
+
+let sharedDrillChart = null;
+
+function rebuildSharedDrillChart() {
+  const wrap = document.getElementById("master-drill-chart-wrap");
+  const canvas = document.getElementById("master-drill-shared-chart");
+  if (!wrap || !canvas) return;
+
+  if (masterDrillDatasets.size === 0) {
+    if (sharedDrillChart) { sharedDrillChart.destroy(); sharedDrillChart = null; }
+    wrap.style.display = "none";
+    return;
+  }
+
+  // Build the union of benchmark names across pinned points so the
+  // y-axis covers everything any card carries. Stable order: group
+  // by language family, then alphabetical within family. Matches
+  // what the per-card chart used to do.
+  const labelMap = new Map(); // bench-key -> { name, lang, input }
+  masterDrillDatasets.forEach(({ bench_details }) => {
+    bench_details.forEach(d => {
+      const key = (d.lang || "") + "|" + d.name + "|" + (d.input || "");
+      if (!labelMap.has(key)) labelMap.set(key, d);
+    });
+  });
+  const labels = Array.from(labelMap.values()).sort((a, b) => {
+    const fam = (d) => d.lang === "erlang" ? 0 : d.lang === "elixir" ? 1 : 2;
+    const fa = fam(a), fb = fam(b);
+    if (fa !== fb) return fa - fb;
+    return (a.name + (a.input || "")).localeCompare(b.name + (b.input || ""));
+  });
+  const labelKey = (d) => (d.lang || "") + "|" + d.name + "|" + (d.input || "");
+  const labelDisplayNames = labels.map(d =>
+    (d.input ? d.name + "/" + d.input : d.name) + (d.lang ? " · " + d.lang : "")
+  );
+
+  // One dataset per pinned card. Each dataset has one bar per
+  // benchmark; null where the card's point didn't have that bench.
+  const datasets = Array.from(masterDrillDatasets.entries()).map(([_key, info]) => {
+    const byKey = new Map();
+    info.bench_details.forEach(d => byKey.set(labelKey(d), d));
+    const data = labels.map(d => {
+      const found = byKey.get(labelKey(d));
+      return found && typeof found.speedup === "number" ? found.speedup : null;
+    });
+    return {
+      label: info.title,
+      data,
+      backgroundColor: info.color,
+      borderWidth: 0
+    };
+  });
+
+  // Chart height scales with the number of benchmarks so each bar
+  // is readable. ~22 px per benchmark row gives the labels
+  // breathing room.
+  wrap.style.display = "";
+  wrap.style.height = Math.max(220, labels.length * 22) + "px";
+
+  if (sharedDrillChart) sharedDrillChart.destroy();
+  sharedDrillChart = new Chart(canvas, {
+    type: "bar",
+    data: { labels: labelDisplayNames, datasets },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { position: "top", labels: { boxWidth: 14, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.raw;
+              return ctx.dataset.label + ": " +
+                (typeof v === "number" ? v.toFixed(3) + "×" : "—");
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: "× speedup vs baseline", font: { size: 11 } },
+          ticks: { font: { size: 10 } },
+          beginAtZero: true
+        },
+        y: {
+          ticks: { font: { size: 10 }, autoSkip: false },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+}
+
+function renderBenchDetailsTable(details) {
+  if (!details || !details.length) {
+    return '<p class="sub">No per-benchmark detail available.</p>';
+  }
+  const rows = details.map(d => {
+    const name = d.input ? d.name + "/" + d.input : d.name;
+    const langSuffix = d.lang ? " · " + d.lang : "";
+    const median = (typeof d.median_ms === "number") ? d.median_ms.toFixed(3) + " ms" : "—";
+    // Speedup column: baseline_ms / median_ms from the server-side
+    // per-(series, benchmark) baseline. > 1 = faster than baseline,
+    // < 1 = slower. Blank means no baseline for this benchmark in
+    // this series (e.g. XMPP rows on a pre-27 series — there's no
+    // earlier point to ratio against).
+    const speedup = (typeof d.speedup === "number") ? d.speedup.toFixed(3) + "×" : "—";
+    return '<tr><td>' + escapeHtml(name + langSuffix) + '</td><td class="num">' + median + '</td><td class="num">' + speedup + '</td></tr>';
+  }).join("");
+  return '<table class="master-drill-benches"><thead><tr><th>benchmark</th><th class="num">median</th><th class="num">speedup</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+// Look up an erlang/otp commit + its associated PRs. Caches per SHA in
+// localStorage; first click hits the network, subsequent clicks (and
+// page reloads) are instant.
+//
+// erlang/otp accepts PRs targeting either `master` OR `maint`:
+//   * master-targeted PRs land on master directly — the
+//     `/commits/<sha>/pulls` call returns the PR straight away.
+//   * maint-targeted PRs land on maint first, then maint forward-
+//     merges into master via "Merge branch 'maint'" commits that
+//     have no direct PR association — the maint-side parent
+//     (parent[1]) carries the PR. We fall through to that when the
+//     direct lookup returns empty AND the commit looks like a merge.
+//
+// Multi-PR maint→master merges (several feature commits in one
+// range) aren't fully resolved here — the maint-side parent's
+// pulls only covers the most-recent PR. The GitHub-diff link from
+// the commit subject lets the user navigate from there for the
+// fancier cases.
+async function fetchCommitInfo(sha) {
+  // v2 key: schema bumped when we started populating run_sha with
+  // the OTP commit SHA (extracted from the run label) instead of
+  // the AWFY repo's git SHA. Old v1 entries are stale and would
+  // mislead the drill-down.
+  const cacheKey = "awfy.master.commit.v2." + sha;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (_) {}
+  }
+  const [commit, directPulls] = await Promise.all([
+    fetch("https://api.github.com/repos/erlang/otp/commits/" + sha)
+      .then(r => r.ok ? r.json() : null),
+    fetch("https://api.github.com/repos/erlang/otp/commits/" + sha + "/pulls")
+      .then(r => r.ok ? r.json() : [])
+  ]);
+
+  let pulls = Array.isArray(directPulls) ? directPulls : [];
+
+  if (pulls.length === 0 && commit && Array.isArray(commit.parents) && commit.parents.length === 2) {
+    const subject = (commit.commit && commit.commit.message || "").split("\n")[0];
+    if (/^Merge (branch|pull request)/.test(subject)) {
+      const maintSide = commit.parents[1].sha;
+      const maintPulls = await fetch(
+        "https://api.github.com/repos/erlang/otp/commits/" + maintSide + "/pulls"
+      ).then(r => r.ok ? r.json() : []);
+      if (Array.isArray(maintPulls) && maintPulls.length) {
+        pulls = maintPulls;
+      }
+    }
+  }
+
+  const info = { commit, pulls };
+  try { localStorage.setItem(cacheKey, JSON.stringify(info)); } catch (_) {}
+  return info;
+}
+
+function renderPrInfo(info) {
+  if (!info || (!info.commit && (!info.pulls || !info.pulls.length))) {
+    // 404 / private repo / rate-limit. Empty output would leave the
+    // "Loading…" placeholder gone with nothing in its place, which
+    // reads as "the drill-down is broken". Be explicit instead.
+    return '<em style="color: var(--er-muted)">Commit not found on erlang/otp (rate-limited, offline, or stale local cache).</em>';
+  }
+  const parts = [];
+  if (info.commit) {
+    const c = info.commit;
+    const subject = (c.commit && c.commit.message || "").split("\n")[0];
+    const author = c.commit && c.commit.author && c.commit.author.name;
+    parts.push('<div class="master-drill-card-commit">' +
+      '<a href="' + c.html_url + '" target="_blank" rel="noopener">' + c.sha.slice(0, 10) + '</a>: ' +
+      escapeHtml(subject) +
+      (author ? ' <span style="color: var(--er-muted)">— ' + escapeHtml(author) + '</span>' : '') +
+      '</div>');
+  }
+  if (info.pulls && info.pulls.length) {
+    const links = info.pulls.map(p =>
+      '<a href="' + p.html_url + '" target="_blank" rel="noopener">#' + p.number + '</a> ' + escapeHtml(p.title)
+    ).join("<br>");
+    parts.push('<div class="master-drill-card-pulls"><b>PR' + (info.pulls.length > 1 ? 's' : '') + ':</b> ' + links + '</div>');
+  } else if (info.commit) {
+    // erlang/otp typically merges feature branches into `maint`
+    // first, then periodically merges `maint` into `master` via
+    // "Merge branch 'maint'" commits — so master-merge SHAs often
+    // have no direct PR association. The commit subject + GitHub
+    // link above lets the user navigate from there to find the
+    // underlying changes.
+    parts.push('<div class="master-drill-card-pulls"><em style="color: var(--er-muted)">No PR directly associated with this commit. Click the SHA above to see the GitHub diff.</em></div>');
+  }
+  return parts.join("");
+}
+
 function pinSparklineCard(info) {
   const panel = document.getElementById("spark-panel");
   if (!panel) return;
@@ -1596,6 +1996,14 @@ function renderRunsMeta() {
 // crashing on `document.getElementById` — the helpers above are pure
 // and re-exported via module.exports at the bottom of the file.
 if (typeof document !== "undefined") (function () {
+  // Master timeline page has no controls — server already collapsed
+  // every row to one synthetic (mc, flavor) aggregate. Skip the
+  // tab/radio/checkbox setup entirely; renderAll handles the chart.
+  if (PAGE_KIND === "master") {
+    renderAll();
+    renderRunsMeta();
+    return;
+  }
   const state = loadFilterState();
   const machineClasses = uniqueValues(DATASET.rows, "machine_class");
   const flavors = uniqueValues(DATASET.rows, "emu_flavor");

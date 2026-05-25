@@ -240,22 +240,49 @@ defmodule Mix.Tasks.Awfy.Compare do
   end
 
   # =====================================================================
-  # Master timeline — per-merge geomean speedup on a timestamp axis,
-  # anchored at the oldest data point in each (lang, machine_class,
-  # emu_flavor) series. Shows latest-patch-per-major as historical
-  # anchors plus every master merge since OTP-29.0.
+  # Master timeline — per-merge geomean speedup, on a timestamp axis.
+  #
+  # Number-exactness with the main page is the contract here: the
+  # OTP-29.0 point on the master line must read the same speedup as
+  # the OTP-29.0 point on the main suite chart. We get that by
+  # mirroring `buildSuiteGeomeanSeries`' baseline computation server-
+  # side — per-(lang, machine_class, benchmark) baseline anchored at
+  # the earliest OTP version with the JIT-cutoff flavor fallback
+  # (pre-24 emu → post-cutoff jit per platform), per-platform
+  # geomean of per-bench ratios, all-platforms geomean of the per-
+  # platform geomeans bucketed by commit. We then filter the visible
+  # set to OTP-29.0 + master merges within the 3-month window so the
+  # chart breathes around the recent activity without dragging the
+  # decade-long historical baggage onto the page.
   # =====================================================================
+  @master_window_days 90
+  @jit_cutoff_by_platform %{
+    "linux-x86_64" => 24,
+    "linux-arm64" => 25,
+    "macos-arm64" => 26,
+    "windows-x86_64" => 24,
+    "windows-arm64" => 24
+  }
+
   defp render_master(data) do
-    rows = filter_for_master_view(data.rows)
-    aggregated = aggregate_per_series(rows)
-    dataset_json = encode_dataset(aggregated, data.runs)
+    jit_rows = data.rows |> apply_jit_cutoff() |> fold_multi_input_families()
+    baselines = build_baselines(jit_rows)
+    per_platform = aggregate_per_platform(jit_rows, baselines)
+    all_platforms = aggregate_all_platforms(per_platform)
+
+    cutoff = DateTime.add(DateTime.utc_now(), -@master_window_days * 24 * 3600, :second)
+    visible = Enum.filter(per_platform ++ all_platforms, &visible_on_master?(&1, cutoff))
+
+    dataset_json = encode_dataset(visible, data.runs)
 
     page_template(%{
       title: "AWFY — Master timeline",
-      heading: "Master timeline — per-commit speedup since OTP-20.3",
+      heading: "Master timeline — last 3 months of master merges",
       subhead:
-        "One point per OTP version (latest patch of each major) and one per master merge. " <>
-          "Y axis: geomean speedup vs the earliest measurement in each series.",
+        "Geomean speedup vs OTP-20.3 (anchor matches the main suite chart), " <>
+          "one line per platform plus a bold all-platforms aggregate. " <>
+          "Higher = faster than the earliest measurement; OTP-29.0 reads " <>
+          "the same value here as on the main dashboard.",
       breadcrumb: """
       <a href="index.html">&larr; Suite</a> · Master timeline
       """,
@@ -267,69 +294,269 @@ defmodule Mix.Tasks.Awfy.Compare do
     })
   end
 
-  # Keep all master rows (every merge is its own point on the timeline)
-  # and collapse the per-major maint-tip rows to the latest patch only —
-  # for each (lang, machine_class, emu_flavor, major, benchmark) bucket,
-  # latest timestamp wins. Older within-major patches (OTP-28.4.3 next
-  # to OTP-28.5) would otherwise stack on the chart's timestamp axis at
-  # different x positions, doubling the data per major and muddying the
-  # historical-trend line — we just want one anchor per major.
-  defp filter_for_master_view(rows) do
-    {master_rows, other_rows} = Enum.split_with(rows, &(&1.otp == "master"))
+  # Pre-cutoff emu, post-cutoff jit, per platform — mirrors the main
+  # page's flavor-selection rule in `buildSuiteGeomeanSeries`. Without
+  # this the OTP-29.0 master-page number wouldn't match the main page's
+  # because the main page's baseline (typically OTP-20.3) is an emu
+  # measurement.
+  defp apply_jit_cutoff(rows) do
+    Enum.filter(rows, fn r ->
+      mc = machine_class(%{"arch" => r.arch})
+      cutoff = Map.get(@jit_cutoff_by_platform, mc, 0)
+      major = master_otp_major(r.otp)
 
-    collapsed =
-      other_rows
-      |> Enum.filter(&is_number(&1.median_ms))
-      |> Enum.group_by(fn r ->
-        {r.lang, machine_class(%{"arch" => r.arch}), r.emu_flavor,
-         otp_major_int(r.otp), r.benchmark, Map.get(r, :input)}
-      end)
-      |> Enum.flat_map(fn {_k, group} ->
-        [Enum.max_by(group, fn r -> r.timestamp || "" end)]
-      end)
-
-    master_rows ++ collapsed
-  end
-
-  # Geomean across every benchmark in a (label, lang, machine_class,
-  # emu_flavor) series so the master timeline plots ONE point per run
-  # — the same suite-wide aggregate the index page's headline metric
-  # shows, but per-run instead of per-OTP-major. buildSeries on the
-  # client side then ratios each point against the series's earliest
-  # measurement to produce the speedup-over-time line.
-  defp aggregate_per_series(rows) do
-    rows
-    |> Enum.filter(&(is_number(&1.median_ms) and &1.median_ms > 0))
-    |> Enum.group_by(fn r ->
-      {r.label, r.lang, machine_class(%{"arch" => r.arch}), r.emu_flavor}
-    end)
-    |> Enum.map(fn {_key, group} ->
-      template = hd(group)
-      gm = geomean(Enum.map(group, & &1.median_ms))
-
-      %{
-        template
-        | benchmark: "aggregate",
-          median_ms: gm,
-          stddev_ms: nil,
-          min_ms: nil,
-          max_ms: nil,
-          p25_ms: nil,
-          p75_ms: nil,
-          p99_ms: nil,
-          samples: nil
-      }
+      cond do
+        r.otp in ["master", "maint"] -> r.emu_flavor == "jit"
+        is_integer(major) and major >= cutoff -> r.emu_flavor == "jit"
+        is_integer(major) -> r.emu_flavor == "emu"
+        true -> r.emu_flavor == "jit"
+      end
     end)
   end
 
-  defp otp_major_int(otp) when is_binary(otp) do
+  defp master_otp_major(otp) when is_binary(otp) do
     case Integer.parse(otp) do
       {n, _} -> n
-      _ -> 0
+      _ -> nil
     end
   end
 
-  defp otp_major_int(_), do: 0
+  defp master_otp_major(_), do: nil
+
+  # Collapse OtpBenchmarks per-input rows into one family-level row
+  # per (label, lang, mc, flavor, benchmark, otp) — mirrors
+  # `foldMultiInputFamilies` in dashboard.js. Without the fold a 13-
+  # input family like phash2 would contribute 13 cells to the
+  # geomean against AWFY's 1-cell benchmarks, and the master line
+  # would drift away from the main page's value.
+  defp fold_multi_input_families(rows) do
+    {with_input, without_input} = Enum.split_with(rows, fn r -> Map.get(r, :input) != nil end)
+
+    synthetic =
+      with_input
+      |> Enum.group_by(fn r ->
+        {r.label, r.lang, machine_class(%{"arch" => r.arch}), r.emu_flavor, r.benchmark,
+         r.otp}
+      end)
+      |> Enum.map(fn {_k, group} ->
+        positive = Enum.filter(group, &(is_number(&1.median_ms) and &1.median_ms > 0))
+
+        case positive do
+          [] ->
+            nil
+
+          _ ->
+            template = hd(positive)
+            gm = geomean(Enum.map(positive, & &1.median_ms))
+            %{template | input: nil, median_ms: gm, stddev_ms: 0}
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    without_input ++ synthetic
+  end
+
+  # Per-(lang, mc, benchmark) baseline = earliest OTP-version's median.
+  # Tiebreak on timestamp. Mirrors `buildSuiteGeomeanSeries`' baseIdx
+  # — same ordering rule (compareOtpVersions) so the resulting
+  # baselines match exactly.
+  defp build_baselines(rows) do
+    rows
+    |> Enum.filter(&(is_number(&1.median_ms) and &1.median_ms > 0))
+    |> Enum.group_by(fn r ->
+      {r.lang, machine_class(%{"arch" => r.arch}), r.benchmark}
+    end)
+    |> Map.new(fn {key, group} ->
+      earliest =
+        Enum.min_by(group, fn r ->
+          {otp_sort_key(r.otp), r.timestamp || ""}
+        end)
+
+      {key, earliest.median_ms}
+    end)
+  end
+
+  # Sort key for OTP versions. "20.3" → {0, 20, 3, 0, 0, 0}; "master"
+  # / "maint" sort after everything numeric so they land at the right
+  # edge. Mirrors `compareOtpVersions` in dashboard.js.
+  defp otp_sort_key("master"), do: {2, 0, 0, 0, 0}
+  defp otp_sort_key("maint"), do: {1, 0, 0, 0, 0}
+
+  defp otp_sort_key(otp) when is_binary(otp) do
+    parts =
+      otp
+      |> String.split(".")
+      |> Enum.map(fn p ->
+        case Integer.parse(p) do
+          {n, _} -> n
+          _ -> 0
+        end
+      end)
+
+    {a, b, c, d} =
+      case parts do
+        [a, b, c, d | _] -> {a, b, c, d}
+        [a, b, c] -> {a, b, c, 0}
+        [a, b] -> {a, b, 0, 0}
+        [a] -> {a, 0, 0, 0}
+        _ -> {0, 0, 0, 0}
+      end
+
+    {0, a, b, c, d}
+  end
+
+  defp otp_sort_key(_), do: {0, 0, 0, 0, 0}
+
+  # Per-(label, mc) aggregate ratio = geomean of per-benchmark
+  # speedups vs the (lang, mc, benchmark) baseline. Encoded as
+  # median_ms = 1.0 / aggregate_speedup so the JS buildSeries baseline
+  # machinery (baseMs/median_ms) recovers the speedup as y at chart
+  # time without master-specific JS branches.
+  defp aggregate_per_platform(rows, baselines) do
+    rows
+    |> Enum.filter(&(is_number(&1.median_ms) and &1.median_ms > 0))
+    |> Enum.group_by(fn r -> {r.label, machine_class(%{"arch" => r.arch})} end)
+    |> Enum.map(fn {{label, mc}, group} ->
+      template = hd(group)
+
+      details =
+        group
+        |> Enum.map(fn r ->
+          base = Map.get(baselines, {r.lang, mc, r.benchmark})
+
+          ratio =
+            if is_number(base) and base > 0 and is_number(r.median_ms) and r.median_ms > 0 do
+              base / r.median_ms
+            end
+
+          %{
+            "name" => r.benchmark,
+            "median_ms" => r.median_ms,
+            "speedup" => ratio,
+            "lang" => r.lang,
+            "input" => Map.get(r, :input)
+          }
+        end)
+        |> Enum.sort_by(fn d -> {d["name"], d["input"] || ""} end)
+
+      speedups =
+        details
+        |> Enum.map(& &1["speedup"])
+        |> Enum.filter(&(is_number(&1) and &1 > 0))
+
+      case speedups do
+        [] ->
+          nil
+
+        _ ->
+          agg = geomean(speedups)
+
+          template
+          |> Map.merge(%{
+            benchmark: "aggregate",
+            # Keep median_ms set (buildSeries needs a positive value to
+            # accept the row) but the y the chart actually plots comes
+            # from `master_y` below — the speedup vs the FULL-HISTORY
+            # baseline (typically OTP-20.3). Without master_y the JS
+            # would re-anchor on the earliest visible point (OTP-29.0
+            # in our 3-month window), which would diverge from the
+            # main page's number.
+            median_ms: 1.0,
+            machine_class_override: mc,
+            stddev_ms: nil,
+            min_ms: nil,
+            max_ms: nil,
+            p25_ms: nil,
+            p75_ms: nil,
+            p99_ms: nil,
+            samples: nil,
+            lang: nil,
+            input: nil
+          })
+          |> Map.put(:otp_tag, otp_tag_for(template.otp))
+          |> Map.put(:run_sha, extract_otp_sha10(label))
+          |> Map.put(:bench_details, details)
+          |> Map.put(:master_y, agg)
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp otp_tag_for("master"), do: nil
+  defp otp_tag_for("maint"), do: nil
+  defp otp_tag_for(otp) when is_binary(otp), do: "OTP-" <> otp
+  defp otp_tag_for(_), do: nil
+
+  # All-platforms aggregate — at each OTP commit (= unique sha10),
+  # geomean across the per-platform aggregates that measured the same
+  # commit. Synthetic rows carry machine_class="all" and arch="all"
+  # so buildSeries puts them in their own (thick) series.
+  defp aggregate_all_platforms(per_platform_rows) do
+    per_platform_rows
+    |> Enum.group_by(fn r -> {extract_otp_sha10(r.label), r.timestamp, r.otp} end)
+    |> Enum.map(fn {{sha10, ts, otp}, group} ->
+      template = hd(group)
+      # Per-platform master_y values feed the all-platforms geomean.
+      per_platform_speedups = Enum.map(group, & &1.master_y)
+      agg = geomean(per_platform_speedups)
+
+      details =
+        group
+        |> Enum.map(fn r ->
+          %{
+            "name" => "geomean@" <> (r.machine_class_override || ""),
+            "median_ms" => nil,
+            "speedup" => r.master_y,
+            "lang" => nil,
+            "input" => nil
+          }
+        end)
+        |> Enum.sort_by(& &1["name"])
+
+      template
+      |> Map.merge(%{
+        label: "all-#{sha10}",
+        machine_class_override: "all",
+        arch: "all",
+        timestamp: ts,
+        otp: otp,
+        median_ms: 1.0,
+        stddev_ms: nil
+      })
+      |> Map.put(:bench_details, details)
+      |> Map.put(:master_y, agg)
+    end)
+  end
+
+  defp visible_on_master?(row, cutoff_dt) do
+    cond do
+      row.otp == "29.0" ->
+        true
+
+      row.otp == "master" ->
+        case row.timestamp && DateTime.from_iso8601(row.timestamp) do
+          {:ok, dt, _} -> DateTime.compare(dt, cutoff_dt) != :lt
+          _ -> false
+        end
+
+      true ->
+        false
+    end
+  end
+
+  # Pluck the leading sha10 out of an AWFY run label. Label shape is
+  # `<sha10>-test-<plat>-<arch>-<flavor>` (or with a `-dirty_<ts>`
+  # suffix for locally-dirty trees); anything that doesn't match
+  # returns the empty string, in which case the JS drill-down
+  # falls back to "no commit SHA recorded for this run".
+  defp extract_otp_sha10(label) when is_binary(label) do
+    case Regex.run(~r/^([0-9a-f]{10})-/, label) do
+      [_, sha] -> sha
+      _ -> ""
+    end
+  end
+
+  defp extract_otp_sha10(_), do: ""
 
   defp geomean(values) do
     nonzero = Enum.filter(values, &(is_number(&1) and &1 > 0))
@@ -1019,7 +1246,7 @@ defmodule Mix.Tasks.Awfy.Compare do
           "hostname" => r.hostname,
           "cpu" => r.cpu,
           "arch" => r.arch,
-          "machine_class" => machine_class(%{"arch" => r.arch}),
+          "machine_class" => Map.get(r, :machine_class_override) || machine_class(%{"arch" => r.arch}),
           "emu_flavor" => r.emu_flavor,
           "lang" => r.lang,
           "input" => Map.get(r, :input),
@@ -1042,7 +1269,32 @@ defmodule Mix.Tasks.Awfy.Compare do
           # the clicked run alongside others — letting a user
           # eyeball master vs 28.5's CPU shape on the same page.
           "samples" => Map.get(r, :samples),
-          "samples_unit" => samples_unit_for(r.benchmark)
+          "samples_unit" => samples_unit_for(r.benchmark),
+          # Master-timeline drill-down fields. Populated by
+          # render_master/1's aggregate_per_series via
+          # filter_for_master_view; nil for non-master-page rows.
+          # * otp_tag — `"OTP-X.Y.Z"` for tagged maint-tip points so
+          #   the chart can paint the tag name above the dot; nil for
+          #   master merges (those are identified by run_sha instead).
+          # * run_sha — OTP commit SHA from meta.json.git.sha. Used
+          #   by the click drill-down to look up the PR via
+          #   `api.github.com/repos/erlang/otp/commits/<sha>/pulls`.
+          # * bench_details — un-aggregated per-benchmark medians for
+          #   the run, so the drill-down can show "phash2 is 4.1x
+          #   faster, Bounce is 1.3x faster, …" without re-loading.
+          "otp_tag" => Map.get(r, :otp_tag),
+          "run_sha" => Map.get(r, :run_sha),
+          "bench_details" => Map.get(r, :bench_details),
+          # Master-timeline only: the actual y to plot, ratioed
+          # against the FULL-HISTORY baseline (typically OTP-20.3)
+          # so the OTP-29.0 number here equals the OTP-29.0 number
+          # on the main suite chart. buildSeries' default
+          # baseMs/median_ms machinery would re-anchor on the
+          # earliest VISIBLE point, which is OTP-29.0 in our
+          # 3-month window — yielding y ~ 1.0× there instead of
+          # the historical 5.x× the main page shows. We bypass
+          # that with this explicit y.
+          "master_y" => Map.get(r, :master_y)
         }
       end)
 
@@ -1088,29 +1340,46 @@ defmodule Mix.Tasks.Awfy.Compare do
 
       #{if ctx.page_kind == "suite", do: Map.get(ctx, :trend_heading_html, "") <> ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
 
-      <div id="machine-tabs" class="tabs"></div>
+      #{if ctx.page_kind != "master", do: ~s(<div id="machine-tabs" class="tabs"></div>), else: ""}
 
-      <div id="machine-specs" class="machine-specs"></div>
+      #{if ctx.page_kind != "master", do: ~s(<div id="machine-specs" class="machine-specs"></div>), else: ""}
 
-      <div class="controls">
-        <div class="group" id="control-flavor">
-          <b>Flavor</b>
+      #{if ctx.page_kind != "master" do
+        ~s"""
+        <div class="controls">
+          <div class="group" id="control-flavor">
+            <b>Flavor</b>
+          </div>
+          <div class="group" id="control-lang">
+            <b>Language</b>
+          </div>
+          <div class="group" id="control-display">
+            <b>Display</b>
+            <label><input type="checkbox" id="show-whiskers" checked> Error bars</label>
+          </div>
+          <button id="reset-filters" type="button" class="reset-btn" title="Restore default tabs, language, and snapshot-major selections">Reset to defaults</button>
         </div>
-        <div class="group" id="control-lang">
-          <b>Language</b>
-        </div>
-        <div class="group" id="control-display">
-          <b>Display</b>
-          <label><input type="checkbox" id="show-whiskers" checked> Error bars</label>
-        </div>
-        <button id="reset-filters" type="button" class="reset-btn" title="Restore default tabs, language, and snapshot-major selections">Reset to defaults</button>
-      </div>
+        """
+      else
+        ""
+      end}
 
       #{Map.get(ctx, :snapshot_html, "")}
 
       #{if ctx.page_kind != "suite", do: ~s(<div class="chart-wrap"><canvas id="chart"></canvas></div>), else: ""}
 
       #{if ctx.page_kind == "bench", do: ~s(<div id="spark-panel" class="spark-panel"></div>), else: ""}
+
+      #{if ctx.page_kind == "master" do
+        ~s"""
+        <div id="master-drill-chart-wrap" class="master-drill-chart-wrap" style="display:none">
+          <canvas id="master-drill-shared-chart"></canvas>
+        </div>
+        <div id="master-drill" class="master-drill"></div>
+        """
+      else
+        ""
+      end}
 
       #{Map.get(ctx, :benchmarks_list_html, "")}
 
