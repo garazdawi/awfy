@@ -218,10 +218,14 @@ fi
 # line-numbered against the canonical release tarball's `configure`,
 # which can drift from the in-tree version. Old OTPs must come from
 # the canonical release tarball; better to fail loudly than mis-build.
-# master/maint always count as modern; numeric majors must be >= 24.
+# master/maint always count as modern; master:<sha> (the per-merge
+# form the master-history fill emits) too — without that the
+# archive fallback never fires for older merges whose upstream
+# otp_prebuilt artifacts have aged out of GHA's retention window.
+# Numeric majors must be >= 24.
 modern_otp=0
 case "$REF" in
-    master|maint) modern_otp=1 ;;
+    master|maint|master:*) modern_otp=1 ;;
     maint-*)
         v="${REF#maint-}"
         if [ "$v" -ge 24 ] 2>/dev/null; then modern_otp=1; fi
