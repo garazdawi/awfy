@@ -826,10 +826,13 @@ function buildOtpXMap(otpLabels) {
 }
 
 function renderChart() {
-  // X axis is always OTP version. Suite uses the configurable-free
-  // geomean builder; per-bench uses the standard series builder
-  // (filtered against the controls).
-  const xAxis = "otp";
+  // X axis is OTP version for suite/per-bench pages; timestamp for
+  // the master timeline (one point per merge, plotted at the
+  // commit's committer date). The master page's dataset is already
+  // collapsed server-side to one "aggregate" row per (run × series),
+  // so buildSeries on the timestamp axis produces the trend lines
+  // directly — no separate geomean builder needed.
+  const xAxis = PAGE_KIND === "master" ? "timestamp" : "otp";
   const state = readUIState();
   const series = PAGE_KIND === "suite"
     ? buildSuiteGeomeanSeries()

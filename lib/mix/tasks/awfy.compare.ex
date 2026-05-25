@@ -97,7 +97,12 @@ defmodule Mix.Tasks.Awfy.Compare do
       render_stability(data)
     )
 
-    Mix.shell().info("Wrote #{out_dir}/index.html (#{length(bench_names)} benchmark pages, plus stability.html)")
+    File.write!(
+      Path.join(out_dir, "master.html"),
+      render_master(data)
+    )
+
+    Mix.shell().info("Wrote #{out_dir}/index.html (#{length(bench_names)} benchmark pages, plus stability.html, master.html)")
   end
 
   defp parse_csv(nil), do: nil
@@ -228,9 +233,115 @@ defmodule Mix.Tasks.Awfy.Compare do
       <h3>More</h3>
       <ul class="bench-links">
         <li><a href="stability.html">Benchmark stability on master</a></li>
+        <li><a href="master.html">Master timeline — every merge since OTP-29.0</a></li>
       </ul>
       """
     })
+  end
+
+  # =====================================================================
+  # Master timeline — per-merge geomean speedup on a timestamp axis,
+  # anchored at the oldest data point in each (lang, machine_class,
+  # emu_flavor) series. Shows latest-patch-per-major as historical
+  # anchors plus every master merge since OTP-29.0.
+  # =====================================================================
+  defp render_master(data) do
+    rows = filter_for_master_view(data.rows)
+    aggregated = aggregate_per_series(rows)
+    dataset_json = encode_dataset(aggregated, data.runs)
+
+    page_template(%{
+      title: "AWFY — Master timeline",
+      heading: "Master timeline — per-commit speedup since OTP-20.3",
+      subhead:
+        "One point per OTP version (latest patch of each major) and one per master merge. " <>
+          "Y axis: geomean speedup vs the earliest measurement in each series.",
+      breadcrumb: """
+      <a href="index.html">&larr; Suite</a> · Master timeline
+      """,
+      warnings_html: "",
+      dataset_json: dataset_json,
+      page_kind: "master",
+      bench_name: "",
+      baseline_label: ""
+    })
+  end
+
+  # Keep all master rows (every merge is its own point on the timeline)
+  # and collapse the per-major maint-tip rows to the latest patch only —
+  # for each (lang, machine_class, emu_flavor, major, benchmark) bucket,
+  # latest timestamp wins. Older within-major patches (OTP-28.4.3 next
+  # to OTP-28.5) would otherwise stack on the chart's timestamp axis at
+  # different x positions, doubling the data per major and muddying the
+  # historical-trend line — we just want one anchor per major.
+  defp filter_for_master_view(rows) do
+    {master_rows, other_rows} = Enum.split_with(rows, &(&1.otp == "master"))
+
+    collapsed =
+      other_rows
+      |> Enum.filter(&is_number(&1.median_ms))
+      |> Enum.group_by(fn r ->
+        {r.lang, machine_class(%{"arch" => r.arch}), r.emu_flavor,
+         otp_major_int(r.otp), r.benchmark, Map.get(r, :input)}
+      end)
+      |> Enum.flat_map(fn {_k, group} ->
+        [Enum.max_by(group, fn r -> r.timestamp || "" end)]
+      end)
+
+    master_rows ++ collapsed
+  end
+
+  # Geomean across every benchmark in a (label, lang, machine_class,
+  # emu_flavor) series so the master timeline plots ONE point per run
+  # — the same suite-wide aggregate the index page's headline metric
+  # shows, but per-run instead of per-OTP-major. buildSeries on the
+  # client side then ratios each point against the series's earliest
+  # measurement to produce the speedup-over-time line.
+  defp aggregate_per_series(rows) do
+    rows
+    |> Enum.filter(&(is_number(&1.median_ms) and &1.median_ms > 0))
+    |> Enum.group_by(fn r ->
+      {r.label, r.lang, machine_class(%{"arch" => r.arch}), r.emu_flavor}
+    end)
+    |> Enum.map(fn {_key, group} ->
+      template = hd(group)
+      gm = geomean(Enum.map(group, & &1.median_ms))
+
+      %{
+        template
+        | benchmark: "aggregate",
+          median_ms: gm,
+          stddev_ms: nil,
+          min_ms: nil,
+          max_ms: nil,
+          p25_ms: nil,
+          p75_ms: nil,
+          p99_ms: nil,
+          samples: nil
+      }
+    end)
+  end
+
+  defp otp_major_int(otp) when is_binary(otp) do
+    case Integer.parse(otp) do
+      {n, _} -> n
+      _ -> 0
+    end
+  end
+
+  defp otp_major_int(_), do: 0
+
+  defp geomean(values) do
+    nonzero = Enum.filter(values, &(is_number(&1) and &1 > 0))
+
+    case nonzero do
+      [] ->
+        0.0
+
+      _ ->
+        sum_log = Enum.reduce(nonzero, 0.0, fn v, acc -> acc + :math.log(v) end)
+        :math.exp(sum_log / length(nonzero))
+    end
   end
 
   # =====================================================================
