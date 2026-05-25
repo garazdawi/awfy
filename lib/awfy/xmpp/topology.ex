@@ -295,13 +295,40 @@ defmodule Awfy.Xmpp.Topology do
         "AMOC_OTP_VERSION=#{System.get_env("AMOC_OTP_VERSION") || "(unset)"}"
     )
 
-    # Builds images if they don't exist (first run) and reuses cached
-    # layers on subsequent runs. --wait would block on healthchecks
-    # but Phase 1 polls separately via wait_ready/2 to give cleaner
-    # error messages.
+    # Retry the compose build up to 3 attempts with exponential
+    # backoff. The build pulls deps from hex.pm + apt + GHCR + the
+    # erlang/otp release server — any of those can flake transiently
+    # (a recurring example: `rebar3 compile --deps_only` failing with
+    # "Failed to update package fast_scram from repo hexpm" when the
+    # registry refresh times out mid-fetch, killing the whole 3-min
+    # build over a 5-second flake). docker compose's build cache
+    # makes retries cheap: already-built layers stay cached across
+    # attempts, so the retry only redoes the failing step.
+    do_compose_up(cmd, args, env, 1, 3)
+  end
+
+  @compose_up_backoff_seconds %{1 => 10, 2 => 30}
+
+  defp do_compose_up(cmd, args, env, attempt, max_attempts) do
     case System.cmd(cmd, args, env: env, stderr_to_stdout: true) do
-      {_, 0} -> :ok
-      {out, status} -> {:error, {:compose_up_failed, status, tail(out, 4_000)}}
+      {_, 0} ->
+        :ok
+
+      {out, status} when attempt < max_attempts ->
+        sleep_s = Map.get(@compose_up_backoff_seconds, attempt, 10)
+
+        IO.puts(
+          :stderr,
+          "[topology] compose-up attempt #{attempt}/#{max_attempts} failed " <>
+            "(exit #{status}), retrying in #{sleep_s}s\n" <>
+            "[topology] last 1000 bytes:\n#{tail(out, 1_000)}"
+        )
+
+        Process.sleep(sleep_s * 1_000)
+        do_compose_up(cmd, args, env, attempt + 1, max_attempts)
+
+      {out, status} ->
+        {:error, {:compose_up_failed, status, tail(out, 4_000)}}
     end
   end
 
