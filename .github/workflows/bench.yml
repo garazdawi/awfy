@@ -892,8 +892,24 @@ jobs:
           )
           if ($env:BENCHMARKS) { $args += @("--benchmarks", $env:BENCHMARKS) }
           mix awfy.measure @args
-      - if: steps.install_otp.outputs.skipped != 'true'
-        uses: actions/upload-artifact@v7
+      # When install-otp-windows.ps1 soft-skips (no upstream
+      # otp_win32_installer artifact — typical for master commits
+      # that touch no C code), no `.benchee` files land for this
+      # (sha, windows) and the resolver would perpetually re-queue
+      # it every fill. Write a sentinel run-dir with a NO_INSTALLER
+      # marker so the publish step copies it to gh-pages and the
+      # next resolver run recognises the slot as "unmeasurable" and
+      # skips the SHA cleanly.
+      - name: Write NO_INSTALLER sentinel (soft-skip)
+        if: steps.install_otp.outputs.skipped == 'true'
+        shell: pwsh
+        run: |
+          $ts = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmss')
+          $rundir = "results/${ts}_otp${{ matrix.target.major }}_elixir${{ matrix.target.elixir }}_${{ matrix.target.short }}-test-windows-x86_64-${{ matrix.flavor }}-noinstaller"
+          New-Item -ItemType Directory -Path $rundir -Force | Out-Null
+          "no upstream otp_win32_installer artifact for sha ${{ matrix.target.sha }} at this run" |
+            Out-File -FilePath "$rundir/NO_INSTALLER" -Encoding utf8
+      - uses: actions/upload-artifact@v7
         with:
           name: results-${{ matrix.target.short }}-windows-x86_64-${{ matrix.flavor }}
           path: results/

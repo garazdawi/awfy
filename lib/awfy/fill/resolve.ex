@@ -132,6 +132,13 @@ defmodule Awfy.Fill.Resolve do
       # Probe results (lazy: only populated in fill_mode).
       existing_rundirs: [],
       existing_benchees: [],
+      # `NO_INSTALLER` sentinel paths from gh-pages: measure-windows
+      # writes one of these per (sha, flavor) when the upstream
+      # otp_win32_installer artifact doesn't exist (typical for
+      # master commits that touch no C code). The resolver treats
+      # a matching marker as "windows complete (unmeasurable)" so
+      # the SHA stops re-queueing every fill.
+      existing_no_installer: [],
       # Master major lookup is memoised; many refs may need it.
       master_major: nil,
       # Per-platform collectors. Modern + legacy share a list and get
@@ -169,12 +176,12 @@ defmodule Awfy.Fill.Resolve do
   defp populate_existing(state) do
     rundirs = gh_pages_rundirs(state)
 
-    benchees =
+    {benchees, markers} =
       if state.input_benchmarks != "" or state.canonical_synthetic != "" or
            state.canonical_xmpp != "" do
-        gh_pages_benchees(state)
+        gh_pages_tree_blobs(state)
       else
-        []
+        {[], []}
       end
 
     diag("[fill] gh-pages has #{length(rundirs)} existing run-dirs")
@@ -183,7 +190,16 @@ defmodule Awfy.Fill.Resolve do
       diag("[fill] gh-pages has #{length(benchees)} .benchee blobs")
     end
 
-    %{state | existing_rundirs: rundirs, existing_benchees: benchees}
+    if markers != [] do
+      diag("[fill] gh-pages has #{length(markers)} NO_INSTALLER markers")
+    end
+
+    %{
+      state
+      | existing_rundirs: rundirs,
+        existing_benchees: benchees,
+        existing_no_installer: markers
+    }
   end
 
   # --- per-ref processing ----------------------------------------
@@ -326,19 +342,30 @@ defmodule Awfy.Fill.Resolve do
     {needs, state}
   end
 
-  # Wraps missing_for_platform/4 with the skip-platforms shortcut:
-  # a skipped platform reports "" missing + need=false so a SHA whose
-  # only gap is that platform falls into skip_ref?/1's all-false
-  # branch and gets dropped from the matrix entirely.
+  # Wraps missing_for_platform/4 with two early-exit cases:
+  #   * skip_platforms: the workflow can't measure this platform on
+  #     this run (e.g. measure-macos `if: false`); report "no missing"
+  #     so the SHA falls into skip_ref?/1's all-false branch.
+  #   * NO_INSTALLER marker: measure-windows wrote a sentinel for
+  #     this (sha, platform) when upstream had no installer, so the
+  #     slot is permanently unmeasurable and shouldn't re-queue.
   defp plat_gap(state, short, plat, canon_synth) do
-    if skip?(state, plat) do
-      {"", false}
-    else
-      missing_for_platform(state, short, plat, canon_synth)
+    cond do
+      skip?(state, plat) -> {"", false}
+      no_installer_marker?(state, short, plat) -> {"", false}
+      true -> missing_for_platform(state, short, plat, canon_synth)
     end
   end
 
   defp skip?(state, plat), do: MapSet.member?(state.skip_platforms, plat)
+
+  defp no_installer_marker?(state, short, plat) do
+    needle = "_#{short}-test-#{plat}-"
+
+    Enum.any?(state.existing_no_installer, fn path ->
+      String.contains?(path, needle)
+    end)
+  end
 
   # Returns `{benchmarks_csv, needs_run?}`. When canonical_synth is
   # set, the csv lists names that have no matching `.benchee` blob
@@ -593,7 +620,14 @@ defmodule Awfy.Fill.Resolve do
     end
   end
 
-  defp gh_pages_benchees(state) do
+  # One recursive tree probe; partition the blobs by what they
+  # tell us about a (sha, platform) slot. `.benchee` blobs are
+  # real measurements, `NO_INSTALLER` markers are the sentinel
+  # measure-windows writes when upstream had no installer for a
+  # master commit (which would otherwise leave that slot
+  # perpetually flagged as missing). Both are needed for the
+  # per-platform gap check.
+  defp gh_pages_tree_blobs(state) do
     case state.shell.("gh", [
            "api",
            "repos/#{state.github_repository}/git/trees/gh-pages?recursive=1"
@@ -606,19 +640,22 @@ defmodule Awfy.Fill.Resolve do
               "::warning::gh-pages tree exceeds API page limit; benchmark-targeted skip disabled"
             )
 
-            []
+            {[], []}
 
           {:ok, %{"tree" => tree}} when is_list(tree) ->
-            for %{"type" => "blob", "path" => path} <- tree,
-                String.ends_with?(path, ".benchee"),
-                do: path
+            paths = for %{"type" => "blob", "path" => path} <- tree, do: path
+
+            benchees = Enum.filter(paths, &String.ends_with?(&1, ".benchee"))
+            markers = Enum.filter(paths, &String.ends_with?(&1, "/NO_INSTALLER"))
+
+            {benchees, markers}
 
           _ ->
-            []
+            {[], []}
         end
 
       _ ->
-        []
+        {[], []}
     end
   end
 

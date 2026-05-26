@@ -468,6 +468,66 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       assert out["targets_modern_windows"] == []
     end
 
+    test "NO_INSTALLER marker treats windows as complete for that SHA" do
+      # measure-windows soft-skips when upstream has no
+      # otp_win32_installer artifact (typical for master commits
+      # with no C changes). It writes a sentinel rundir whose
+      # only file is `NO_INSTALLER`. The resolver should treat the
+      # marker as "windows complete (unmeasurable)" so the SHA
+      # doesn't perpetually re-queue every fill.
+      sha = String.duplicate("e", 40)
+      short = String.slice(sha, 0..9)
+
+      out =
+        run("master:#{sha}",
+          fill_mode: true,
+          skip_platforms: ["macos"],
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101_otp30_elixir1.19.5_#{short}-test-linux-x86_64-jit",
+            "20260101_otp30_elixir1.19.5_#{short}-test-windows-x86_64-jit-noinstaller"
+          ],
+          existing_benchees: [
+            "20260101_otp30_elixir1.19.5_#{short}-test-linux-x86_64-jit/Bounce.benchee",
+            # The marker: the gh tree probe surfaces it as a blob
+            # alongside .benchee files; the resolver partitions by
+            # suffix internally.
+            "20260101_otp30_elixir1.19.5_#{short}-test-windows-x86_64-jit-noinstaller/NO_INSTALLER"
+          ]
+        )
+
+      # All three platforms drop out: linux is complete, macos is
+      # skipped, windows is marked unmeasurable.
+      assert out["targets_modern_linux"] == []
+      assert out["targets_modern_macos"] == []
+      assert out["targets_modern_windows"] == []
+    end
+
+    test "NO_INSTALLER marker is per-platform; other platforms still flag missing" do
+      # Marker exists for windows but linux benchmark is missing.
+      # The SHA still queues with linux work; windows skipped.
+      sha = String.duplicate("f", 40)
+      short = String.slice(sha, 0..9)
+
+      out =
+        run("master:#{sha}",
+          fill_mode: true,
+          skip_platforms: ["macos"],
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101_otp30_elixir1.19.5_#{short}-test-windows-x86_64-jit-noinstaller"
+          ],
+          existing_benchees: [
+            "20260101_otp30_elixir1.19.5_#{short}-test-windows-x86_64-jit-noinstaller/NO_INSTALLER"
+          ]
+        )
+
+      assert [%{"benchmarks" => "Bounce"}] = out["targets_modern_linux"]
+      assert out["targets_modern_windows"] == []
+    end
+
     test "skipped platform never appears in the matrix even when other platforms need work" do
       # linux missing, windows + macos already present. Without
       # skip_platforms the resolver would queue linux only. With
