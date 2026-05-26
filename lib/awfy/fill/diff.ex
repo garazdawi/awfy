@@ -12,11 +12,18 @@ defmodule Awfy.Fill.Diff do
 
   Run directories under `gh-pages/` are named:
 
-      <ts>_otp<release>_elixir<version>_<otp_short>-<os>-<arch>-<flavor>
+      <ts>_otp<release>_elixir<version>_<otp_short>-test-<os>-<arch>-<flavor>
 
-  where the suffix label is built by `Mix.Tasks.Awfy.Measure` from the
-  fill task's `--label` argument. Anything that doesn't match is
-  ignored (e.g. dashboard HTML, README, `.nojekyll`).
+  where the `-test-` infix comes from the resolver's
+  `label = "<sha10>-test"` and `<os>-<arch>-<flavor>` is appended by
+  the CI matrix (or `bin/measure-all-macos.sh` for local sweeps).
+  Anything that doesn't match is ignored:
+
+    * dashboard files (`index.html`, `.nojekyll`, README, …)
+    * windows soft-skip sentinels (`…-noinstaller` suffix — no
+      measurement data, just a marker the resolver consumes)
+    * locally-dirty runs (`<sha>-dirty_<ts>-…` label) — those carry
+      uncommitted-tree timestamps and aren't fill candidates
   """
 
   @typedoc "A parsed run-dir entry."
@@ -35,10 +42,16 @@ defmodule Awfy.Fill.Diff do
   """
   @spec parse_run_dir(String.t()) :: entry() | nil
   def parse_run_dir(name) do
-    case Regex.run(~r/^(\d{8}T\d{4})_otp([^_]+)_elixir([^_]+)_(.+)$/, name) do
+    # Timestamps are usually `YYYYMMDDTHHMM` (13 chars) but the
+    # windows soft-skip sentinel uses `YYYYMMDDTHHMMSS` (15 chars).
+    # Accept both so sentinel rundirs at least parse far enough for
+    # the label-shape check to drop them via the `-noinstaller`
+    # suffix (otherwise they'd be silently treated as "well-formed
+    # but unrecognised").
+    case Regex.run(~r/^(\d{8}T\d{4,6})_otp([^_]+)_elixir([^_]+)_(.+)$/, name) do
       [_, ts, _otp_release, _elixir, label] ->
         case String.split(label, "-") do
-          [otp_short, os, arch, flavor] ->
+          [otp_short, "test", os, arch, flavor] ->
             %{
               run_dir: name,
               timestamp: ts,
@@ -48,6 +61,11 @@ defmodule Awfy.Fill.Diff do
             }
 
           _ ->
+            # Anything else: dirty-suffix runs (`<sha>-dirty_<ts>-…`
+            # have "dirty_…" as second part), windows soft-skip
+            # sentinels (`…-noinstaller`, 6 parts), legacy 4-part
+            # labels from pre-`-test-` runs. None are fill
+            # candidates; the caller skips them.
             nil
         end
 

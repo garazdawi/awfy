@@ -16,21 +16,21 @@ defmodule Awfy.Fill.DiffTest do
   describe "parse_run_dir/1" do
     test "well-formed run-dir → entry" do
       assert %{
-               run_dir: "20260415T0930_otp28_elixir1.19.5_abc1234-macos-arm64-jit",
+               run_dir: "20260415T0930_otp28_elixir1.19.5_abc1234-test-macos-arm64-jit",
                timestamp: "20260415T0930",
                otp_sha: "abc1234",
                platform: "macos-arm64",
                flavor: "jit"
              } =
                Diff.parse_run_dir(
-                 "20260415T0930_otp28_elixir1.19.5_abc1234-macos-arm64-jit"
+                 "20260415T0930_otp28_elixir1.19.5_abc1234-test-macos-arm64-jit"
                )
     end
 
     test "linux x86_64 emu" do
       assert %{platform: "linux-x86_64", flavor: "emu", otp_sha: "deadbee"} =
                Diff.parse_run_dir(
-                 "20260415T0930_otp28_elixir1.19.5_deadbee-linux-x86_64-emu"
+                 "20260415T0930_otp28_elixir1.19.5_deadbee-test-linux-x86_64-emu"
                )
     end
 
@@ -40,9 +40,27 @@ defmodule Awfy.Fill.DiffTest do
       assert Diff.parse_run_dir("README.md") == nil
     end
 
-    test "label without 4 parts → nil (dirty-suffix runs aren't fill candidates)" do
-      assert Diff.parse_run_dir("20260415T0930_otp28_elixir1.19.5_abc-dirty_20260415T0930") ==
-               nil
+    test "legacy 4-part label (no `-test-` infix) → nil" do
+      # Pre-`-test-` run-dirs from the old fill-task era; not on
+      # current gh-pages but harmless to keep filtered.
+      assert Diff.parse_run_dir(
+               "20260415T0930_otp28_elixir1.19.5_abc1234-macos-arm64-jit"
+             ) == nil
+    end
+
+    test "dirty-suffix label → nil (dirty runs aren't fill candidates)" do
+      assert Diff.parse_run_dir(
+               "20260415T0930_otp28_elixir1.19.5_abc-dirty_20260415T0930-macos-arm64-jit"
+             ) == nil
+    end
+
+    test "NO_INSTALLER sentinel rundir → nil (no measurement data)" do
+      # The windows soft-skip path writes these so the resolver
+      # stops re-queueing master:<sha> with no upstream installer.
+      # Diff has no use for them — they carry no benchmark data.
+      assert Diff.parse_run_dir(
+               "20260526T140848_otp30_elixir1.19.5_0014ccfe87-test-windows-x86_64-jit-noinstaller"
+             ) == nil
     end
   end
 
