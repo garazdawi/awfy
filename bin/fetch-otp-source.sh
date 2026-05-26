@@ -222,7 +222,11 @@ fi
 # form the master-history fill emits) too — without that the
 # archive fallback never fires for older merges whose upstream
 # otp_prebuilt artifacts have aged out of GHA's retention window.
-# Numeric majors must be >= 24.
+# A bare 40-hex SHA also counts as modern: the macOS local sweep
+# strips the `master:` prefix before invoking us, leaving just the
+# commit hash; the archive fallback's `configure`-existence check
+# still keeps us safe if someone passes an old-OTP SHA. Numeric
+# majors must be >= 24.
 modern_otp=0
 case "$REF" in
     master|maint|master:*) modern_otp=1 ;;
@@ -234,6 +238,11 @@ case "$REF" in
         v="${REF#OTP-}"
         v="${v%%.*}"
         if [ "$v" -ge 24 ] 2>/dev/null; then modern_otp=1; fi
+        ;;
+    *)
+        if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            modern_otp=1
+        fi
         ;;
 esac
 
