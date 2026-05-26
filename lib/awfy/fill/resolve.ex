@@ -115,6 +115,18 @@ defmodule Awfy.Fill.Resolve do
       canonical_xmpp: Keyword.get(opts, :canonical_xmpp, ""),
       max_master_merges:
         Keyword.get(opts, :max_master_merges, @default_max_master_merges),
+      # Platforms the caller knows the workflow can't actually
+      # measure on this run (e.g. measure-macos is `if: false` in
+      # bench.yml while the operator drives macOS locally on M5).
+      # The resolver pretends those platforms are out of scope:
+      # no entries queued, the per-(sha, platform) skip check
+      # ignores them so a SHA whose only missing slot is macos
+      # gets skipped entirely instead of perpetually flagged.
+      skip_platforms:
+        opts
+        |> Keyword.get(:skip_platforms, [])
+        |> Enum.map(&to_string/1)
+        |> MapSet.new(),
       github_repository: repo,
       script_dir: Keyword.get(opts, :script_dir, default_script_dir()),
       # Probe results (lazy: only populated in fill_mode).
@@ -275,9 +287,9 @@ defmodule Awfy.Fill.Resolve do
   defp compute_plat_needs(state, _short, _canon_synth, _canon_xmpp, _xmpp_applies)
        when state.fill_mode == false do
     needs = %{
-      need_linux: true,
-      need_macos: true,
-      need_windows: true,
+      need_linux: not skip?(state, "linux"),
+      need_macos: not skip?(state, "macos"),
+      need_windows: not skip?(state, "windows"),
       needs_xmpp: false,
       benchmarks_linux: "",
       benchmarks_macos: "",
@@ -289,13 +301,13 @@ defmodule Awfy.Fill.Resolve do
 
   defp compute_plat_needs(state, short, canon_synth, canon_xmpp, xmpp_applies) do
     {benchmarks_linux, need_linux} =
-      missing_for_platform(state, short, "linux", canon_synth)
+      plat_gap(state, short, "linux", canon_synth)
 
     {benchmarks_macos, need_macos} =
-      missing_for_platform(state, short, "macos", canon_synth)
+      plat_gap(state, short, "macos", canon_synth)
 
     {benchmarks_windows, need_windows} =
-      missing_for_platform(state, short, "windows", canon_synth)
+      plat_gap(state, short, "windows", canon_synth)
 
     needs_xmpp =
       xmpp_applies and state.existing_benchees != [] and
@@ -313,6 +325,20 @@ defmodule Awfy.Fill.Resolve do
 
     {needs, state}
   end
+
+  # Wraps missing_for_platform/4 with the skip-platforms shortcut:
+  # a skipped platform reports "" missing + need=false so a SHA whose
+  # only gap is that platform falls into skip_ref?/1's all-false
+  # branch and gets dropped from the matrix entirely.
+  defp plat_gap(state, short, plat, canon_synth) do
+    if skip?(state, plat) do
+      {"", false}
+    else
+      missing_for_platform(state, short, plat, canon_synth)
+    end
+  end
+
+  defp skip?(state, plat), do: MapSet.member?(state.skip_platforms, plat)
 
   # Returns `{benchmarks_csv, needs_run?}`. When canonical_synth is
   # set, the csv lists names that have no matching `.benchee` blob

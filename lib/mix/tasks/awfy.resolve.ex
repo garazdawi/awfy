@@ -22,6 +22,7 @@ defmodule Mix.Tasks.Awfy.Resolve do
   | `CANONICAL_SYNTHETIC` | empty       | canonical synthetic suite from `mix awfy.measure --dry-run`.     |
   | `CANONICAL_XMPP`      | empty       | canonical XMPP scenarios from `mix awfy.measure_xmpp --dry-run`. |
   | `MAX_MASTER_MERGES`   | `50`        | cap on `master:<sha>` entries kept per run; `0` disables.        |
+  | `SKIP_PLATFORMS`      | empty       | comma-separated platforms (`macos`, etc.) the workflow can't measure; the resolver ignores them in the gap check so a SHA whose only missing slot is that platform gets skipped. |
   | `GITHUB_REPOSITORY`   | origin      | `owner/repo` for gh-pages probes.                                |
   | `GITHUB_OUTPUT`       | stdout      | path to GHA outputs file. Falls back to stdout for local runs.   |
   | `GH_TOKEN`            | -           | propagated to `gh api` via the inherited env.                    |
@@ -49,7 +50,12 @@ defmodule Mix.Tasks.Awfy.Resolve do
         |> case do
           {n, _} -> n
           _ -> 50
-        end
+        end,
+      skip_platforms:
+        System.get_env("SKIP_PLATFORMS", "")
+        |> String.split(",", trim: true)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
     ]
 
     outputs = Resolve.resolve(refs_csv, opts)

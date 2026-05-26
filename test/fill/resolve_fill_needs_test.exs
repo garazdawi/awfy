@@ -439,6 +439,60 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
     end
   end
 
+  describe "skip_platforms" do
+    @sha String.duplicate("d", 40)
+
+    test "SHA whose only missing slot is a skipped platform is dropped" do
+      # linux + windows already on gh-pages; macos is the only gap.
+      # With skip_platforms=[macos] the resolver pretends macos is
+      # out of scope → no platform needs work → SHA skipped entirely
+      # rather than perpetually flagged across every fill.
+      out =
+        run("master:#{@sha}",
+          fill_mode: true,
+          skip_platforms: ["macos"],
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101_otp30_elixir1.19.5_dddddddddd-test-linux-x86_64-jit",
+            "20260101_otp30_elixir1.19.5_dddddddddd-test-windows-x86_64-jit"
+          ],
+          existing_benchees: [
+            "20260101_otp30_elixir1.19.5_dddddddddd-test-linux-x86_64-jit/Bounce.benchee",
+            "20260101_otp30_elixir1.19.5_dddddddddd-test-windows-x86_64-jit/Bounce.benchee"
+          ]
+        )
+
+      assert out["targets_modern_linux"] == []
+      assert out["targets_modern_macos"] == []
+      assert out["targets_modern_windows"] == []
+    end
+
+    test "skipped platform never appears in the matrix even when other platforms need work" do
+      # linux missing, windows + macos already present. Without
+      # skip_platforms the resolver would queue linux only. With
+      # skip_platforms=[macos] the matrix still only has linux —
+      # confirms the skip applies to OUTPUT (no macos entry) not
+      # just to the gap math.
+      out =
+        run("master:#{@sha}",
+          fill_mode: true,
+          skip_platforms: ["macos"],
+          canonical_synthetic: "Bounce",
+          canonical_xmpp: "",
+          existing_rundirs: [
+            "20260101_otp30_elixir1.19.5_dddddddddd-test-windows-x86_64-jit"
+          ],
+          existing_benchees: [
+            "20260101_otp30_elixir1.19.5_dddddddddd-test-windows-x86_64-jit/Bounce.benchee"
+          ]
+        )
+
+      assert [%{"benchmarks" => "Bounce"}] = out["targets_modern_linux"]
+      assert out["targets_modern_macos"] == []
+    end
+  end
+
   # --- harness -------------------------------------------------------
 
   # Call the resolver in-process with a fake shell. We decode the
@@ -455,6 +509,7 @@ defmodule Awfy.Fill.ResolveFillNeedsTest do
       canonical_synthetic: Keyword.get(opts, :canonical_synthetic, ""),
       canonical_xmpp: Keyword.get(opts, :canonical_xmpp, ""),
       max_master_merges: Keyword.get(opts, :max_master_merges, 50),
+      skip_platforms: Keyword.get(opts, :skip_platforms, []),
       github_repository: "test/awfy",
       shell: fake_shell(existing_rundirs, existing_benchees)
     ]

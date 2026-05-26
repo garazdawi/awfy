@@ -306,8 +306,16 @@ jobs:
           # platform) JSON arrays + has_* booleans into GITHUB_OUTPUT.
           # Implementation lives in `Awfy.Fill.Resolve` (Elixir);
           # see `Mix.Tasks.Awfy.Resolve` for the CLI surface.
+          #
+          # SKIP_PLATFORMS=macos: measure-macos is currently
+          # `if: false` (the operator drives macOS locally on M5);
+          # without this the resolver would flag every master:<sha>
+          # as "needs macos" forever and the 50-merge cap would
+          # fire on phantom work each run. Drop this env var the
+          # moment measure-macos is re-enabled in CI.
           FILL_MODE="$FILL_MODE" \
             INPUT_BENCHMARKS="$INPUT_BENCHMARKS" \
+            SKIP_PLATFORMS="macos" \
             mix awfy.resolve "$EXPANDED"
 
           echo "runner_pool=$INPUT_RUNNER_POOL" >> "$GITHUB_OUTPUT"
