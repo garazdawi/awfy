@@ -125,6 +125,10 @@ jobs:
 
   resolve:
     runs-on: ubuntu-latest
+    # Resolve does gh-pages probes + per-ref SHA lookups for at most
+    # the cap (~50 master:<sha>); finishes in under a minute on a
+    # warm gh CLI cache. 10 min is generous safety for API hiccups.
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -335,6 +339,12 @@ jobs:
     name: build-linux OTP ${{ matrix.target.otp_label }} (${{ matrix.arch.name }})
     needs: resolve
     if: needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true'
+    # OTP source builds at j$(nproc) finish in ~10-15 min on
+    # ubuntu-latest. 30 min covers slow runners + ghcr image push;
+    # past that we're hung (seen during a fill that had to be
+    # cancelled manually). Hard cap so the matrix doesn't block
+    # downstream measure-* on a stuck builder.
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write   # push image to GHCR
@@ -460,6 +470,9 @@ jobs:
     # `has_legacy_build` covers any legacy platform — prep-target-bundle
     # extracts from this image regardless of which platform queued the work.
     if: needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
+    # Legacy OTP source builds (with the older autoconf / Elixir
+    # bundle), same envelope as build-linux. See that job for why.
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -557,6 +570,10 @@ jobs:
     # per-major and each row finds its own SHA, so partial success
     # is the right answer here.
     if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_build == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
+    # Extract pre-built artifacts from the legacy image + compile
+    # the target-Elixir bundle. ~5 min in the happy path; 20 min
+    # is generous safety.
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -657,6 +674,10 @@ jobs:
     # cleanly when an image is missing, so partial success is the
     # right behaviour.
     if: ${{ !cancelled() && needs.resolve.outputs.has_modern_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
+    # ~14 min in the happy path (full synthetic suite + warmup);
+    # skip_synthetic rows are <1 min. 60 min hard cap so a hung
+    # measure doesn't pin a runner for hours.
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -745,6 +766,10 @@ jobs:
     name: measure-windows OTP ${{ matrix.target.otp_label }} (${{ matrix.flavor }})
     needs: resolve
     if: needs.resolve.outputs.has_modern_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
+    # ~9 min in the happy path; the no-installer soft-skip path
+    # exits in under a minute. 60 min covers slow runners and the
+    # `gh run download` against erlang/otp's artifact storage.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read   # `gh run download` against erlang/otp
@@ -928,6 +953,10 @@ jobs:
     # to the commented condition below when the local sweep is in.
     if: false
     # if: needs.resolve.outputs.has_modern_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
+    # macos-latest builds OTP from source (no upstream installer for
+    # macOS), so wall-clock is the build + bench combo. Same envelope
+    # as measure-linux.
+    timeout-minutes: 60
     permissions:
       contents: read
     strategy:
@@ -1055,6 +1084,9 @@ jobs:
     needs: [resolve, build-linux-target, prep-target-bundle]
     # `!cancelled()` — see prep-target-bundle for the rationale.
     if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_linux == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
+    # Legacy benchmark wall-clock matches modern (full AWFY +
+    # OtpBenchmarks suite). See measure-linux for the envelope.
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -1141,6 +1173,8 @@ jobs:
     needs: [resolve, prep-target-bundle]
     # `!cancelled()` — see prep-target-bundle for the rationale.
     if: ${{ !cancelled() && needs.resolve.outputs.has_legacy_windows == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true' }}
+    # Same envelope as measure-windows.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -1263,6 +1297,8 @@ jobs:
     # together when the local sweep is in.
     if: false
     # if: needs.resolve.outputs.has_legacy_macos == 'true' && needs.resolve.outputs.dashboard_only != 'true' && needs.resolve.outputs.xmpp_only != 'true'
+    # Same envelope as measure-macos.
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
