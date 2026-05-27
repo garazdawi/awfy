@@ -151,8 +151,9 @@ COPY priv/topology/mongooseim-${MIM_PIN}-prod.vars-toml.config \
 # pin matters here so a transient `master` rebar3 regression can't
 # tank the MongooseIM image build.
 #
-# Suppress the OTP-29 warnings the build trips that get escalated
-# to fatal errors by rebar3 / MongooseIM's `warnings_as_errors`:
+# Suppress the OTP-29/master warnings the build trips that get
+# escalated to fatal errors by rebar3 / MongooseIM's
+# `warnings_as_errors`:
 #
 #   * `nowarn_deprecated_catch` — legacy `(catch Expr)` form, used
 #     throughout rebar3's vendored erlware_commons + MongooseIM.
@@ -160,12 +161,17 @@ COPY priv/topology/mongooseim-${MIM_PIN}-prod.vars-toml.config \
 #     are constructors, e.g. erlware_commons/ec_date.erl:107
 #     `{D1, T1} = {{Y, M, D}, {H, M1, S}}`. OTP-29 flags these as a
 #     forward-incompat shape.
+#   * `nowarn_unsafe_function` — OTP master added a `-unsafe`
+#     directive (stdlib commit b783b44c8ba, Mar 2026) and marked
+#     `os:cmd/1` unsafe. rebar3 3.24.0's vendored erlware_commons
+#     (ec_git_vsn.erl) calls `os:cmd/1` in three spots; without the
+#     suppress the bootstrap fails to compile on fresh master OTP.
 #
 # Stage-wide ENV so every erlc invocation (rebar3 bootstrap, rebar3
 # building MongooseIM, rebar3 building each dep) inherits it.
 # rebar3 passes ERL_COMPILER_OPTIONS through to its internal erlc
 # calls; warnings_as_errors stays on but has nothing to escalate.
-ENV ERL_COMPILER_OPTIONS='[nowarn_deprecated_catch, nowarn_match_alias_pats]'
+ENV ERL_COMPILER_OPTIONS='[nowarn_deprecated_catch, nowarn_match_alias_pats, nowarn_unsafe_function]'
 
 ARG REBAR3_VERSION=3.24.0
 RUN curl -fsSL "https://github.com/erlang/rebar3/archive/refs/tags/${REBAR3_VERSION}.tar.gz" \
