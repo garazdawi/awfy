@@ -83,30 +83,36 @@ defmodule Mix.Tasks.Awfy.Compare do
     baseline_label = opts[:baseline]
 
     Enum.each(bench_names, fn name ->
-      page = render_per_bench(name, data, baseline_label)
-      File.write!(Path.join([out_dir, "per-bench", "#{name}.html"]), page)
+      {page, dataset_json} = render_per_bench(name, data, baseline_label)
+      write_page!(out_dir, "per-bench/#{name}.html", page, dataset_json)
     end)
 
-    File.write!(
-      Path.join(out_dir, "index.html"),
-      render_index(data, bench_names, baseline_label)
-    )
+    {index_html, index_json} = render_index(data, bench_names, baseline_label)
+    write_page!(out_dir, "index.html", index_html, index_json)
 
-    File.write!(
-      Path.join(out_dir, "stability.html"),
-      render_stability(data)
-    )
+    # stability.html has no inline DATASET (data lives in HTML
+    # table `data-*` attributes), so it writes directly without a
+    # dataset.js sibling.
+    File.write!(Path.join(out_dir, "stability.html"), render_stability(data))
 
-    File.write!(
-      Path.join(out_dir, "master.html"),
-      render_master(data)
-    )
+    {master_html, master_json} = render_master(data)
+    write_page!(out_dir, "master.html", master_html, master_json)
 
     Mix.shell().info("Wrote #{out_dir}/index.html (#{length(bench_names)} benchmark pages, plus stability.html, master.html)")
   end
 
   defp parse_csv(nil), do: nil
   defp parse_csv(s), do: String.split(s, ",", trim: true)
+
+  # Write a page's HTML alongside its dataset.js sibling. The HTML
+  # references the dataset via `<script src="<page>.dataset.js">`
+  # so the page itself stays well under GitHub's 100 MB push limit
+  # — only the dataset.js file grows with measurement count.
+  defp write_page!(out_dir, page_relpath, html, dataset_json) do
+    dataset_relpath = Path.rootname(page_relpath) <> ".dataset.js"
+    File.write!(Path.join(out_dir, page_relpath), html)
+    File.write!(Path.join(out_dir, dataset_relpath), "const DATASET = #{dataset_json};\n")
+  end
 
   # The newest OTP major that has shipped a GA release. Read from the
   # first line of erlang/otp's `otp_versions.table` at build time —
@@ -164,20 +170,23 @@ defmodule Mix.Tasks.Awfy.Compare do
     warnings = collect_warnings_per_bench(bench_name, rows, runs)
     dataset_json = encode_dataset(rows, runs)
 
-    page_template(%{
-      title: "AWFY — #{bench_name}",
-      heading: bench_name,
-      subhead:
-        "Median runtime in milliseconds for each run on the selected platform. Whiskers show ± 2σ.",
-      breadcrumb: """
-      <a href="../index.html">&larr; Suite</a> · #{bench_name}
-      """,
-      warnings_html: warnings_html(warnings),
-      dataset_json: dataset_json,
-      page_kind: "bench",
-      bench_name: bench_name,
-      baseline_label: baseline_label || ""
-    })
+    html =
+      page_template(%{
+        title: "AWFY — #{bench_name}",
+        heading: bench_name,
+        subhead:
+          "Median runtime in milliseconds for each run on the selected platform. Whiskers show ± 2σ.",
+        breadcrumb: """
+        <a href="../index.html">&larr; Suite</a> · #{bench_name}
+        """,
+        warnings_html: warnings_html(warnings),
+        dataset_src: "#{bench_name}.dataset.js",
+        page_kind: "bench",
+        bench_name: bench_name,
+        baseline_label: baseline_label || ""
+      })
+
+    {html, dataset_json}
   end
 
   # =====================================================================
@@ -199,14 +208,14 @@ defmodule Mix.Tasks.Awfy.Compare do
       end)
       |> Enum.join("\n")
 
-    page_template(%{
+    html = page_template(%{
       title: "AWFY — Suite Dashboard",
       heading: "AWFY Suite — Cross-version Dashboard",
       subhead:
         "Geomean speedup across versions and platforms, with a per-benchmark snapshot below.",
       breadcrumb: "",
       warnings_html: warnings_html(warnings),
-      dataset_json: dataset_json,
+      dataset_src: "index.dataset.js",
       page_kind: "suite",
       bench_name: "",
       baseline_label: baseline_label || "",
@@ -237,6 +246,8 @@ defmodule Mix.Tasks.Awfy.Compare do
       </ul>
       """
     })
+
+    {html, dataset_json}
   end
 
   # =====================================================================
@@ -275,7 +286,7 @@ defmodule Mix.Tasks.Awfy.Compare do
 
     dataset_json = encode_dataset(visible, data.runs)
 
-    page_template(%{
+    html = page_template(%{
       title: "AWFY — Master timeline",
       heading: "Master timeline — last 3 months of master merges",
       subhead:
@@ -287,11 +298,13 @@ defmodule Mix.Tasks.Awfy.Compare do
       <a href="index.html">&larr; Suite</a> · Master timeline
       """,
       warnings_html: "",
-      dataset_json: dataset_json,
+      dataset_src: "master.dataset.js",
       page_kind: "master",
       bench_name: "",
       baseline_label: ""
     })
+
+    {html, dataset_json}
   end
 
   # Pre-cutoff emu, post-cutoff jit, per platform — mirrors the main
@@ -1402,11 +1415,19 @@ defmodule Mix.Tasks.Awfy.Compare do
         <pre id="runs-meta"></pre>
       </details>
 
+      <!-- DATASET lives in an external script so the HTML stays
+           well below GitHub's 100 MB push limit. At 25k+ .benchee
+           blobs the inline form crossed the threshold; externalising
+           makes this scale linearly with measurements without
+           touching index.html size. Classic <script> tag (not type=
+           module) so `const DATASET` in the loaded file is visible
+           to dashboard.js as a bare-name global per the HTML spec's
+           "script global" rule. -->
+      <script src="#{ctx.dataset_src}"></script>
       <script>
       const PAGE_KIND = #{inspect(ctx.page_kind)};
       const BENCH_NAME = #{inspect(ctx.bench_name)};
       const BASELINE_LABEL = #{inspect(ctx.baseline_label)};
-      const DATASET = #{ctx.dataset_json};
       const MAX_RELEASED_MAJOR = #{max_released_major()};
       const TARGET_ELIXIR_BY_MAJOR = #{Jason.encode!(target_elixir_by_major())};
       </script>
