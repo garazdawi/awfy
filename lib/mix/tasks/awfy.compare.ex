@@ -1247,6 +1247,7 @@ defmodule Mix.Tasks.Awfy.Compare do
           "c_compiler_used" => r.runtime["c_compiler_used"],
           "build_flags" => r.config["build_flags"]
         }
+        |> drop_nils()
       end)
 
     rows_json =
@@ -1309,6 +1310,7 @@ defmodule Mix.Tasks.Awfy.Compare do
           # that with this explicit y.
           "master_y" => Map.get(r, :master_y)
         }
+        |> drop_nils()
       end)
 
     payload = %{
@@ -1317,6 +1319,20 @@ defmodule Mix.Tasks.Awfy.Compare do
     }
 
     Jason.encode!(payload)
+  end
+
+  # Strip nil-valued keys before JSON encoding. Saves ~10 bytes per
+  # field per row in `index.dataset.js`, where master-timeline-only
+  # fields (master_y, bench_details, otp_tag, run_sha) and other
+  # always-null fields on non-XMPP / non-master rows accumulate to
+  # tens of MB. JS reads of `r.foo` against an absent key get
+  # `undefined`, which `==` to null in legacy code paths and is
+  # truthy-equivalent in the comparisons dashboard.js uses (`typeof
+  # === "number"`, `?.` chains).
+  defp drop_nils(map) do
+    map
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   # =====================================================================
