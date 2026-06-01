@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Dashboard — Requirements
 
 The dashboard is the user-facing surface of AWFY. It must let a

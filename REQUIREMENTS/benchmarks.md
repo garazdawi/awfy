@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Benchmarks — Requirements
 
 AWFY measures three benchmark suites. Each has a different

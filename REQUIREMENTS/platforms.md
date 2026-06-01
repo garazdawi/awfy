@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Platforms — Requirements
 
 This file specifies the (OS, architecture, OTP-major) matrix AWFY

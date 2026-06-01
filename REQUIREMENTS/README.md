@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # AWFY Requirements
 
 This document captures what AWFY is *supposed* to do — the
