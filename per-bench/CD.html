@@ -271,15 +271,6 @@ code { font-family: var(--mono); background: var(--er-tint); padding: 0.05em 0.3
     <pre id="runs-meta"></pre>
   </details>
 
-  <!-- DATASET lives in an external script so the HTML stays
-       well below GitHub's 100 MB push limit. At 25k+ .benchee
-       blobs the inline form crossed the threshold; externalising
-       makes this scale linearly with measurements without
-       touching index.html size. Classic <script> tag (not type=
-       module) so `const DATASET` in the loaded file is visible
-       to dashboard.js as a bare-name global per the HTML spec's
-       "script global" rule. -->
-  <script src="CD.dataset.js"></script>
   <script>
   const PAGE_KIND = "bench";
   const BENCH_NAME = "CD";
@@ -2397,7 +2388,16 @@ function renderRunsMeta() {
 // Guarded so the file can be required from Node (test runner) without
 // crashing on `document.getElementById` — the helpers above are pure
 // and re-exported via module.exports at the bottom of the file.
-if (typeof document !== "undefined") (function () {
+//
+// DATASET arrives asynchronously: the HTML bootstrap fetches a
+// gzipped JSON sibling, decompresses via DecompressionStream, sets
+// `window.DATASET`, and dispatches an `awfy:dataset` event. We
+// register the init listener at script-parse time (synchronously)
+// so it's armed before the bootstrap's fetch can resolve; if
+// DATASET happens to already be defined (e.g. a future inline-fast-
+// path), start immediately instead of waiting.
+if (typeof document !== "undefined") {
+  const _runInit = () => (function () {
   // Master timeline page has no controls — server already collapsed
   // every row to one synthetic (mc, flavor) aggregate. Skip the
   // tab/radio/checkbox setup entirely; renderAll handles the chart.
@@ -2471,7 +2471,14 @@ if (typeof document !== "undefined") (function () {
 
   renderRunsMeta();
   renderAll();
-})();
+  })();
+
+  if (typeof DATASET !== "undefined") {
+    _runInit();
+  } else {
+    document.addEventListener("awfy:dataset", _runInit, { once: true });
+  }
+}
 
 // Re-export the pure helpers for the Vitest test suite. Browsers
 // don't define `module`, so the typeof guard keeps this a no-op
@@ -2491,6 +2498,32 @@ if (typeof module !== "undefined" && module.exports) {
   };
 }
 
+  </script>
+  <!-- DATASET ships as a gzipped JSON file alongside the page
+       so the stored size stays ~7× smaller than the cleartext
+       form — multi-month headroom under GitHub's 100 MB push
+       limit. The bootstrap streams the .json.gz through
+       DecompressionStream (Chrome 80+ / Firefox 113+ / Safari
+       16.4+), parses JSON, sets window.DATASET, then dispatches
+       awfy:dataset which dashboard.js's init listener picks
+       up. Placed AFTER dashboard.js so the listener is
+       registered before fetch can resolve. -->
+  <script>
+  (async function loadDataset() {
+    try {
+      const resp = await fetch("CD.dataset.json.gz");
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const stream = resp.body.pipeThrough(new DecompressionStream("gzip"));
+      window.DATASET = await new Response(stream).json();
+      document.dispatchEvent(new CustomEvent("awfy:dataset"));
+    } catch (err) {
+      console.error("awfy: dataset load failed", err);
+      const banner = document.createElement("div");
+      banner.style.cssText = "background:#fee;color:#900;padding:1em;font-family:monospace";
+      banner.textContent = "Failed to load dataset: " + (err.message || err);
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  })();
   </script>
 </body>
 </html>
