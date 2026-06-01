@@ -104,14 +104,24 @@ defmodule Mix.Tasks.Awfy.Compare do
   defp parse_csv(nil), do: nil
   defp parse_csv(s), do: String.split(s, ",", trim: true)
 
-  # Write a page's HTML alongside its dataset.js sibling. The HTML
-  # references the dataset via `<script src="<page>.dataset.js">`
-  # so the page itself stays well under GitHub's 100 MB push limit
-  # — only the dataset.js file grows with measurement count.
+  # Write a page's HTML alongside its gzipped JSON dataset sibling.
+  # The page bootstrap (in `page_template/1`) fetches the .json.gz,
+  # streams it through DecompressionStream, parses JSON, and sets
+  # `window.DATASET` before the dashboard IIFE runs. Pre-gzipping
+  # gives ~7× compression over the cleartext form — enough headroom
+  # for many years of measurements before we'd need another layer.
   defp write_page!(out_dir, page_relpath, html, dataset_json) do
-    dataset_relpath = Path.rootname(page_relpath) <> ".dataset.js"
+    legacy_relpath = Path.rootname(page_relpath) <> ".dataset.js"
+    dataset_relpath = Path.rootname(page_relpath) <> ".dataset.json.gz"
+
+    # Clean up the cleartext `.dataset.js` from the pre-gzip layout
+    # so a regen doesn't leave a stale (and potentially over-limit)
+    # cleartext copy alongside the new gzipped form. Idempotent: a
+    # missing file gives `{:error, :enoent}` which we discard.
+    _ = File.rm(Path.join(out_dir, legacy_relpath))
+
     File.write!(Path.join(out_dir, page_relpath), html)
-    File.write!(Path.join(out_dir, dataset_relpath), "const DATASET = #{dataset_json};\n")
+    File.write!(Path.join(out_dir, dataset_relpath), :zlib.gzip(dataset_json))
   end
 
   # The newest OTP major that has shipped a GA release. Read from the
@@ -180,7 +190,7 @@ defmodule Mix.Tasks.Awfy.Compare do
         <a href="../index.html">&larr; Suite</a> · #{bench_name}
         """,
         warnings_html: warnings_html(warnings),
-        dataset_src: "#{bench_name}.dataset.js",
+        dataset_src: "#{bench_name}.dataset.json.gz",
         page_kind: "bench",
         bench_name: bench_name,
         baseline_label: baseline_label || ""
@@ -215,7 +225,7 @@ defmodule Mix.Tasks.Awfy.Compare do
         "Geomean speedup across versions and platforms, with a per-benchmark snapshot below.",
       breadcrumb: "",
       warnings_html: warnings_html(warnings),
-      dataset_src: "index.dataset.js",
+      dataset_src: "index.dataset.json.gz",
       page_kind: "suite",
       bench_name: "",
       baseline_label: baseline_label || "",
@@ -298,7 +308,7 @@ defmodule Mix.Tasks.Awfy.Compare do
       <a href="index.html">&larr; Suite</a> · Master timeline
       """,
       warnings_html: "",
-      dataset_src: "master.dataset.js",
+      dataset_src: "master.dataset.json.gz",
       page_kind: "master",
       bench_name: "",
       baseline_label: ""
@@ -1431,15 +1441,6 @@ defmodule Mix.Tasks.Awfy.Compare do
         <pre id="runs-meta"></pre>
       </details>
 
-      <!-- DATASET lives in an external script so the HTML stays
-           well below GitHub's 100 MB push limit. At 25k+ .benchee
-           blobs the inline form crossed the threshold; externalising
-           makes this scale linearly with measurements without
-           touching index.html size. Classic <script> tag (not type=
-           module) so `const DATASET` in the loaded file is visible
-           to dashboard.js as a bare-name global per the HTML spec's
-           "script global" rule. -->
-      <script src="#{ctx.dataset_src}"></script>
       <script>
       const PAGE_KIND = #{inspect(ctx.page_kind)};
       const BENCH_NAME = #{inspect(ctx.bench_name)};
@@ -1449,6 +1450,32 @@ defmodule Mix.Tasks.Awfy.Compare do
       </script>
       <script>
       #{dashboard_js()}
+      </script>
+      <!-- DATASET ships as a gzipped JSON file alongside the page
+           so the stored size stays ~7× smaller than the cleartext
+           form — multi-month headroom under GitHub's 100 MB push
+           limit. The bootstrap streams the .json.gz through
+           DecompressionStream (Chrome 80+ / Firefox 113+ / Safari
+           16.4+), parses JSON, sets window.DATASET, then dispatches
+           awfy:dataset which dashboard.js's init listener picks
+           up. Placed AFTER dashboard.js so the listener is
+           registered before fetch can resolve. -->
+      <script>
+      (async function loadDataset() {
+        try {
+          const resp = await fetch(#{Jason.encode!(ctx.dataset_src)});
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          const stream = resp.body.pipeThrough(new DecompressionStream("gzip"));
+          window.DATASET = await new Response(stream).json();
+          document.dispatchEvent(new CustomEvent("awfy:dataset"));
+        } catch (err) {
+          console.error("awfy: dataset load failed", err);
+          const banner = document.createElement("div");
+          banner.style.cssText = "background:#fee;color:#900;padding:1em;font-family:monospace";
+          banner.textContent = "Failed to load dataset: " + (err.message || err);
+          document.body.insertBefore(banner, document.body.firstChild);
+        }
+      })();
       </script>
     </body>
     </html>

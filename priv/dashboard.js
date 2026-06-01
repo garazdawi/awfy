@@ -2107,7 +2107,16 @@ function renderRunsMeta() {
 // Guarded so the file can be required from Node (test runner) without
 // crashing on `document.getElementById` — the helpers above are pure
 // and re-exported via module.exports at the bottom of the file.
-if (typeof document !== "undefined") (function () {
+//
+// DATASET arrives asynchronously: the HTML bootstrap fetches a
+// gzipped JSON sibling, decompresses via DecompressionStream, sets
+// `window.DATASET`, and dispatches an `awfy:dataset` event. We
+// register the init listener at script-parse time (synchronously)
+// so it's armed before the bootstrap's fetch can resolve; if
+// DATASET happens to already be defined (e.g. a future inline-fast-
+// path), start immediately instead of waiting.
+if (typeof document !== "undefined") {
+  const _runInit = () => (function () {
   // Master timeline page has no controls — server already collapsed
   // every row to one synthetic (mc, flavor) aggregate. Skip the
   // tab/radio/checkbox setup entirely; renderAll handles the chart.
@@ -2181,7 +2190,14 @@ if (typeof document !== "undefined") (function () {
 
   renderRunsMeta();
   renderAll();
-})();
+  })();
+
+  if (typeof DATASET !== "undefined") {
+    _runInit();
+  } else {
+    document.addEventListener("awfy:dataset", _runInit, { once: true });
+  }
+}
 
 // Re-export the pure helpers for the Vitest test suite. Browsers
 // don't define `module`, so the typeof guard keeps this a no-op
