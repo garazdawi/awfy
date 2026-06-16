@@ -71,12 +71,11 @@ name: bench
 
 on:
   push:
-  schedule:
-    # Every 6 hours — fill-mode catch-up against gh-pages. Cadence
-    # keeps the master timeline current with upstream merges (which
-    # land a few times a day) without piling up a multi-day backlog
-    # the 50-merge cap would have to chew through.
-    - cron: "0 */6 * * *"
+  # Scheduled fill disabled. Re-enable by uncommenting; the 6-hour
+  # cadence was sized for the master_history backlog burn. Until
+  # re-enabled, fills run only on explicit workflow_dispatch.
+  # schedule:
+  #   - cron: "0 */6 * * *"
   workflow_dispatch:
     inputs:
       runner_pool:
