@@ -196,7 +196,7 @@ jobs:
       # the empty string).
       dashboard_only: ${{ steps.dashboard_check.outputs.dashboard_only || 'false' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       # Detect dashboard-only pushes via dorny/paths-filter. The
@@ -207,7 +207,7 @@ jobs:
       # and force-push edge cases via the GitHub API; no manual
       # shell required. Schedule / workflow_dispatch don't fire
       # this step (the job-level `if:` below is push-only).
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         if: github.event_name == 'push'
         id: dashboard_check
         with:
@@ -356,7 +356,7 @@ jobs:
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
     runs-on: ${{ matrix.arch.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4
@@ -484,7 +484,7 @@ jobs:
           - { name: arm64,  runner: ubuntu-24.04-arm, platform: linux/arm64 }
     runs-on: ${{ matrix.arch.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@v4
@@ -590,7 +590,7 @@ jobs:
           - { otp_major: "23", elixir_version: "1.14.5" }
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Find SHA for OTP ${{ matrix.otp_major }}
@@ -614,7 +614,7 @@ jobs:
       - name: Cache target bundle
         if: steps.find_sha.outputs.skipped != 'true'
         id: bundle_cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # Cache key: Elixir version + OTP SHA + sub-app + vendored
           # deps. Bumping the sub-app source or vendored Benchee
@@ -695,7 +695,7 @@ jobs:
         flavor: [jit, emu]
     runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","aws","linux","{0}"]', matrix.arch.name)) || matrix.arch.gha_runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Login to GHCR
@@ -784,7 +784,7 @@ jobs:
         flavor: [jit]
     runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","aws","windows","x86_64"]') || 'windows-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install OTP
@@ -965,13 +965,13 @@ jobs:
         flavor: [jit, emu]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install build deps
         run: brew install autoconf openssl@3 ncurses
       - name: Cache OTP build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           # install-otp-source-mac.sh content-addresses by SHA, so the
           # cache key is exact. Hits skip the 5-10 min source build
@@ -1100,7 +1100,7 @@ jobs:
         flavor: [emu]
     runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON(format('["self-hosted","aws","linux","{0}"]', matrix.arch.name)) || matrix.arch.gha_runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Pick Elixir version for OTP ${{ matrix.target.major }}
@@ -1184,7 +1184,7 @@ jobs:
         flavor: [emu]
     runs-on: ${{ needs.resolve.outputs.runner_pool == 'aws' && fromJSON('["self-hosted","aws","windows","x86_64"]') || 'windows-latest' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Pick Elixir version for OTP ${{ matrix.target.major }}
@@ -1308,7 +1308,7 @@ jobs:
         flavor: [emu]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Pick Elixir version for OTP ${{ matrix.target.major }}
@@ -1324,7 +1324,7 @@ jobs:
       - name: Install build deps for target OTP
         run: brew install autoconf ncurses
       - name: Cache target OTP build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.local/otp/${{ matrix.target.sha }}
           key: otp-target-macos-arm64-${{ matrix.target.sha }}-${{ hashFiles('bin/install-otp-source-mac.sh', 'bin/fetch-otp-source.sh', 'patches/**', '.github/workflows/bench.yml') }}
@@ -1452,7 +1452,7 @@ jobs:
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
@@ -1544,7 +1544,7 @@ jobs:
     # fails fast rather than burning the 6h default.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: erlef/setup-beam@v1
