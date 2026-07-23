@@ -11,6 +11,8 @@
 name: "sih-xmpp"
 
 on:
+  push:
+    branches: ["lukas/sih-xmpp-bench"]
   workflow_dispatch:
     inputs:
       scenario:
@@ -52,7 +54,7 @@ jobs:
           RUN erl +sih true -noshell -eval \
                 'io:format("SIH_OK ~p~n",[statistics(sched_inline_handoffs)]), halt().'
           EOF
-          docker build --build-arg OTP_REF="${{ inputs.otp_ref }}" \
+          docker build --build-arg OTP_REF="${{ inputs.otp_ref || 'lukas/erts/process-sharing' }}" \
                        -t otp-sih:30-local /tmp/otpsih
 
       - uses: erlef/setup-beam@v1
@@ -70,7 +72,7 @@ jobs:
           MIM_OTP_VERSION: "30"
           MIM_ERL_FLAGS: "+sih false"
         run: |
-          mix awfy.measure_xmpp --scenario "${{ inputs.scenario }}" \
+          mix awfy.measure_xmpp --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
               --topology local --label sih-off 2>&1 | tee /tmp/sih-off.log
 
       - name: XMPP scenario — +sih TRUE (treatment)
@@ -80,7 +82,7 @@ jobs:
           MIM_OTP_VERSION: "30"
           MIM_ERL_FLAGS: "+sih true"
         run: |
-          mix awfy.measure_xmpp --scenario "${{ inputs.scenario }}" \
+          mix awfy.measure_xmpp --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
               --topology local --label sih-on 2>&1 | tee /tmp/sih-on.log
 
       - name: Summary
