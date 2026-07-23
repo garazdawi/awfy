@@ -68,33 +68,32 @@ jobs:
       - name: mix deps + compile (harness)
         run: mix deps.get && mix compile
 
-      - name: XMPP scenario — +sih FALSE (baseline)
+      # Stability: run the off/on pair 3 times, interleaved (off,on,off,on,...)
+      # so any drift over the ~15 min of scenario runs hits both arms equally.
+      # All on the SAME OTP+MongooseIM build (the image is cached after the
+      # first compose build), so only container recreation repeats per rep.
+      - name: XMPP scenarios — 3 interleaved +sih off/on pairs
         env:
           MIM_BASE_IMAGE: otp-sih:30-local
           MIM_RUNTIME_IMAGE: otp-sih:30-local
           MIM_OTP_VERSION: "30"
-          MIM_ERL_FLAGS: "+sih false"
         run: |
           set -o pipefail
-          mix awfy.measure_xmpp --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
-              --topology local --label sih-off 2>&1 | tee /tmp/sih-off.log
-
-      - name: XMPP scenario — +sih TRUE (treatment)
-        env:
-          MIM_BASE_IMAGE: otp-sih:30-local
-          MIM_RUNTIME_IMAGE: otp-sih:30-local
-          MIM_OTP_VERSION: "30"
-          MIM_ERL_FLAGS: "+sih true"
-        run: |
-          set -o pipefail
-          mix awfy.measure_xmpp --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
-              --topology local --label sih-on 2>&1 | tee /tmp/sih-on.log
+          for rep in 1 2 3; do
+            for flag in false true; do
+              echo "========== rep=${rep} +sih ${flag} =========="
+              MIM_ERL_FLAGS="+sih ${flag}" \
+                mix awfy.measure_xmpp \
+                  --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
+                  --topology local --label "sih-${flag}-r${rep}" 2>&1 | tee -a /tmp/runs.log
+            done
+          done
 
       - name: Summary
         if: always()
         run: |
-          echo "=== +sih FALSE tail ==="; tail -30 /tmp/sih-off.log || true
-          echo "=== +sih TRUE tail ===";  tail -30 /tmp/sih-on.log  || true
+          echo "===== all scenario results ====="
+          grep -h "Wrote results" /tmp/runs.log || true
 
       - name: Upload results
         if: always()
@@ -103,6 +102,5 @@ jobs:
           name: sih-xmpp-results
           path: |
             results/**
-            /tmp/sih-off.log
-            /tmp/sih-on.log
+            /tmp/runs.log
           if-no-files-found: warn
