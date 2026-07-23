@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# One-off: measure idea #31 (reduction sharing / +sih inline scheduling) on the
+# MongooseIM + Amoc XMPP application workload. Builds the process-sharing OTP-30
+# branch (garazdawi/otp@lukas/erts/process-sharing) into a base image, then runs
+# the `dynamic_domains_pm` local scenario twice on the SAME build: once with
+# +sih disabled (baseline) and once enabled (treatment). +sih is a runtime flag,
+# so this is a clean A/B on one image. Runs on GitHub-hosted Linux to sidestep
+# the vz-virtio-net download corruption on the local colima host.
+name: "sih-xmpp"
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "XMPP scenario"
+        default: "dynamic_domains_pm"
+      otp_ref:
+        description: "OTP branch/SHA on garazdawi/otp to build (+sih)"
+        default: "lukas/erts/process-sharing"
+
+permissions:
+  contents: read
+
+jobs:
+  sih-xmpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build process-sharing OTP-30 (+sih) base image
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/otpsih
+          cat > /tmp/otpsih/Dockerfile <<'EOF'
+          FROM debian:bullseye-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends \
+                build-essential libssl-dev libncurses5-dev m4 perl git \
+                autoconf ca-certificates && rm -rf /var/lib/apt/lists/*
+          ARG OTP_REF=lukas/erts/process-sharing
+          RUN git clone --depth 1 --branch "${OTP_REF}" \
+                https://github.com/garazdawi/otp /otp
+          WORKDIR /otp
+          RUN ./configure --prefix=/usr/local \
+                --without-wx --without-debugger --without-observer --without-et \
+                --without-megaco --without-jinterface \
+              && make -j"$(nproc)" && make install
+          RUN erl +sih true -noshell -eval \
+                'io:format("SIH_OK ~p~n",[statistics(sched_inline_handoffs)]), halt().'
+          EOF
+          docker build --build-arg OTP_REF="${{ inputs.otp_ref }}" \
+                       -t otp-sih:30-local /tmp/otpsih
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: mix deps + compile (harness)
+        run: mix deps.get && mix compile
+
+      - name: XMPP scenario — +sih FALSE (baseline)
+        env:
+          MIM_BASE_IMAGE: otp-sih:30-local
+          MIM_RUNTIME_IMAGE: otp-sih:30-local
+          MIM_OTP_VERSION: "30"
+          MIM_ERL_FLAGS: "+sih false"
+        run: |
+          mix awfy.measure_xmpp --scenario "${{ inputs.scenario }}" \
+              --topology local --label sih-off 2>&1 | tee /tmp/sih-off.log
+
+      - name: XMPP scenario — +sih TRUE (treatment)
+        env:
+          MIM_BASE_IMAGE: otp-sih:30-local
+          MIM_RUNTIME_IMAGE: otp-sih:30-local
+          MIM_OTP_VERSION: "30"
+          MIM_ERL_FLAGS: "+sih true"
+        run: |
+          mix awfy.measure_xmpp --scenario "${{ inputs.scenario }}" \
+              --topology local --label sih-on 2>&1 | tee /tmp/sih-on.log
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "=== +sih FALSE tail ==="; tail -30 /tmp/sih-off.log || true
+          echo "=== +sih TRUE tail ===";  tail -30 /tmp/sih-on.log  || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sih-xmpp-results
+          path: |
+            results/**
+            /tmp/sih-off.log
+            /tmp/sih-on.log
+          if-no-files-found: warn
