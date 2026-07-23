@@ -39,9 +39,12 @@ jobs:
           set -euxo pipefail
           mkdir -p /tmp/otpsih
           cat > /tmp/otpsih/Dockerfile <<'EOF'
-          FROM debian:bullseye-slim
+          # bookworm = OpenSSL 3.0, matching the rig's erlang:* base images.
+          # MongooseIM's fast_pbkdf2 NIF uses EVP_MD_fetch/EVP_MD_free (OpenSSL 3.0);
+          # bullseye's OpenSSL 1.1 fails to compile it.
+          FROM debian:bookworm-slim
           RUN apt-get update && apt-get install -y --no-install-recommends \
-                build-essential libssl-dev libncurses5-dev m4 perl git \
+                build-essential libssl-dev libncurses-dev m4 perl git \
                 autoconf ca-certificates && rm -rf /var/lib/apt/lists/*
           ARG OTP_REF=lukas/erts/process-sharing
           RUN git clone --depth 1 --branch "${OTP_REF}" \
@@ -72,6 +75,7 @@ jobs:
           MIM_OTP_VERSION: "30"
           MIM_ERL_FLAGS: "+sih false"
         run: |
+          set -o pipefail
           mix awfy.measure_xmpp --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
               --topology local --label sih-off 2>&1 | tee /tmp/sih-off.log
 
@@ -82,6 +86,7 @@ jobs:
           MIM_OTP_VERSION: "30"
           MIM_ERL_FLAGS: "+sih true"
         run: |
+          set -o pipefail
           mix awfy.measure_xmpp --scenario "${{ inputs.scenario || 'dynamic_domains_pm' }}" \
               --topology local --label sih-on 2>&1 | tee /tmp/sih-on.log
 
