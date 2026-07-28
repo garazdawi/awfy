@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# #75 Stage 0: run the heap_probe send-shape census against a REAL MongooseIM
+# XMPP workload with connected Amoc clients (online c2s sessions). Builds the
+# MongooseIM + Amoc rig from source on a GHA runner — corruption-free, unlike
+# the local colima box where the vz/apt bug blocks the build. Reuses the awfy
+# Topology + Amoc orchestration (priv/heap_probe/run_xmpp_census.exs), then
+# attaches heap_probe to awfy-mongooseim-1 during the message phase.
+name: "heap-probe-xmpp"
+
+on:
+  push:
+    branches: ["lukas/heap-probe-xmpp"]
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "amoc scenario"
+        default: "dynamic_domains_pm"
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: harness deps + compile
+        run: mix deps.get && mix compile
+
+      - name: bring up rig + scenario + heap_probe census
+        env:
+          HP_SCENARIO: ${{ inputs.scenario || 'dynamic_domains_pm' }}
+        run: mix run priv/heap_probe/run_xmpp_census.exs
+
+      - name: upload census
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: heap-probe-xmpp-census
+          path: |
+            /tmp/hp_send.txt
+            /tmp/hp_gc.txt
+          if-no-files-found: warn
