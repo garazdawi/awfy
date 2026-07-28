@@ -14,14 +14,19 @@ docker run --rm -v "$PWD/$HPDIR:/w" -w /w erlang:27.3 erlc heap_probe.erl \
   || { echo "[attach] erlc failed"; exit 1; }
 
 echo "[attach] discover node / cookie / escript inside $C"
-NODE=$(docker exec "$C" mongooseimctl status 2>/dev/null | grep -oE 'mongooseim@[a-zA-Z0-9_.-]+' | head -1)
-COOKIE=$(docker exec "$C" sh -c 'cat "$HOME/.erlang.cookie" 2>/dev/null || cat /var/lib/mongooseim/.erlang.cookie 2>/dev/null')
-if [ -z "${COOKIE:-}" ]; then
-  COOKIE=$(docker exec "$C" sh -c 'for f in $(find / -name vm.args 2>/dev/null); do grep -hoE "setcookie[[:space:]]+[A-Za-z0-9_]+" "$f"; done | head -1 | awk "{print \$2}"')
-fi
+# The slim runtime image has no mongooseimctl on PATH and epmd -names is empty,
+# so read identity straight from the main vm.args (exclude the bundled nksip
+# helper's vm.args). Node name: the -sname/-name value; append `hostname -s`
+# when the arg carries no @host.
+NAMEARG=$(docker exec "$C" sh -c 'for f in $(find / -name vm.args 2>/dev/null); do grep -hE -- "^-sname |^-name " "$f"; done' | grep -vi nksip | head -1)
+VAL=$(echo "$NAMEARG" | awk '{print $2}')
+if echo "$VAL" | grep -q '@'; then NODE="$VAL"; else NODE="${VAL}@$(docker exec "$C" hostname -s)"; fi
+# Cookie: the node's REAL cookie is the vm.args -setcookie, not the auto file.
+COOKIE=$(docker exec "$C" sh -c 'for f in $(find / -name vm.args 2>/dev/null); do grep -hoE "setcookie[[:space:]]+[A-Za-z0-9_]+" "$f"; done' | grep -vi nksip | head -1 | awk '{print $2}')
+[ -z "${COOKIE:-}" ] && COOKIE=$(docker exec "$C" sh -c 'cat "$HOME/.erlang.cookie" 2>/dev/null')
 ESCRIPT=$(docker exec "$C" sh -c 'command -v escript 2>/dev/null || find / -type f -name escript -path "*erts*bin*" 2>/dev/null | head -1')
 echo "[attach] NODE=$NODE  COOKIE_set=${COOKIE:+yes}  ESCRIPT=$ESCRIPT"
-[ -n "$NODE" ] && [ -n "${COOKIE:-}" ] && [ -n "$ESCRIPT" ] || { echo "[attach] discovery incomplete"; exit 1; }
+[ -n "$VAL" ] && [ -n "${COOKIE:-}" ] && [ -n "$ESCRIPT" ] || { echo "[attach] discovery incomplete (NAMEARG=[$NAMEARG] VAL=[$VAL])"; exit 1; }
 
 docker cp "$HPDIR/heap_probe.beam" "$C:/tmp/heap_probe.beam"
 docker cp "$HPDIR/census_xmpp.escript" "$C:/tmp/census_xmpp.escript"

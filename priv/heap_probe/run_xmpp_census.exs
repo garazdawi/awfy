@@ -28,6 +28,9 @@ try do
   {out, code} = System.cmd("bash", ["priv/heap_probe/attach_and_census.sh"], stderr_to_stdout: true)
   IO.puts(out)
   IO.puts("[hp] attach_and_census exit=#{code}")
+  # Fail the run (through teardown) if the attach/census didn't succeed, so a
+  # green run means a real census — not a silently-skipped one.
+  if code != 0, do: raise("heap_probe attach/census failed (exit #{code})")
 after
   IO.puts("[hp] teardown")
   Topology.teardown(state)
