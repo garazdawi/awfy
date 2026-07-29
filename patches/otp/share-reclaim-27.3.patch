@@ -1,0 +1,262 @@
+diff --git a/erts/emulator/beam/beam_bif_load.c b/erts/emulator/beam/beam_bif_load.c
+index 0c2089038a..26d862d591 100644
+--- a/erts/emulator/beam/beam_bif_load.c
++++ b/erts/emulator/beam/beam_bif_load.c
+@@ -96,6 +96,90 @@ init_purge_state(void)
+ static void
+ init_release_literal_areas(void);
+ 
++/*
++ * #75 (global-heap) shared-term registry. erts_debug:share/1 promotes a term
++ * into its own literal area and registers that area here. erts_debug:reclaim_shared/0
++ * hands every registered area to the existing literal-area collector for release
++ * (copy-out any lingering references, then free) -- so shared areas no longer leak.
++ * We reuse the proven, non-blocking collector rather than scanning heaps ourselves.
++ */
++typedef struct ErtsSharedAreaReg_ ErtsSharedAreaReg;
++struct ErtsSharedAreaReg_ {
++    ErtsSharedAreaReg *next;
++    ErtsLiteralArea *area;
++};
++
++static struct {
++    erts_mtx_t mtx;
++    ErtsSharedAreaReg *first;
++    Uint count;
++} shared_areas;
++
++static void
++init_shared_areas(void)
++{
++    erts_mtx_init(&shared_areas.mtx, "shared_areas", NIL,
++                  ERTS_LOCK_FLAGS_PROPERTY_STATIC | ERTS_LOCK_FLAGS_CATEGORY_GENERIC);
++    shared_areas.first = NULL;
++    shared_areas.count = 0;
++}
++
++void
++erts_register_shared_area(ErtsLiteralArea *area)
++{
++    ErtsSharedAreaReg *reg = erts_alloc(ERTS_ALC_T_LITERAL_REF,
++                                        sizeof(ErtsSharedAreaReg));
++    reg->area = area;
++    erts_mtx_lock(&shared_areas.mtx);
++    reg->next = shared_areas.first;
++    shared_areas.first = reg;
++    shared_areas.count++;
++    erts_mtx_unlock(&shared_areas.mtx);
++}
++
++void
++erts_shared_areas_info(Uint *countp, Uint *bytesp)
++{
++    ErtsSharedAreaReg *reg;
++    Uint count = 0, bytes = 0;
++    erts_mtx_lock(&shared_areas.mtx);
++    for (reg = shared_areas.first; reg; reg = reg->next) {
++        count++;
++        bytes += ERTS_LITERAL_AREA_SIZE(reg->area);
++    }
++    erts_mtx_unlock(&shared_areas.mtx);
++    *countp = count;
++    *bytesp = bytes;
++}
++
++/*
++ * Detach the whole registry and hand every area to the literal-area collector.
++ * The collector will copy out any process still referencing an area, then free
++ * it. Returns the number of areas and total bytes handed off for release.
++ */
++void
++erts_reclaim_shared(Process *c_p, Uint *countp, Uint *bytesp)
++{
++    ErtsSharedAreaReg *reg, *next;
++    Uint count = 0, bytes = 0;
++
++    erts_mtx_lock(&shared_areas.mtx);
++    reg = shared_areas.first;
++    shared_areas.first = NULL;
++    shared_areas.count = 0;
++    erts_mtx_unlock(&shared_areas.mtx);
++
++    for (; reg; reg = next) {
++        next = reg->next;
++        count++;
++        bytes += ERTS_LITERAL_AREA_SIZE(reg->area);
++        erts_queue_release_literals(c_p, reg->area);
++        erts_free(ERTS_ALC_T_LITERAL_REF, reg);
++    }
++    *countp = count;
++    *bytesp = bytes;
++}
++
+ void
+ erts_beam_bif_load_init(Uint sys_proc_outst_req_lim)
+ {
+@@ -104,6 +188,7 @@ erts_beam_bif_load_init(Uint sys_proc_outst_req_lim)
+     erts_atomic_init_nob(&sys_proc_outstanding_req_limit,
+                          (erts_aint_t) sys_proc_outst_req_lim);
+     init_release_literal_areas();
++    init_shared_areas();
+     init_purge_state();
+ }
+ 
+diff --git a/erts/emulator/beam/beam_debug.c b/erts/emulator/beam/beam_debug.c
+index 8bbb99c544..86b5ed33ea 100644
+--- a/erts/emulator/beam/beam_debug.c
++++ b/erts/emulator/beam/beam_debug.c
+@@ -95,6 +95,83 @@ erts_debug_size_shared_1(BIF_ALIST_1)
+     }
+ }
+ 
++BIF_RETTYPE
++erts_debug_share_1(BIF_ALIST_1)
++{
++    /*
++     * #75 (global-heap) G4 prototype: promote TERM into the shared literal
++     * range, preserving intra-term sharing (copy_shared_*). The result is a
++     * literal-tagged term: reads are ordinary term traversals, and a message
++     * send REFERENCES it (copy_struct_litopt skips copying literal-range
++     * terms) instead of copying it into the receiver's heap. The new area is
++     * registered so erts_debug:reclaim_shared/0 can release it later (via the
++     * literal-area collector) — this is a measurement prototype, NOT the
++     * reference-counted production design (see IDEAS/75-global-heap).
++     */
++    Eterm term = BIF_ARG_1;
++    Uint term_size;
++    Uint lit_area_size;
++    ErlOffHeap code_off_heap;
++    ErtsLiteralArea* literal_area;
++    erts_shcopy_t info;
++    Eterm* ptr;
++    Eterm result;
++
++    if (is_immed(term)) {
++        BIF_RET(term);
++    }
++    INITIALIZE_SHCOPY(info);
++    info.copy_literals = 1;
++    term_size = copy_shared_calculate(term, &info);
++    if (term_size == 0) {
++        DESTROY_SHCOPY(info);
++        BIF_RET(term);
++    }
++    ERTS_INIT_OFF_HEAP(&code_off_heap);
++    lit_area_size = ERTS_LITERAL_AREA_ALLOC_SIZE(term_size);
++    literal_area = erts_alloc(ERTS_ALC_T_LITERAL, lit_area_size);
++    ptr = &literal_area->start[0];
++    literal_area->end = ptr + term_size;
++    result = copy_shared_perform(term, term_size, &info, &ptr, &code_off_heap);
++    literal_area->off_heap = code_off_heap.first;
++    DESTROY_SHCOPY(info);
++    erts_set_literal_tag(&result, literal_area->start, term_size);
++    erts_register_shared_area(literal_area);
++    BIF_RET(result);
++}
++
++/* #75: hand every share/1-created literal area to the literal-area collector for
++   release (copy out any lingering references, then free). Returns
++   {ReleasedAreas, ReleasedBytes}. Reads never touch the collector. */
++BIF_RETTYPE
++erts_debug_reclaim_shared_0(BIF_ALIST_0)
++{
++    Uint count, bytes;
++    Eterm *hp;
++    Eterm cnt, byt;
++
++    erts_reclaim_shared(BIF_P, &count, &bytes);
++    cnt = erts_make_integer(count, BIF_P);
++    byt = erts_make_integer(bytes, BIF_P);
++    hp = HAlloc(BIF_P, 3);
++    BIF_RET(TUPLE2(hp, cnt, byt));
++}
++
++/* #75: {NumAreas, TotalBytes} currently held in the shared-term registry. */
++BIF_RETTYPE
++erts_debug_shared_info_0(BIF_ALIST_0)
++{
++    Uint count, bytes;
++    Eterm *hp;
++    Eterm cnt, byt;
++
++    erts_shared_areas_info(&count, &bytes);
++    cnt = erts_make_integer(count, BIF_P);
++    byt = erts_make_integer(bytes, BIF_P);
++    hp = HAlloc(BIF_P, 3);
++    BIF_RET(TUPLE2(hp, cnt, byt));
++}
++
+ BIF_RETTYPE
+ erts_debug_copy_shared_2(BIF_ALIST_2)
+ {
+diff --git a/erts/emulator/beam/bif.tab b/erts/emulator/beam/bif.tab
+index 798a7418d7..66c9441c00 100644
+--- a/erts/emulator/beam/bif.tab
++++ b/erts/emulator/beam/bif.tab
+@@ -666,6 +666,9 @@ bif erts_internal:purge_module/2
+ bif binary:split/2
+ bif binary:split/3
+ bif erts_debug:size_shared/1
++bif erts_debug:share/1
++bif erts_debug:reclaim_shared/0
++bif erts_debug:shared_info/0
+ bif erts_debug:copy_shared/2
+ bif erlang:has_prepared_code_on_load/1
+ 
+diff --git a/erts/emulator/beam/global.h b/erts/emulator/beam/global.h
+index 218aea136a..395d76d53f 100644
+--- a/erts/emulator/beam/global.h
++++ b/erts/emulator/beam/global.h
+@@ -947,6 +947,11 @@ typedef struct ErtsLiteralArea_ {
+ 
+ void erts_queue_release_literals(Process *c_p, ErtsLiteralArea* literals);
+ 
++/* #75 shared-term registry (erts_debug:share/1 + reclaim_shared/0 + shared_info/0) */
++void erts_register_shared_area(ErtsLiteralArea *area);
++void erts_shared_areas_info(Uint *countp, Uint *bytesp);
++void erts_reclaim_shared(Process *c_p, Uint *countp, Uint *bytesp);
++
+ #define ERTS_LITERAL_AREA_ALLOC_SIZE(N) \
+     (sizeof(ErtsLiteralArea) + sizeof(Eterm)*(N - 1))
+ #define ERTS_LITERAL_AREA_SIZE(AP) \
+diff --git a/lib/kernel/src/erts_debug.erl b/lib/kernel/src/erts_debug.erl
+index fd86f870b3..24bd5414d8 100644
+--- a/lib/kernel/src/erts_debug.erl
++++ b/lib/kernel/src/erts_debug.erl
+@@ -36,7 +36,8 @@
+          flat_size/1, get_internal_state/1, instructions/0,
+          interpreter_size/0,
+          map_info/1, same/2, set_internal_state/2,
+-         size_shared/1, copy_shared/1, copy_shared/2,
++         size_shared/1, share/1, reclaim_shared/0, shared_info/0,
++         copy_shared/1, copy_shared/2,
+          dirty_cpu/2, dirty_io/2, dirty/3,
+          lcnt_control/1, lcnt_control/2, lcnt_collect/0, lcnt_clear/0,
+          lc_graph/0, lc_graph_to_dot/2, lc_graph_merge/2,
+@@ -89,6 +90,26 @@ flat_size(_) ->
+ size_shared(_) ->
+     erlang:nif_error(undef).
+ 
++-spec share(Term) -> term() when
++      Term :: term().
++
++share(_) ->
++    erlang:nif_error(undef).
++
++-spec reclaim_shared() -> {ReleasedAreas, ReleasedBytes} when
++      ReleasedAreas :: non_neg_integer(),
++      ReleasedBytes :: non_neg_integer().
++
++reclaim_shared() ->
++    erlang:nif_error(undef).
++
++-spec shared_info() -> {NumAreas, TotalBytes} when
++      NumAreas :: non_neg_integer(),
++      TotalBytes :: non_neg_integer().
++
++shared_info() ->
++    erlang:nif_error(undef).
++
+ -spec copy_shared(Term) -> term() when
+       Term :: term().
+ 
