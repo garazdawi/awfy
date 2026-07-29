@@ -1,0 +1,15 @@
+--- a/rel/files/mongooseim.toml
++++ b/rel/files/mongooseim.toml
+@@ -182,6 +182,12 @@
+ [services.service_mongoose_system_metrics]
+ 
+ [modules.mod_adhoc]
++
++# #75 global-heap MUC fan-out bench: enable MUC-light (one-to-many groupchat).
++# rdbms backend — the muc_light_* tables ship in the topology pg.sql. The
++# muclight.@HOST@ subdomain is registered automatically per host type.
++[modules.mod_muc_light]
++  backend = "rdbms"
+ 
+ # [services.service_traffic]
+ 

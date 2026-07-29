@@ -1,0 +1,14 @@
+{
+  "scenario": "dynamic_domains_muc_light",
+  "topology": "local",
+  "users": 300,
+  "domains": 10,
+  "interarrival_ms": 10,
+  "message_count": 400,
+  "message_interval_s": 1,
+  "delay_before_s": 20,
+  "delay_after_s": 10,
+  "measurement_duration_s": 90,
+  "pre_sampling_wait_s": 70,
+  "_comment": "#75 shared-heap MUC-light fan-out A/B. The ScenarioConfig struct is PM-shaped (enforce_keys), so the MUC knobs (users_per_room = fan-out width, rooms_per_user, messages_sent_per_room, room_message_interval, room_creation_interval, delay_before_creating_rooms, message_body) are set as AMOC_* env on the amoc-worker service in local.compose.yml — the dynamic_domains_muc_light scenario reads AMOC_<UPPER>. Here: users=300 mapped to USERS; delay_before_s=20 -> AMOC_DELAY_BEFORE_SENDING_MESSAGES; delay_after_s=10 -> AMOC_DELAY_AFTER_SENDING_MESSAGES. pre_sampling_wait_s=70 skips the connect + room-creation + pre-send ramp so the sampling window lands in steady groupchat sending; measurement_duration_s=90 samples that plateau. Real groupchat stanzas are small terms (message/body wrappers + a refc-binary body) so the fan-out copy tax is modest vs the term-heavy pattern bench — high AMOC_USERS_PER_ROOM (in compose) maximizes the real-broker effect; a modest A/B delta is itself the honest answer for this workload."
+}

@@ -272,6 +272,17 @@ services:
       AMOC_MESSAGE_INTERVAL: "${MESSAGE_INTERVAL_S:-1}"
       AMOC_DELAY_BEFORE_SENDING_MESSAGES: "${DELAY_BEFORE_S:-5}"
       AMOC_DELAY_AFTER_SENDING_MESSAGES: "${DELAY_AFTER_S:-5}"
+      # #75 shared-heap MUC-light fan-out knobs (read by the
+      # dynamic_domains_muc_light scenario). USERS_PER_ROOM is the fan-out
+      # width — one groupchat stanza is broadcast to this many occupants;
+      # set high so the per-message copy tax (which share/1 avoids) is
+      # material. Overridable from the environment for sweeps.
+      AMOC_USERS_PER_ROOM: "${USERS_PER_ROOM:-50}"
+      AMOC_ROOMS_PER_USER: "${ROOMS_PER_USER:-2}"
+      AMOC_MESSAGES_SENT_PER_ROOM: "${MESSAGES_SENT_PER_ROOM:-400}"
+      AMOC_ROOM_MESSAGE_INTERVAL: "${ROOM_MESSAGE_INTERVAL:-1}"
+      AMOC_ROOM_CREATION_INTERVAL: "${ROOM_CREATION_INTERVAL:-1}"
+      AMOC_DELAY_BEFORE_CREATING_ROOMS: "${DELAY_BEFORE_CREATING_ROOMS:-5}"
     ulimits:
       # Match upstream — the worker opens ~1 socket per simulated
       # user. 66k headroom covers up to ~64k users per worker; the

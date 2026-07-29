@@ -1,0 +1,127 @@
+# SPDX-FileCopyrightText: 2026 Lukas Backström <lukas@erlang.org>
+# SPDX-License-Identifier: Apache-2.0
+#
+# Idea #75 (shared heap): measure erts_debug:share/1 + reclaim_shared/0 on the
+# MongooseIM + Amoc XMPP workload, under a MUC-light one-to-many groupchat
+# fan-out. Builds an OTP-27.3 base image patched with the share/reclaim BIFs,
+# then runs the dynamic_domains_muc_light scenario twice on the SAME build:
+# once with sharing off (baseline) and once on. Sharing is a runtime flag
+# (-share_muc true, read by the patched mod_muc_light broadcast), so this is a
+# clean A/B on one image. GitHub-hosted Linux (no local colima heat).
+#
+# NOTE: real groupchat stanzas are small terms (message/body wrappers + a
+# refc-binary body), so the per-message fan-out copy tax is modest vs the
+# term-heavy pattern benchmark (IDEAS/75 muc_fanout.erl, 2.1-2.4x). High
+# AMOC_USERS_PER_ROOM maximizes the real-broker effect; a modest delta is the
+# honest answer for this workload.
+name: "share-xmpp"
+
+on:
+  push:
+    branches: ["lukas/share-muc-xmpp"]
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "XMPP scenario"
+        default: "dynamic_domains_muc_light"
+      otp_ref:
+        description: "OTP tag/branch to build (share/reclaim patch applied on top)"
+        default: "OTP-27.3"
+      users_per_room:
+        description: "MUC fan-out width (occupants per room)"
+        default: "50"
+
+permissions:
+  contents: read
+
+jobs:
+  share-xmpp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Build OTP-27.3 + share/reclaim base image
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/otpshared
+          cp patches/otp/share-reclaim-27.3.patch /tmp/otpshared/share-reclaim.patch
+          cat > /tmp/otpshared/Dockerfile <<'EOF'
+          # bookworm = OpenSSL 3.0, matching the rig's erlang:* base images
+          # (MongooseIM's fast_pbkdf2 NIF needs OpenSSL 3.0).
+          FROM debian:bookworm-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends \
+                build-essential libssl-dev libncurses-dev m4 perl git \
+                autoconf ca-certificates && rm -rf /var/lib/apt/lists/*
+          ARG OTP_REF=OTP-27.3
+          RUN git clone --depth 1 --branch "${OTP_REF}" \
+                https://github.com/erlang/otp /otp
+          WORKDIR /otp
+          COPY share-reclaim.patch /tmp/share-reclaim.patch
+          RUN git apply /tmp/share-reclaim.patch
+          RUN ./configure --prefix=/usr/local \
+                --without-wx --without-debugger --without-observer --without-et \
+                --without-megaco --without-jinterface \
+              && make -j"$(nproc)" && make install
+          # The kernel build compiles erts_debug.erl with +debug_info +deterministic,
+          # which for the patched source emits a "corrupt atom table" beam (a narrow
+          # compiler edge). Recompile it without +deterministic so it loads. See the
+          # otp-ideas #75 RECLAMATION.md gotcha.
+          RUN ED_EBIN="$(dirname "$(find /usr/local/lib/erlang -path '*kernel*/ebin/erts_debug.beam')")" \
+              && /usr/local/bin/erlc +debug_info -o "$ED_EBIN" /otp/lib/kernel/src/erts_debug.erl
+          RUN erl -noshell -eval \
+                'S = erts_debug:share({a,b,lists:seq(1,5)}), \
+                 {N,_} = erts_debug:shared_info(), \
+                 {R,_} = erts_debug:reclaim_shared(), \
+                 io:format("SHARE_OK equal=~p info=~p released=~p~n", \
+                           [S =:= {a,b,lists:seq(1,5)}, N, R]), halt().'
+          EOF
+          docker build --build-arg OTP_REF="${{ inputs.otp_ref || 'OTP-27.3' }}" \
+                       -t otp-shared:27-local /tmp/otpshared
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: mix deps + compile (harness)
+        run: mix deps.get && mix compile
+
+      # Interleaved off,on,off,on,... so any drift over the run hits both arms
+      # equally. Same OTP+MongooseIM image for both arms (cached after the first
+      # compose build); only container recreation repeats per rep.
+      - name: XMPP MUC-light fan-out — 3 interleaved share off/on pairs
+        env:
+          MIM_BASE_IMAGE: otp-shared:27-local
+          MIM_RUNTIME_IMAGE: otp-shared:27-local
+          MIM_OTP_VERSION: "27.3"
+          USERS_PER_ROOM: "${{ inputs.users_per_room || '50' }}"
+        run: |
+          set -o pipefail
+          for rep in 1 2 3; do
+            for flag in false true; do
+              echo "========== rep=${rep} -share_muc ${flag} =========="
+              MIM_ERL_FLAGS="-share_muc ${flag}" \
+                mix awfy.measure_xmpp \
+                  --scenario "${{ inputs.scenario || 'dynamic_domains_muc_light' }}" \
+                  --topology local --label "share-${flag}-r${rep}" 2>&1 | tee -a /tmp/runs.log
+            done
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "===== all scenario results ====="
+          grep -h "Wrote results" /tmp/runs.log || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: share-xmpp-results
+          path: |
+            results/**
+            /tmp/runs.log
+          if-no-files-found: warn
