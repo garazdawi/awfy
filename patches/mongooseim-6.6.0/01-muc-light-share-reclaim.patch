@@ -17,7 +17,7 @@
        end, AffUsers),
      mongoose_acc:update_stanza(#{from_jid => RoomJID,
                                   to_jid => RoomBareJid,
-@@ -531,3 +537,68 @@
+@@ -531,3 +537,76 @@
        affiliation => owner,
        role => moderator,
        timestamp => TS}.
@@ -40,6 +40,9 @@
 +                     _ -> 0
 +                 end,
 +            persistent_term:put(mim_muc_inflate_k, Kv),
++            %% First groupchat message through the modern codec — proves this
++            %% hook (and codec) is actually on the fan-out path.
++            logger:error("MIM_INFLATE_INIT k=~p", [Kv]),
 +            mim_muc_light_inflate(Children);
 +        0 -> Children;
 +        K ->
@@ -58,7 +61,7 @@
 +%% (erts_debug:reclaim_shared/0) so the shared area stays bounded. Disabled (and
 +%% zero-overhead: one persistent_term read) by default. A/B is a runtime flag on
 +%% one image, so the same build measures both arms.
-+-define(MIM_SHARE_RECLAIM_EVERY, 500).
++-define(MIM_SHARE_RECLAIM_EVERY, 100).
 +mim_muc_light_maybe_share(Children) ->
 +    case persistent_term:get(mim_muc_share_cfg, undefined) of
 +        undefined ->
@@ -68,20 +71,25 @@
 +                      end,
 +            Ctr = counters:new(1, [write_concurrency]),
 +            persistent_term:put(mim_muc_share_cfg, {Enabled, Ctr}),
++            logger:error("MIM_SHARE_INIT enabled=~p", [Enabled]),
 +            mim_muc_light_maybe_share(Children);
 +        {false, _} ->
 +            Children;
 +        {true, Ctr} ->
 +            counters:add(Ctr, 1, 1),
 +            N = counters:get(Ctr, 1),
++            case N of
++                1 -> logger:error("MIM_SHARE_FIRED first groupchat payload shared");
++                _ -> ok
++            end,
 +            case N rem ?MIM_SHARE_RECLAIM_EVERY of
 +                0 ->
 +                    Reclaim = (catch erts_debug:reclaim_shared()),
 +                    Info = (catch erts_debug:shared_info()),
 +                    %% Proof the hook fired + how much was shared/reclaimed
 +                    %% (captured from the broker's docker logs by the harness).
-+                    logger:warning("MIM_SHARE msgs=~p reclaim=~p shared_info=~p",
-+                                   [N, Reclaim, Info]);
++                    logger:error("MIM_SHARE msgs=~p reclaim=~p shared_info=~p",
++                                 [N, Reclaim, Info]);
 +                _ -> ok
 +            end,
 +            erts_debug:share(Children)

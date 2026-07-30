@@ -176,20 +176,19 @@ defmodule Awfy.Xmpp.Runner do
   # hook actually fired in the "on" arm and reports areas/bytes shared+reclaimed.
   # Best-effort; runs while the topology is still up (before teardown).
   defp capture_share_census(state, log) do
-    case broker_containers(state) do
-      [c | _] ->
-        cmd = "docker logs #{c} 2>&1 | grep MIM_SHARE | tail -3"
+    brokers = broker_containers(state)
 
-        case System.cmd("bash", ["-c", cmd], stderr_to_stdout: true) do
-          {out, _} ->
-            case String.trim(out) do
-              "" -> log.("share-census: no MIM_SHARE lines (sharing off, or hook did not fire)")
-              lines -> log.("share-census (#{c}):\n" <> lines)
-            end
+    cmd =
+      "for c in #{Enum.join(brokers, " ")}; do " <>
+        "docker logs \"$c\" 2>&1 | grep -E 'MIM_INFLATE_INIT|MIM_SHARE' | sed \"s|^|[$c] |\"; " <>
+        "done | tail -12"
+
+    case System.cmd("bash", ["-c", cmd], stderr_to_stdout: true) do
+      {out, _} ->
+        case String.trim(out) do
+          "" -> log.("share-census: no MIM_ lines on any broker (codec/hook did not fire)")
+          lines -> log.("share-census:\n" <> lines)
         end
-
-      _ ->
-        :ok
     end
 
     :ok
