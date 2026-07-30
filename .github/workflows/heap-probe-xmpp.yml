@@ -38,9 +38,41 @@ jobs:
       - name: harness deps + compile
         run: mix deps.get && mix compile
 
+      # Build stock OTP-27.3 but with EXTENDED microstate accounting
+      # (--with-microstate-accounting=extra => ERTS_ENABLE_MSACC 2), so the
+      # broker's msacc splits the coarse `other` bucket into send/alloc/bif/
+      # ets/nif — i.e. where the ~86% "running code" actually goes. No source
+      # patch; this is stock behaviour with a finer profiler.
+      - name: Build OTP-27.3 + extended microstate accounting
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/otpmsacc
+          cat > /tmp/otpmsacc/Dockerfile <<'EOF'
+          FROM debian:bookworm-slim
+          RUN apt-get update && apt-get install -y --no-install-recommends \
+                build-essential libssl-dev libncurses-dev m4 perl git \
+                autoconf ca-certificates && rm -rf /var/lib/apt/lists/*
+          RUN git clone --depth 1 --branch OTP-27.3 https://github.com/erlang/otp /otp
+          WORKDIR /otp
+          RUN ./configure --prefix=/usr/local --with-microstate-accounting=extra \
+                --without-wx --without-debugger --without-observer --without-et \
+                --without-megaco --without-jinterface \
+              && make -j"$(nproc)" && make install
+          RUN erl -noshell -eval \
+                'erlang:system_flag(microstate_accounting, true), \
+                 [S|_] = [X || X <- erlang:statistics(microstate_accounting), \
+                               map_get(type, X) =:= scheduler], \
+                 io:format("MSACC_STATES ~p~n", [lists:sort(maps:keys(map_get(counters, S)))]), \
+                 halt().'
+          EOF
+          docker build -t otp-msacc:27-local /tmp/otpmsacc
+
       - name: bring up rig + scenario + heap_probe census
         env:
           HP_SCENARIO: ${{ inputs.scenario || 'dynamic_domains_pm' }}
+          MIM_BASE_IMAGE: otp-msacc:27-local
+          MIM_RUNTIME_IMAGE: otp-msacc:27-local
+          MIM_OTP_VERSION: "27.3"
         run: mix run priv/heap_probe/run_xmpp_census.exs
 
       - name: upload census
