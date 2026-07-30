@@ -37,15 +37,15 @@ docker exec "$C" mongooseimctl session countOnlineSessions 2>/dev/null \
   || docker exec "$C" mongooseimctl metrics getMetrics 2>/dev/null | grep -i session | head -3 \
   || true
 
-echo "===== SEND census (20s, real online-session load) ====="
-docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" send 20000 /tmp/heap_probe.beam /tmp/hp_send.txt 2>&1 | tail -60
-docker cp "$C:/tmp/hp_send.txt" /tmp/hp_send.txt 2>/dev/null || true
+echo "===== GC-TIME census (14s, msacc + long_gc — runs FIRST, during peak load) ====="
+docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" gctime 14000 /tmp/gc_probe.beam /tmp/hp_gctime.txt 2>&1 | tail -20
+docker cp "$C:/tmp/hp_gctime.txt" /tmp/hp_gctime.txt 2>/dev/null || true
 
 echo "===== GC census (8s) ====="
 docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" gc 8000 /tmp/heap_probe.beam /tmp/hp_gc.txt 2>&1 | tail -30
 docker cp "$C:/tmp/hp_gc.txt" /tmp/hp_gc.txt 2>/dev/null || true
 
-echo "===== GC-TIME census (10s, msacc + long_gc — what the GC spends time on) ====="
-docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" gctime 10000 /tmp/gc_probe.beam /tmp/hp_gctime.txt 2>&1 | tail -20
-docker cp "$C:/tmp/hp_gctime.txt" /tmp/hp_gctime.txt 2>/dev/null || true
+echo "===== SEND census (20s, real online-session load) ====="
+docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" send 20000 /tmp/heap_probe.beam /tmp/hp_send.txt 2>&1 | tail -60
+docker cp "$C:/tmp/hp_send.txt" /tmp/hp_send.txt 2>/dev/null || true
 echo "[attach] done"
