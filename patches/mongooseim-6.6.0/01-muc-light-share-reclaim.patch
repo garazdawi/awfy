@@ -1,6 +1,6 @@
 --- a/src/muc_light/mod_muc_light_codec_modern.erl
 +++ b/src/muc_light/mod_muc_light_codec_modern.erl
-@@ -71,9 +71,14 @@
+@@ -71,9 +71,15 @@
      HostType = mod_muc_light_utils:acc_to_host_type(Acc),
      Packet1 = #xmlel{ children = Children }
                       = mongoose_hooks:filter_room_packet(HostType, MsgForArch, EventData),
@@ -8,7 +8,8 @@
 +    %% per-occupant routes reference it (litopt) instead of copying it N times.
 +    %% Toggled by the `-share_muc true` erl flag; periodic reclaim keeps the
 +    %% shared literal area from growing unbounded.
-+    SharedChildren = mim_muc_light_maybe_share(Children),
++    Children1 = mim_muc_light_inflate(Children),
++    SharedChildren = mim_muc_light_maybe_share(Children1),
      lists:foreach(
        fun({{U, S}, _}) ->
 -              msg_to_aff_user(RoomJID, U, S, Attrs, Children, HandleFun)
@@ -16,10 +17,39 @@
        end, AffUsers),
      mongoose_acc:update_stanza(#{from_jid => RoomJID,
                                   to_jid => RoomBareJid,
-@@ -531,3 +536,32 @@
+@@ -531,3 +537,68 @@
        affiliation => owner,
        role => moderator,
        timestamp => TS}.
++
++%% #75 term-heavy fan-out control. Real groupchat stanzas are tiny, so their
++%% fan-out copy tax is negligible. To measure the shared-heap mechanism in the
++%% real broker where the tax lives, `-muc_inflate K` appends K synthetic child
++%% elements to every groupchat payload (applied to BOTH A/B arms, so `off`
++%% copies the K-element term to each occupant and `on` references it — the
++%% pattern benchmark's shape, in-broker). K=0 (default) = untouched.
++mim_muc_light_inflate(Children) ->
++    case persistent_term:get(mim_muc_inflate_k, undefined) of
++        undefined ->
++            Kv = case init:get_argument(muc_inflate) of
++                     {ok, [[Ks | _] | _]} ->
++                         case catch list_to_integer(Ks) of
++                             N when is_integer(N), N > 0 -> N;
++                             _ -> 0
++                         end;
++                     _ -> 0
++                 end,
++            persistent_term:put(mim_muc_inflate_k, Kv),
++            mim_muc_light_inflate(Children);
++        0 -> Children;
++        K ->
++            Extra = [{xmlel, <<"hist">>,
++                      [{<<"i">>, integer_to_binary(I)}],
++                      [{xmlcdata, <<"forwarded history line ",
++                                    (integer_to_binary(I))/binary>>}]}
++                     || I <- lists:seq(1, K)],
++            Children ++ Extra
++    end.
 +
 +%% #75 global-heap prototype hook. When started with `-share_muc true`, promote
 +%% the groupchat payload into the shared literal range once per message
@@ -43,8 +73,15 @@
 +            Children;
 +        {true, Ctr} ->
 +            counters:add(Ctr, 1, 1),
-+            case counters:get(Ctr, 1) rem ?MIM_SHARE_RECLAIM_EVERY of
-+                0 -> catch erts_debug:reclaim_shared();
++            N = counters:get(Ctr, 1),
++            case N rem ?MIM_SHARE_RECLAIM_EVERY of
++                0 ->
++                    Reclaim = (catch erts_debug:reclaim_shared()),
++                    Info = (catch erts_debug:shared_info()),
++                    %% Proof the hook fired + how much was shared/reclaimed
++                    %% (captured from the broker's docker logs by the harness).
++                    logger:warning("MIM_SHARE msgs=~p reclaim=~p shared_info=~p",
++                                   [N, Reclaim, Info]);
 +                _ -> ok
 +            end,
 +            erts_debug:share(Children)

@@ -30,6 +30,9 @@ on:
       users_per_room:
         description: "MUC fan-out width (occupants per room)"
         default: "50"
+      muc_inflate:
+        description: "append K synthetic child elements per stanza (both arms) to make the fan-out term-heavy; 0 = real small stanzas"
+        default: "150"
 
 permissions:
   contents: read
@@ -98,12 +101,13 @@ jobs:
           MIM_RUNTIME_IMAGE: otp-shared:27-local
           MIM_OTP_VERSION: "27.3"
           USERS_PER_ROOM: "${{ inputs.users_per_room || '50' }}"
+          MUC_INFLATE: "${{ inputs.muc_inflate || '150' }}"
         run: |
           set -o pipefail
           for rep in 1 2 3; do
             for flag in false true; do
-              echo "========== rep=${rep} -share_muc ${flag} =========="
-              MIM_ERL_FLAGS="-share_muc ${flag}" \
+              echo "========== rep=${rep} -muc_inflate ${MUC_INFLATE} -share_muc ${flag} =========="
+              MIM_ERL_FLAGS="-muc_inflate ${MUC_INFLATE} -share_muc ${flag}" \
                 mix awfy.measure_xmpp \
                   --scenario "${{ inputs.scenario || 'dynamic_domains_muc_light' }}" \
                   --topology local --label "share-${flag}-r${rep}" 2>&1 | tee -a /tmp/runs.log

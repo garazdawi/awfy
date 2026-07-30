@@ -57,6 +57,7 @@ defmodule Awfy.Xmpp.Runner do
          :ok <- log_and_start(state, config, log),
          :ok <- delay("ramp-up", config.pre_sampling_wait_s, log),
          {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem}} <- sample(state, config, log),
+         _ <- capture_share_census(state, log),
          :ok <- delay("cool-down", config.delay_after_s, log) do
       suite = build_suite(scenario_name, state, config, thr, cpu, mem)
       {:ok, %{throughput: thr, cpu_pct: cpu, mem_mb: mem, suite: suite, config: config}}
@@ -169,6 +170,30 @@ defmodule Awfy.Xmpp.Runner do
 
   defp broker_containers(%Topology.State{topology: :local}), do: ["awfy-mongooseim-1"]
   defp broker_containers(%Topology.State{topology: :aws_clt}), do: ["awfy-mongooseim-1"]
+
+  # #75: grep the broker's stdout for the patched MUC-light hook's MIM_SHARE
+  # log lines (emitted on each reclaim when -share_muc true). Proves the share
+  # hook actually fired in the "on" arm and reports areas/bytes shared+reclaimed.
+  # Best-effort; runs while the topology is still up (before teardown).
+  defp capture_share_census(state, log) do
+    case broker_containers(state) do
+      [c | _] ->
+        cmd = "docker logs #{c} 2>&1 | grep MIM_SHARE | tail -3"
+
+        case System.cmd("bash", ["-c", cmd], stderr_to_stdout: true) do
+          {out, _} ->
+            case String.trim(out) do
+              "" -> log.("share-census: no MIM_SHARE lines (sharing off, or hook did not fire)")
+              lines -> log.("share-census (#{c}):\n" <> lines)
+            end
+        end
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  end
 
   defp log_fn(opts) do
     case Keyword.get(opts, :log, :default) do
