@@ -9,8 +9,8 @@ set -uo pipefail
 C=awfy-mongooseim-1
 HPDIR=priv/heap_probe
 
-echo "[attach] compile heap_probe.beam with OTP 27.3 (matches the broker)"
-docker run --rm -v "$PWD/$HPDIR:/w" -w /w erlang:27.3 erlc heap_probe.erl \
+echo "[attach] compile heap_probe.beam + gc_probe.beam with OTP 27.3 (matches the broker)"
+docker run --rm -v "$PWD/$HPDIR:/w" -w /w erlang:27.3 sh -c 'erlc heap_probe.erl && erlc gc_probe.erl' \
   || { echo "[attach] erlc failed"; exit 1; }
 
 echo "[attach] discover node / cookie / escript inside $C"
@@ -29,6 +29,7 @@ echo "[attach] NODE=$NODE  COOKIE_set=${COOKIE:+yes}  ESCRIPT=$ESCRIPT"
 [ -n "$VAL" ] && [ -n "${COOKIE:-}" ] && [ -n "$ESCRIPT" ] || { echo "[attach] discovery incomplete (NAMEARG=[$NAMEARG] VAL=[$VAL])"; exit 1; }
 
 docker cp "$HPDIR/heap_probe.beam" "$C:/tmp/heap_probe.beam"
+docker cp "$HPDIR/gc_probe.beam" "$C:/tmp/gc_probe.beam"
 docker cp "$HPDIR/census_xmpp.escript" "$C:/tmp/census_xmpp.escript"
 
 echo "[attach] online sessions (sanity):"
@@ -43,4 +44,8 @@ docker cp "$C:/tmp/hp_send.txt" /tmp/hp_send.txt 2>/dev/null || true
 echo "===== GC census (8s) ====="
 docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" gc 8000 /tmp/heap_probe.beam /tmp/hp_gc.txt 2>&1 | tail -30
 docker cp "$C:/tmp/hp_gc.txt" /tmp/hp_gc.txt 2>/dev/null || true
+
+echo "===== GC-TIME census (10s, msacc + long_gc — what the GC spends time on) ====="
+docker exec "$C" "$ESCRIPT" /tmp/census_xmpp.escript "$NODE" "$COOKIE" gctime 10000 /tmp/gc_probe.beam /tmp/hp_gctime.txt 2>&1 | tail -20
+docker cp "$C:/tmp/hp_gctime.txt" /tmp/hp_gctime.txt 2>/dev/null || true
 echo "[attach] done"

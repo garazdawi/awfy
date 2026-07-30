@@ -13,19 +13,30 @@ main([NodeStr, CookieStr, Kind, DurS, Beam, OutFile]) ->
         pang -> io:format("PANG ~s (name/cookie mismatch)~n", [NodeStr]), halt(2)
     end,
     {ok, Bin} = file:read_file(Beam),
-    {module, heap_probe} =
-        rpc:call(Node, code, load_binary, [heap_probe, "heap_probe.beam", Bin]),
     Dur = list_to_integer(DurS),
-    Res =
+    Out =
         case Kind of
-            "send" ->
-                rpc:call(Node, heap_probe, send_census,
-                         [all, #{duration => Dur, multihop => true,
-                                 fanout_cap => 200000}], Dur + 60000);
-            "gc" ->
-                rpc:call(Node, heap_probe, gc_census,
-                         [all, #{duration => Dur}], Dur + 60000)
+            "gctime" ->
+                %% microstate-accounting + long_gc census: what the GC is
+                %% actually spending time on (gc_probe.beam, not heap_probe).
+                {module, gc_probe} =
+                    rpc:call(Node, code, load_binary, [gc_probe, "gc_probe.beam", Bin]),
+                Res = rpc:call(Node, gc_probe, census, [Dur], Dur + 60000),
+                iolist_to_binary(io_lib:format("~p", [Res]));
+            _ ->
+                {module, heap_probe} =
+                    rpc:call(Node, code, load_binary, [heap_probe, "heap_probe.beam", Bin]),
+                Res =
+                    case Kind of
+                        "send" ->
+                            rpc:call(Node, heap_probe, send_census,
+                                     [all, #{duration => Dur, multihop => true,
+                                             fanout_cap => 200000}], Dur + 60000);
+                        "gc" ->
+                            rpc:call(Node, heap_probe, gc_census,
+                                     [all, #{duration => Dur}], Dur + 60000)
+                    end,
+                iolist_to_binary(rpc:call(Node, heap_probe, format, [Res]))
         end,
-    Out = iolist_to_binary(rpc:call(Node, heap_probe, format, [Res])),
     ok = file:write_file(OutFile, Out),
     io:format("~s~n", [Out]).

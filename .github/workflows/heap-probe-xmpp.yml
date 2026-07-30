@@ -51,4 +51,5 @@ jobs:
           path: |
             /tmp/hp_send.txt
             /tmp/hp_gc.txt
+            /tmp/hp_gctime.txt
           if-no-files-found: warn
